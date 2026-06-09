@@ -70,7 +70,7 @@ public class WorkoutRepository {
                 .and("userId").is(tenant.userId())
                 .and("deletedAt").is(null));
         Update u = new Update().set("updatedAt", Instant.now()).inc("version", 1)
-                .filterArray(Criteria.where("s.id").is(setId));
+                .filterArray(Criteria.where("s.setId").is(setId));
         if (weight != null)    u.set("exercises.$[].sets.$[s].weight", weight);
         if (reps != null)      u.set("exercises.$[].sets.$[s].reps", reps);
         if (rpe != null)       u.set("exercises.$[].sets.$[s].rpe", rpe);

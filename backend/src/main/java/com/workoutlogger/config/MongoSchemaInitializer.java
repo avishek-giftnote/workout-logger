@@ -44,11 +44,13 @@ public class MongoSchemaInitializer {
                 new Document("userId", 1).append("startedAt", 1),
                 new IndexOptions().unique(true).name("uniq_user_startedAt"));
 
-        // exercises: partial-unique on the normalized name, excluding soft-deleted docs.
+        // exercises: partial-unique on the normalized name. MongoDB forbids $exists:false (it
+        // compiles to $not), so we scope on nameKey existing — every live exercise has a nameKey;
+        // a future soft-delete unsets nameKey to drop the tombstone out of the unique constraint.
         db.getCollection("exercises").createIndex(
                 new Document("userId", 1).append("nameKey", 1),
                 new IndexOptions().unique(true).name("uniq_user_nameKey")
-                        .partialFilterExpression(new Document("deletedAt", new Document("$exists", false))));
+                        .partialFilterExpression(new Document("nameKey", new Document("$exists", true))));
 
         db.getCollection("templates").createIndex(new Document("userId", 1).append("name", 1));
 

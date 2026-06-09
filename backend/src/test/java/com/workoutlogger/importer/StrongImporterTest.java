@@ -78,7 +78,7 @@ class StrongImporterTest {
             for (ExerciseBlock b : w.getExercises()) {
                 for (WorkoutSet s : b.sets()) {
                     assertNotNull(s.rawImport().get("Date"));
-                    assertNotNull(s.id());
+                    assertNotNull(s.setId());
                 }
             }
         }

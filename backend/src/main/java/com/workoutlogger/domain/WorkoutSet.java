@@ -6,8 +6,9 @@ import java.time.Instant;
 /**
  * A single logged set, embedded inside an {@link ExerciseBlock}.
  *
- * @param id            stable per-set identity (hex), so writes can address (workoutId, setId)
+ * @param setId         stable per-set identity (hex), so writes can address (workoutId, setId)
  *                      without array-position fragility, and a future sync layer can merge per set.
+ *                      NOTE: named setId (not id) so Spring Data does not map it to the embedded _id.
  * @param orderIndex    position within the exercise block, from CSV row order (authoritative ordering).
  * @param setType       warmup vs working etc. (warmups excluded from working-set stats/PRs).
  * @param weight        canonical CUMULATIVE effective load (kg). For bodyweight exercises this already
@@ -24,7 +25,7 @@ import java.time.Instant;
  * @param rawImport     the original CSV row as a map, for the lossless backstop.
  */
 public record WorkoutSet(
-        String id,
+        String setId,
         int orderIndex,
         SetType setType,
         BigDecimal weight,

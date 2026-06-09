@@ -22,7 +22,7 @@ public final class DtoMapper {
     }
 
     public static SetDto toDto(WorkoutSet s) {
-        return new SetDto(s.id(), s.orderIndex(), s.setType(), str(s.weight()), s.loadMode(),
+        return new SetDto(s.setId(), s.orderIndex(), s.setType(), str(s.weight()), s.loadMode(),
                 str(s.loadDelta()), s.weightUnit(), s.reps(), s.rpe(), s.note(), s.estimated());
     }
 
