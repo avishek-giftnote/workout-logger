@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Api } from "../api/client";
 import { useAuth } from "../auth/auth";
 import { useSettings } from "../settings";
 
@@ -5,6 +8,14 @@ import { useSettings } from "../settings";
 export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signOut } = useAuth();
   const { prevSource, setPrevSource } = useSettings();
+  const qc = useQueryClient();
+  const me = useQuery({ queryKey: ["me"], queryFn: Api.me, enabled: open });
+  const [bw, setBw] = useState("");
+  const saveBw = useMutation({
+    mutationFn: () => Api.setBodyweight(bw.trim()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["me"] }); setBw(""); },
+  });
+
   if (!open) return null;
 
   return (
@@ -13,6 +24,22 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
         <div className="spread">
           <span className="micro">Settings</span>
           <button className="icon-btn" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>Bodyweight (kg)</label>
+          {me.data?.currentBodyweightKg && (
+            <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+              Current <b className="mono" style={{ color: "var(--ice)" }}>{me.data.currentBodyweightKg} kg</b> · used for calisthenics
+            </p>
+          )}
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <input className="input mono grow" inputMode="decimal"
+              placeholder={me.data?.currentBodyweightKg ?? "e.g. 72.5"}
+              value={bw} onChange={(e) => setBw(e.target.value)} />
+            <button className="btn btn-volt" disabled={!bw.trim() || saveBw.isPending}
+              onClick={() => saveBw.mutate()}>{saveBw.isPending ? "…" : "Save"}</button>
+          </div>
         </div>
 
         <div className="field" style={{ marginTop: 22 }}>

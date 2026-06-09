@@ -21,7 +21,6 @@ export default function WorkoutsPage() {
   const qc = useQueryClient();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
-  const me = useQuery({ queryKey: ["me"], queryFn: Api.me });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
   const del = useMutation({
     mutationFn: (id: string) => Api.deleteWorkout(id),
@@ -38,11 +37,7 @@ export default function WorkoutsPage() {
       <div className="screen-head fade-up">
         <div>
           <h1>Training Log</h1>
-          <p>
-            {me.data?.currentBodyweightKg
-              ? <>Bodyweight <b className="mono" style={{ color: "var(--ice)" }}>{me.data.currentBodyweightKg} kg</b></>
-              : "Log every set. Beat last time."}
-          </p>
+          <p>Log every set. Beat last time.</p>
         </div>
         <button className="btn btn-volt" onClick={() => nav("/start")}>+ New</button>
       </div>

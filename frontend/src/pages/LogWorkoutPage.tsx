@@ -108,13 +108,11 @@ export default function LogWorkoutPage() {
           <p>
             {bodyweight
               ? <>Bodyweight <b className="mono" style={{ color: "var(--ice)" }}>{bodyweight} kg</b> · used for calisthenics</>
-              : "Set your bodyweight below to log calisthenics"}
+              : "Set your bodyweight in Settings (⚙) to log calisthenics"}
           </p>
         </div>
         <button className="btn btn-ghost" onClick={() => nav("/previous-workouts")}>Cancel</button>
       </div>
-
-      {!bodyweight && <BodyweightSetter />}
 
       {!started ? (
         <StartChooser
@@ -186,25 +184,5 @@ export default function LogWorkoutPage() {
         </div>
       )}
     </main>
-  );
-}
-
-/* ---------------------------------------------------------------- bodyweight setter */
-function BodyweightSetter() {
-  const qc = useQueryClient();
-  const [v, setV] = useState("");
-  const save = useMutation({
-    mutationFn: () => Api.setBodyweight(v.trim()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
-  });
-  return (
-    <section className="card card-pad mt fade-up">
-      <span className="micro">Set bodyweight (kg)</span>
-      <div className="row mt">
-        <input className="input mono grow" inputMode="decimal" placeholder="e.g. 72.5"
-          value={v} onChange={(e) => setV(e.target.value)} />
-        <button className="btn btn-volt" disabled={!v.trim() || save.isPending} onClick={() => save.mutate()}>Save</button>
-      </div>
-    </section>
   );
 }
