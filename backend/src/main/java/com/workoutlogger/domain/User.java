@@ -18,6 +18,7 @@ public class User {
     @Id
     private String id;
     private String email;
+    private String passwordHash;                     // BCrypt hash (never serialized to the API)
     private BigDecimal currentBodyweightKg;          // convenience mirror of latest log entry
     private List<BodyweightEntry> bodyweightLog = new ArrayList<>();
     private int schemaVersion = 1;
@@ -30,6 +31,8 @@ public class User {
     public void setId(String id) { this.id = id; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public BigDecimal getCurrentBodyweightKg() { return currentBodyweightKg; }
     public void setCurrentBodyweightKg(BigDecimal v) { this.currentBodyweightKg = v; }
     public List<BodyweightEntry> getBodyweightLog() { return bodyweightLog; }

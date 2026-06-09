@@ -51,6 +51,9 @@ public class MongoSchemaInitializer {
                         .partialFilterExpression(new Document("deletedAt", new Document("$exists", false))));
 
         db.getCollection("templates").createIndex(new Document("userId", 1).append("name", 1));
+
+        db.getCollection("users").createIndex(
+                new Document("email", 1), new IndexOptions().unique(true).name("uniq_email"));
     }
 
     private void createIfAbsent(MongoDatabase db, List<String> existing, String name, Document schema) {

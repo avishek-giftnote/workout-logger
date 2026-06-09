@@ -9,8 +9,9 @@ Bootstrapped from a real [Strong](https://www.strong.app/) export and designed a
   bodyweight model).
 - ✅ **Backend (Java + Spring Boot + MongoDB)** — schema + one-time Strong CSV importer. See
   [`backend/README.md`](backend/README.md).
-- ⬜ **REST API + auth/isolation, last-working-set, OpenAPI client** — next milestone.
-- ⬜ **React frontend** — after the API contract is generated.
+- ✅ **REST API** — JWT auth, by-construction `userId` isolation, deterministic `last-working-set`,
+  workout/exercise/template/bodyweight CRUD, OpenAPI + TS-client generation.
+- ⬜ **React frontend** — next: logging UI consuming the generated client.
 - ⬜ **Mobile (React Native/Expo)** — after the web app is complete.
 
 ## Tech stack

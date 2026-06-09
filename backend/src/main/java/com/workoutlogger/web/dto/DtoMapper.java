@@ -1,0 +1,75 @@
+package com.workoutlogger.web.dto;
+
+import com.workoutlogger.domain.*;
+import com.workoutlogger.repo.LastWorkingSetView;
+import com.workoutlogger.web.dto.ApiDtos.*;
+import org.bson.types.ObjectId;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+
+/** Maps between domain documents and API DTOs, carrying decimals as strings on the wire. */
+public final class DtoMapper {
+
+    private DtoMapper() {}
+
+    public static String str(BigDecimal v) { return v == null ? null : v.toPlainString(); }
+    public static BigDecimal dec(String v) { return (v == null || v.isBlank()) ? null : new BigDecimal(v.trim()); }
+
+    public static ExerciseDto toDto(Exercise e) {
+        return new ExerciseDto(e.getId(), e.getName(), e.isBodyweight(), e.getDefaultUnit());
+    }
+
+    public static SetDto toDto(WorkoutSet s) {
+        return new SetDto(s.id(), s.orderIndex(), s.setType(), str(s.weight()), s.loadMode(),
+                str(s.loadDelta()), s.weightUnit(), s.reps(), s.rpe(), s.note(), s.estimated());
+    }
+
+    public static ExerciseBlockDto toDto(ExerciseBlock b) {
+        return new ExerciseBlockDto(b.exerciseId(), b.name(), b.position(), b.note(),
+                b.sets().stream().map(DtoMapper::toDto).toList());
+    }
+
+    public static WorkoutDto toDto(Workout w) {
+        return new WorkoutDto(w.getId(), w.getStartedAt(), w.getDurationSeconds(), w.getRawDurationText(),
+                w.getTemplateId(), w.getExercises().stream().map(DtoMapper::toDto).toList(),
+                w.getCreatedAt(), w.getUpdatedAt());
+    }
+
+    public static LastWorkingSetDto toDto(LastWorkingSetView v) {
+        return new LastWorkingSetDto(v.exerciseName(), v.startedAt(), v.orderIndex(), str(v.weight()),
+                v.loadMode() == null ? null : LoadMode.valueOf(v.loadMode()), str(v.loadDelta()),
+                v.reps(), v.rpe());
+    }
+
+    public static TemplateDto toDto(WorkoutTemplate t) {
+        return new TemplateDto(t.getId(), t.getName(), t.getExercises().stream()
+                .map(te -> new TemplateExerciseDto(te.exerciseId(), te.name(), te.position())).toList());
+    }
+
+    public static MeDto toDto(User u) {
+        List<BodyweightEntryDto> log = u.getBodyweightLog().stream()
+                .map(e -> new BodyweightEntryDto(e.recordedAt(), str(e.weightKg()), e.estimated())).toList();
+        return new MeDto(u.getId(), u.getEmail(), str(u.getCurrentBodyweightKg()), log);
+    }
+
+    /** Builds a new live-logged session from a create request (server mints ids and loggedAt). */
+    public static Workout toWorkout(CreateWorkoutRequest req) {
+        Instant now = Instant.now();
+        Workout w = new Workout();
+        w.setId(new ObjectId().toHexString());
+        w.setStartedAt(req.startedAt());
+        w.setDurationSeconds(req.durationSeconds());
+        w.setTemplateId(req.templateId());
+        w.setExercises(req.exercises().stream().map(b -> new ExerciseBlock(
+                b.exerciseId(), b.name(), b.position(), b.note(),
+                b.sets().stream().map(s -> new WorkoutSet(
+                        new ObjectId().toHexString(), s.orderIndex(), s.setType(), dec(s.weight()),
+                        s.loadMode(), dec(s.loadDelta()), "kg", s.reps(), s.rpe(), s.note(),
+                        now, false, null, null
+                )).toList()
+        )).toList());
+        return w;
+    }
+}

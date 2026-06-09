@@ -6,6 +6,12 @@ spring:
       uri: ${MONGODB_URI:mongodb://localhost:27017/workoutlogger}
       auto-index-creation: false   # indexes are created explicitly by MongoSchemaInitializer
 
+security:
+  jwt:
+    # MUST be >= 32 bytes. Override in production: SECURITY_JWT_SECRET=...
+    secret: ${SECURITY_JWT_SECRET:set-via-SECURITY_JWT_SECRET}
+    expiry-minutes: ${SECURITY_JWT_EXPIRY_MINUTES:10080}
+
 # Importer configuration (used when the "import" profile is active).
 importer:
   csv-path: ${IMPORT_CSV:../strong_workouts.csv}

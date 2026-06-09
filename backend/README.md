@@ -76,14 +76,63 @@ Config knobs (env var → property): `IMPORT_CSV` → `importer.csv-path`,
 mvn -q test
 ```
 
-`StrongImporterTest` asserts the exact counts against `../strong_workouts.csv`;
-`StrongParsersTest` covers the `U+202F` date landmine and all 4 duration shapes.
+`StrongImporterTest`/`StrongParsersTest` run with no DB (`U+202F` date landmine, durations, counts).
+`JwtServiceTest` runs with no DB. `ApiIntegrationTest` needs MongoDB and is gated:
+
+```bash
+RUN_MONGO_TESTS=1 mvn -q test     # also runs the isolation + last-working-set e2e tests
+```
+
+## REST API
+
+Run the server (needs MongoDB up):
+
+```bash
+mvn -q spring-boot:run
+```
+
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs` · Swagger UI: `http://localhost:8080/swagger-ui.html`
+- **Auth** is JWT Bearer. Everything except `/api/auth/**` and the docs requires `Authorization: Bearer <token>`.
+- **`userId` isolation** is enforced by construction: every repository reads the JWT principal via
+  `Tenant` and ANDs it into every query/update — `ApiIntegrationTest` proves user B cannot read user
+  A's workout (404) and that an unauthenticated request is 401.
+- **Weights are decimal strings on the wire** (`"55.0"`), never JSON numbers (DESIGN §3.1).
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/auth/register` · `/api/auth/login` | get a JWT (`{token,userId,email}`) |
+| GET | `/api/me` · PUT `/api/me/bodyweight` | profile + record current bodyweight |
+| GET/POST | `/api/exercises` | list / create (409 returns existing `exerciseId` on name clash) |
+| GET | `/api/exercises/{id}/last-working-set` | deterministic copy-last-set source (excludes warmups) |
+| GET/POST | `/api/workouts` · GET `/api/workouts/{id}` | list / create / fetch a session |
+| PATCH | `/api/workouts/{workoutId}/sets/{setId}` | granular set update (addressed by setId, not position) |
+| DELETE | `/api/workouts/{id}` | soft-delete |
+| GET | `/api/templates` · `/api/templates/{id}` | reconstructed templates |
+
+Quick smoke test:
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8080/api/auth/register \
+  -H 'content-type: application/json' \
+  -d '{"email":"me@example.com","password":"password123"}' | jq -r .token)
+curl -s localhost:8080/api/exercises -H "Authorization: Bearer $TOKEN"
+```
+
+## Generating the TypeScript client (for the React app)
+
+The OpenAPI document is the contract. With the server running:
+
+```bash
+npx openapi-typescript http://localhost:8080/v3/api-docs -o ../frontend/src/api/schema.ts
+# or a full client:
+npx @openapitools/openapi-generator-cli generate \
+  -i http://localhost:8080/v3/api-docs -g typescript-fetch -o ../frontend/src/api
+```
 
 ## Notes / next milestone
 
-- Import is a **one-time bootstrap**; re-running with `persist=true` relies on the unique
-  `{userId, startedAt}` index to avoid duplicate sessions (upsert semantics to be added with the
-  REST layer).
-- Not yet built (next milestone): REST controllers, JWT auth + the centralized `userId` isolation
-  aspect, the deterministic `last-working-set` aggregation, and OpenAPI/TS client generation.
-- `weight` is stored as `Decimal128`; the API will serialize it as a decimal **string** (DESIGN §3.1).
+- Granular set updates bump `version` + `updatedAt` but do not yet enforce `If-Match` optimistic
+  locking — that lands with the offline/sync layer (mobile phase).
+- Import remains a **one-time bootstrap** (unique `{userId, startedAt}` index guards duplicates).
+- Next: the **React frontend** (Vite) consuming the generated client — logging screen with the
+  single bodyweight field + `last-working-set` copy, then progress charts.
