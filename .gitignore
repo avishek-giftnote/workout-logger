@@ -27,3 +27,6 @@ build/
 *.iml
 .vscode/
 *.log
+
+# TS build info
+*.tsbuildinfo

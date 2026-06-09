@@ -11,7 +11,10 @@ Bootstrapped from a real [Strong](https://www.strong.app/) export and designed a
   [`backend/README.md`](backend/README.md).
 - ✅ **REST API** — JWT auth, by-construction `userId` isolation, deterministic `last-working-set`,
   workout/exercise/template/bodyweight CRUD, OpenAPI + TS-client generation.
-- ⬜ **React frontend** — next: logging UI consuming the generated client.
+- ✅ **React frontend (Vite + TS)** — "Iron Instrument" UI: login, workouts list, and a fast logging
+  screen with the single bodyweight (delta) field and one-tap copy-last-set. See
+  [`frontend/README.md`](frontend/README.md).
+- ⬜ **Mobile (React Native/Expo)** — after the web app is complete.
 - ⬜ **Mobile (React Native/Expo)** — after the web app is complete.
 
 ## Tech stack
