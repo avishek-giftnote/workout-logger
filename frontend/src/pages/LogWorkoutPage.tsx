@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
-import type { CreateWorkoutRequest, ExerciseDto, LoadMode, SetType } from "../api/types";
+import type {
+  CreateWorkoutRequest, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, WorkoutDto,
+} from "../api/types";
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
@@ -20,17 +22,61 @@ interface DraftBlock { key: string; exercise: ExerciseDto; sets: DraftSet[]; }
 const blankSet = (setType: SetType = "WORKING"): DraftSet =>
   ({ key: uid(), setType, weight: "", delta: "0", mode: "ADDED", reps: "", rpe: "" });
 
+// Reconstruct a draft set from a previously logged set (prefill weights/reps from last time).
+function draftFromSet(s: SetDto, isBw: boolean): DraftSet {
+  const d = blankSet(s.setType);
+  d.reps = s.reps != null ? String(s.reps) : "";
+  d.rpe = s.rpe != null ? String(s.rpe) : "";
+  if (isBw) {
+    d.mode = s.loadMode === "ASSISTED" ? "ASSISTED" : "ADDED";
+    d.delta = s.loadDelta ?? "0";
+  } else {
+    d.weight = s.weight ?? "";
+  }
+  return d;
+}
+const findEx = (catalog: ExerciseDto[], id: string, name: string, isBw: boolean): ExerciseDto =>
+  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: isBw, defaultUnit: "kg" };
+
+// Clone a whole previous session — every exercise + set with its weights/reps.
+const blocksFromWorkout = (w: WorkoutDto, catalog: ExerciseDto[]): DraftBlock[] =>
+  w.exercises.map((b) => {
+    const isBw = b.sets.some((s) => s.loadMode != null) ||
+      (catalog.find((e) => e.id === b.exerciseId)?.isBodyweight ?? false);
+    const ex = findEx(catalog, b.exerciseId, b.name, isBw);
+    return { key: uid(), exercise: ex, sets: b.sets.map((s) => draftFromSet(s, ex.isBodyweight)) };
+  });
+
+// Fallback when a template has no logged session yet: just its exercise lineup (editor seeds sets).
+const blocksFromTemplate = (t: TemplateDto, catalog: ExerciseDto[]): DraftBlock[] =>
+  t.exercises.map((te) => ({ key: uid(), exercise: findEx(catalog, te.exerciseId, te.name, false), sets: [] }));
+
 export default function LogWorkoutPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ["me"], queryFn: Api.me });
   const exercises = useQuery({ queryKey: ["exercises"], queryFn: Api.listExercises });
+  const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
+  const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
 
+  const [started, setStarted] = useState(false);
+  const [templateId, setTemplateId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<DraftBlock[]>([]);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useMemo(() => new Date(), []);
   const bodyweight = me.data?.currentBodyweightKg ?? "";
+
+  const startEmpty = () => { setTemplateId(null); setBlocks([]); setStarted(true); };
+  const startFromTemplate = (t: TemplateDto) => {
+    const catalog = exercises.data ?? [];
+    const prev = (workouts.data ?? [])
+      .filter((w) => w.templateId === t.id)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+    setBlocks(prev ? blocksFromWorkout(prev, catalog) : blocksFromTemplate(t, catalog));
+    setTemplateId(t.id);
+    setStarted(true);
+  };
 
   const setBlock = (key: string, sets: DraftSet[]) =>
     setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, sets } : b)));
@@ -46,6 +92,7 @@ export default function LogWorkoutPage() {
     mutationFn: () => {
       const body: CreateWorkoutRequest = {
         startedAt: startedAt.toISOString(),
+        templateId: templateId ?? undefined,
         exercises: blocks.map((b, i) => ({
           exerciseId: b.exercise.id,
           name: b.exercise.name,
@@ -63,7 +110,7 @@ export default function LogWorkoutPage() {
     <main className="screen">
       <div className="screen-head fade-up">
         <div>
-          <h1>Log Session</h1>
+          <h1>{started ? "Log Session" : "Start Workout"}</h1>
           <p>
             {bodyweight
               ? <>Bodyweight <b className="mono" style={{ color: "var(--ice)" }}>{bodyweight} kg</b> · used for calisthenics</>
@@ -75,34 +122,85 @@ export default function LogWorkoutPage() {
 
       {!bodyweight && <BodyweightSetter />}
 
-      <div className="stagger">
-        {blocks.map((b) => (
-          <ExerciseBlockEditor
-            key={b.key} block={b} bodyweight={bodyweight}
-            onChange={(sets) => setBlock(b.key, sets)} onRemove={() => removeBlock(b.key)}
-          />
-        ))}
-      </div>
-
-      {picking ? (
-        <ExercisePicker
-          exercises={exercises.data ?? []} disabledIds={blocks.map((b) => b.exercise.id)}
-          onPick={addExercise} onClose={() => setPicking(false)}
+      {!started ? (
+        <StartChooser
+          templates={templates.data ?? []} workouts={workouts.data ?? []}
+          onEmpty={startEmpty} onTemplate={startFromTemplate}
         />
       ) : (
-        <button className="btn btn-ghost btn-block mt" onClick={() => setPicking(true)}>+ Add exercise</button>
+        <>
+          <div className="stagger">
+            {blocks.map((b) => (
+              <ExerciseBlockEditor
+                key={b.key} block={b} bodyweight={bodyweight}
+                onChange={(sets) => setBlock(b.key, sets)} onRemove={() => removeBlock(b.key)}
+              />
+            ))}
+          </div>
+
+          {picking ? (
+            <ExercisePicker
+              exercises={exercises.data ?? []} disabledIds={blocks.map((b) => b.exercise.id)}
+              onPick={addExercise} onClose={() => setPicking(false)}
+            />
+          ) : (
+            <button className="btn btn-ghost btn-block mt" onClick={() => setPicking(true)}>+ Add exercise</button>
+          )}
+
+          {error && <p className="err mt">{error}</p>}
+
+          <div className="action-bar">
+            <button className="btn btn-ghost grow" onClick={() => nav("/")}>Discard</button>
+            <button className="btn btn-volt grow btn-lg" disabled={totalSets === 0 || save.isPending}
+              onClick={() => save.mutate()}>
+              {save.isPending ? "Saving…" : `Finish · ${totalSets} sets`}
+            </button>
+          </div>
+        </>
       )}
-
-      {error && <p className="err mt">{error}</p>}
-
-      <div className="action-bar">
-        <button className="btn btn-ghost grow" onClick={() => nav("/")}>Discard</button>
-        <button className="btn btn-volt grow btn-lg" disabled={totalSets === 0 || save.isPending}
-          onClick={() => save.mutate()}>
-          {save.isPending ? "Saving…" : `Finish · ${totalSets} sets`}
-        </button>
-      </div>
     </main>
+  );
+}
+
+/* ---------------------------------------------------------------- start chooser */
+function StartChooser({ templates, workouts, onEmpty, onTemplate }: {
+  templates: TemplateDto[]; workouts: WorkoutDto[];
+  onEmpty: () => void; onTemplate: (t: TemplateDto) => void;
+}) {
+  const lastForTemplate = (id: string) =>
+    workouts.filter((w) => w.templateId === id).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+  const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();   // "Anterior (Upper focus)" -> "Anterior (Upper)"
+
+  return (
+    <div className="stagger mt">
+      <button className="card w-item choose-empty" onClick={onEmpty}>
+        <div className="w-date"><span className="d" style={{ color: "var(--volt)" }}>+</span></div>
+        <div className="w-meta"><h3>Empty session</h3><div className="sub">Start fresh, add exercises as you go</div></div>
+        <div className="w-stat"><span className="micro">blank</span></div>
+      </button>
+
+      <p className="micro" style={{ margin: "20px 4px 10px" }}>Or repeat a template — last weights load in</p>
+
+      {templates.map((t) => {
+        const prev = lastForTemplate(t.id);
+        return (
+          <button key={t.id} className="card w-item" onClick={() => onTemplate(t)}>
+            <div className="w-date">
+              <span className="d" style={{ fontSize: 20 }}>{t.exercises.length}</span>
+              <span className="m">moves</span>
+            </div>
+            <div className="w-meta">
+              <h3>{cleanName(t.name)}</h3>
+              <div className="sub">
+                {prev ? `last: ${new Date(prev.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                      : "no history yet"}
+              </div>
+            </div>
+            <div className="w-stat"><span className="readout" style={{ color: "var(--volt)" }}>›</span></div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

@@ -1,5 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { tokenStore } from "../api/client";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Api, tokenStore } from "../api/client";
 
 interface AuthCtx {
   token: string | null;
@@ -12,6 +12,13 @@ const Ctx = createContext<AuthCtx | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => tokenStore.get());
+
+  // Validate an existing token on load; drop it if the account is gone or the token is invalid
+  // (e.g. after the demo DB was reloaded with a new user id), so we land on the login screen.
+  useEffect(() => {
+    if (!token) return;
+    Api.me().catch(() => { tokenStore.clear(); setToken(null); });
+  }, [token]);
 
   const value = useMemo<AuthCtx>(() => ({
     token,

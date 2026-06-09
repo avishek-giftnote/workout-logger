@@ -95,12 +95,18 @@ public class StrongImporter {
             ));
         }
 
+        List<WorkoutTemplate> templates = reconstructTemplates(sessions, catalog, userId, now);
+        Map<String, String> templateIdByName = new LinkedHashMap<>();
+        for (WorkoutTemplate t : templates) templateIdByName.put(t.getName(), t.getId());
+
+        // Link each session to its template (by Strong workout name) so the app can load the
+        // previous session when a user starts a workout from a template.
         List<Workout> workouts = new ArrayList<>();
         for (SessionAcc s : sessions.values()) {
-            workouts.add(s.toWorkout(userId, now));
+            Workout w = s.toWorkout(userId, now);
+            w.setTemplateId(templateIdByName.get(s.name));
+            workouts.add(w);
         }
-
-        List<WorkoutTemplate> templates = reconstructTemplates(sessions, catalog, userId, now);
 
         int totalSets = sessions.values().stream()
                 .flatMap(s -> s.blocks.values().stream())
