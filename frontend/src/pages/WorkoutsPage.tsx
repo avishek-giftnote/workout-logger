@@ -38,7 +38,7 @@ export default function WorkoutsPage() {
               : "Log every set. Beat last time."}
           </p>
         </div>
-        <button className="btn btn-volt" onClick={() => nav("/log")}>+ New</button>
+        <button className="btn btn-volt" onClick={() => nav("/start")}>+ New</button>
       </div>
 
       {workouts.isLoading && <div className="spinner" />}
@@ -47,7 +47,7 @@ export default function WorkoutsPage() {
         <div className="empty fade-up">
           <div className="big">No sessions yet</div>
           <p>Your logged workouts will appear here.</p>
-          <button className="btn btn-volt mt" onClick={() => nav("/log")}>Start your first workout</button>
+          <button className="btn btn-volt mt" onClick={() => nav("/start")}>Start your first workout</button>
         </div>
       )}
 
@@ -55,7 +55,7 @@ export default function WorkoutsPage() {
         {workouts.data?.map((w) => {
           const d = new Date(w.startedAt);
           return (
-            <article key={w.id} className="card w-item">
+            <button key={w.id} className="card w-item" onClick={() => nav(`/previous-workouts/${w.id}`)}>
               <div className="w-date">
                 <span className="d">{d.getDate()}</span>
                 <span className="m">{MONTHS[d.getMonth()]}</span>
@@ -71,7 +71,7 @@ export default function WorkoutsPage() {
                 <b>{workingVolume(w).toLocaleString()}</b>
                 <small>kg volume</small>
               </div>
-            </article>
+            </button>
           );
         })}
       </div>

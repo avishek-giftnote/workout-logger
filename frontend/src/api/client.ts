@@ -1,6 +1,6 @@
 import type {
   AuthResponse, CreateWorkoutRequest, ExerciseDto, LastWorkingSetDto,
-  MeDto, TemplateDto, WorkoutDto,
+  MeDto, SaveTemplateRequest, TemplateDto, WorkoutDto,
 } from "./types";
 
 const TOKEN_KEY = "wl.token";
@@ -76,4 +76,8 @@ export const Api = {
 
   // templates
   listTemplates: () => api<TemplateDto[]>("/templates"),
+  createTemplate: (body: SaveTemplateRequest) =>
+    api<TemplateDto>("/templates", { method: "POST", body: JSON.stringify(body) }),
+  updateTemplate: (id: string, body: SaveTemplateRequest) =>
+    api<TemplateDto>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(body) }),
 };

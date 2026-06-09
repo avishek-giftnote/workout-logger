@@ -293,6 +293,15 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
 
 .ex-actions { display: flex; gap: 8px; padding: 12px 18px; }
 
+/* read-only detail rows (previous-workout view) */
+.detail-row {
+  display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--line);
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-row .readout { font-size: 15px; color: var(--ink); }
+.detail-reps { color: var(--ink-dim); min-width: 64px; text-align: right; }
+.detail-rpe { color: var(--muted); min-width: 56px; text-align: right; font-size: 13px; }
+
 /* sticky footer action bar */
 .action-bar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;

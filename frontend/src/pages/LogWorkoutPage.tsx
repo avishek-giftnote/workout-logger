@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
 import type {
-  CreateWorkoutRequest, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, WorkoutDto,
+  CreateWorkoutRequest, ExerciseDto, LoadMode, SetDto, SetType,
+  TemplateDto, TemplateExerciseInput, WorkoutDto,
 } from "../api/types";
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
@@ -48,6 +49,17 @@ const findEx = (catalog: ExerciseDto[], id: string, name: string): ExerciseDto =
 const blocksFromTemplate = (t: TemplateDto, catalog: ExerciseDto[]): DraftBlock[] =>
   t.exercises.map((te) => ({ key: uid(), exercise: findEx(catalog, te.exerciseId, te.name), sets: [] }));
 
+// Template structure derived from the logged blocks (exercise lineup + per-exercise set count).
+const templateExercisesFromBlocks = (blocks: DraftBlock[]): TemplateExerciseInput[] =>
+  blocks.map((b, i) => ({ exerciseId: b.exercise.id, name: b.exercise.name, position: i, sets: b.sets.length }));
+
+// Did the logged session differ from its template? (exercise added/removed, or a set count changed)
+const structureChanged = (t: TemplateDto, blocks: DraftBlock[]): boolean => {
+  if (t.exercises.length !== blocks.length) return true;
+  const want = new Map(t.exercises.map((e) => [e.exerciseId, e.sets]));
+  return blocks.some((b) => !want.has(b.exercise.id) || want.get(b.exercise.id) !== b.sets.length);
+};
+
 export default function LogWorkoutPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
@@ -61,8 +73,12 @@ export default function LogWorkoutPage() {
   const [blocks, setBlocks] = useState<DraftBlock[]>([]);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<null | "save-template" | "update-template">(null);
+  const [templateName, setTemplateName] = useState("");
   const startedAt = useMemo(() => new Date(), []);
   const bodyweight = me.data?.currentBodyweightKg ?? "";
+  const sourceTemplate = templates.data?.find((t) => t.id === templateId) ?? null;
+  const done = () => nav("/previous-workouts");
 
   // Most recent session's sets for a given exercise (API returns workouts newest-first).
   const prevSetsFor = (exerciseId: string): SetDto[] | null => {
@@ -103,8 +119,28 @@ export default function LogWorkoutPage() {
       };
       return Api.createWorkout(body);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workouts"] }); nav("/"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workouts"] });
+      // After saving: offer to save a new lineup as a template, or to update a changed one.
+      if (!templateId && blocks.length) { setTemplateName(""); setDialog("save-template"); }
+      else if (sourceTemplate && structureChanged(sourceTemplate, blocks)) setDialog("update-template");
+      else done();
+    },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save workout."),
+  });
+
+  const saveTemplate = useMutation({
+    mutationFn: (name: string) =>
+      Api.createTemplate({ name, exercises: templateExercisesFromBlocks(blocks) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); done(); },
+    onError: done,   // never trap the user on a template error — the workout is already saved
+  });
+
+  const updateTemplate = useMutation({
+    mutationFn: () => Api.updateTemplate(sourceTemplate!.id,
+      { name: sourceTemplate!.name, exercises: templateExercisesFromBlocks(blocks) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); done(); },
+    onError: done,
   });
 
   return (
@@ -118,7 +154,7 @@ export default function LogWorkoutPage() {
               : "Set your bodyweight below to log calisthenics"}
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={() => nav("/")}>Cancel</button>
+        <button className="btn btn-ghost" onClick={() => nav("/previous-workouts")}>Cancel</button>
       </div>
 
       {!bodyweight && <BodyweightSetter />}
@@ -152,13 +188,44 @@ export default function LogWorkoutPage() {
           {error && <p className="err mt">{error}</p>}
 
           <div className="action-bar">
-            <button className="btn btn-ghost grow" onClick={() => nav("/")}>Discard</button>
+            <button className="btn btn-ghost grow" onClick={() => nav("/previous-workouts")}>Discard</button>
             <button className="btn btn-volt grow btn-lg" disabled={totalSets === 0 || save.isPending}
               onClick={() => save.mutate()}>
               {save.isPending ? "Saving…" : `Finish · ${totalSets} sets`}
             </button>
           </div>
         </>
+      )}
+
+      {dialog && (
+        <div className="popup-backdrop" onClick={done}>
+          <div className="popup-card" onClick={(e) => e.stopPropagation()}>
+            <span className="micro">Workout saved ✓</span>
+            {dialog === "save-template" ? (
+              <>
+                <h3 style={{ fontSize: 20 }}>Save as a template?</h3>
+                <p className="muted" style={{ fontSize: 13 }}>Reuse this lineup ({blocks.length} exercises) next time.</p>
+                <input className="input mono" placeholder="Template name (e.g. Push Day)"
+                  value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
+                <button className="btn btn-volt btn-block" disabled={!templateName.trim() || saveTemplate.isPending}
+                  onClick={() => saveTemplate.mutate(templateName.trim())}>
+                  {saveTemplate.isPending ? "Saving…" : "Save template"}
+                </button>
+                <button className="btn btn-ghost btn-block" onClick={done}>Skip</button>
+              </>
+            ) : (
+              <>
+                <h3 style={{ fontSize: 20 }}>Update “{(sourceTemplate?.name ?? "").replace(/\s*focus/i, "")}”?</h3>
+                <p className="muted" style={{ fontSize: 13 }}>You changed exercises or set counts from the template.</p>
+                <button className="btn btn-volt btn-block" disabled={updateTemplate.isPending}
+                  onClick={() => updateTemplate.mutate()}>
+                  {updateTemplate.isPending ? "Updating…" : "Update template"}
+                </button>
+                <button className="btn btn-ghost btn-block" onClick={done}>Keep as is</button>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </main>
   );

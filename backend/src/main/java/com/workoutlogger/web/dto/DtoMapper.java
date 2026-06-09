@@ -45,7 +45,13 @@ public final class DtoMapper {
 
     public static TemplateDto toDto(WorkoutTemplate t) {
         return new TemplateDto(t.getId(), t.getName(), t.getExercises().stream()
-                .map(te -> new TemplateExerciseDto(te.exerciseId(), te.name(), te.position())).toList());
+                .map(te -> new TemplateExerciseDto(te.exerciseId(), te.name(), te.position(), te.sets())).toList());
+    }
+
+    public static List<TemplateExercise> toTemplateExercises(List<ApiDtos.TemplateExerciseInput> in) {
+        return in.stream()
+                .map(e -> new TemplateExercise(e.exerciseId(), e.name(), e.position(), e.sets()))
+                .toList();
     }
 
     public static MeDto toDto(User u) {

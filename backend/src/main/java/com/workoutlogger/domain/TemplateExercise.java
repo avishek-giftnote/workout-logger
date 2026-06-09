@@ -4,5 +4,6 @@ package com.workoutlogger.domain;
 public record TemplateExercise(
         String exerciseId,
         String name,
-        int position
+        int position,
+        int sets            // planned number of sets (from the most recent session at import/update)
 ) {}

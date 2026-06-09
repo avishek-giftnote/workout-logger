@@ -1,12 +1,14 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth/auth";
 import LoginPage from "./pages/LoginPage";
 import WorkoutsPage from "./pages/WorkoutsPage";
+import WorkoutDetailPage from "./pages/WorkoutDetailPage";
 import LogWorkoutPage from "./pages/LogWorkoutPage";
 
 function Brand() {
+  const nav = useNavigate();
   return (
-    <div className="brand">
+    <div className="brand" style={{ cursor: "pointer" }} onClick={() => nav("/previous-workouts")}>
       <div className="mark" />
       <b>WORKOUT<span>·</span>LOGGER</b>
     </div>
@@ -22,9 +24,10 @@ function Shell() {
         <button className="btn btn-ghost" onClick={signOut}>Sign out</button>
       </header>
       <Routes>
-        <Route path="/" element={<WorkoutsPage />} />
-        <Route path="/log" element={<LogWorkoutPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/previous-workouts" element={<WorkoutsPage />} />
+        <Route path="/previous-workouts/:id" element={<WorkoutDetailPage />} />
+        <Route path="/start" element={<LogWorkoutPage />} />
+        <Route path="*" element={<Navigate to="/previous-workouts" replace />} />
       </Routes>
     </div>
   );

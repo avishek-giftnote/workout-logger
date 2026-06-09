@@ -128,7 +128,7 @@ public class StrongImporter {
             SessionAcc src = e.getValue();
             List<TemplateExercise> exs = new ArrayList<>();
             for (BlockAcc b : src.blocks.values()) {
-                exs.add(new TemplateExercise(b.exerciseId, b.name, b.position));
+                exs.add(new TemplateExercise(b.exerciseId, b.name, b.position, b.sets.size()));
             }
             WorkoutTemplate t = new WorkoutTemplate();
             t.setId(new ObjectId().toHexString());

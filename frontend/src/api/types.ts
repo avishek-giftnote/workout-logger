@@ -84,8 +84,11 @@ export interface LastWorkingSetDto {
   rpe: number | null;
 }
 
-export interface TemplateExerciseDto { exerciseId: string; name: string; position: number; }
+export interface TemplateExerciseDto { exerciseId: string; name: string; position: number; sets: number; }
 export interface TemplateDto { id: string; name: string; exercises: TemplateExerciseDto[]; }
+
+export interface TemplateExerciseInput { exerciseId: string; name?: string | null; position: number; sets: number; }
+export interface SaveTemplateRequest { name: string; exercises: TemplateExerciseInput[]; }
 
 export interface BodyweightEntryDto { recordedAt: string; weightKg: string | null; estimated: boolean; }
 export interface MeDto {
