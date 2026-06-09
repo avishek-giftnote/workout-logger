@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { equipmentLabel } from "../logging/engine";
@@ -14,6 +15,7 @@ const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
 export default function ExerciseListPage() {
+  const nav = useNavigate();
   const exercises = useQuery({ queryKey: ["exercises"], queryFn: Api.listExercises });
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const [q, setQ] = useState("");
@@ -71,7 +73,8 @@ export default function ExerciseListPage() {
         {rows.map((e) => {
           const s = stats.get(e.id) ?? { last: null, count: 0 };
           return (
-            <div key={e.id} className="card ex-row">
+            <div key={e.id} className="card ex-row" style={{ cursor: "pointer" }}
+              onClick={() => nav(`/exercise-list/${e.id}`)}>
               <div className="grow">
                 <h3>{e.name}</h3>
                 <div className="sub">

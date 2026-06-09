@@ -1,0 +1,38 @@
+import { useAuth } from "../auth/auth";
+import { useSettings } from "../settings";
+
+/** Slide-out settings panel; closes when the backdrop (anywhere outside) is clicked. */
+export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { signOut } = useAuth();
+  const { prevSource, setPrevSource } = useSettings();
+  if (!open) return null;
+
+  return (
+    <div className="sidebar-backdrop" onClick={onClose}>
+      <aside className="sidebar" onClick={(e) => e.stopPropagation()}>
+        <div className="spread">
+          <span className="micro">Settings</span>
+          <button className="icon-btn" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>Load previous set values from</label>
+          <div className="seg" style={{ width: "100%", marginTop: 4 }}>
+            <button className={prevSource === "any" ? "on" : ""} style={{ flex: 1 }}
+              onClick={() => setPrevSource("any")}>Any workout</button>
+            <button className={prevSource === "template" ? "on" : ""} style={{ flex: 1 }}
+              onClick={() => setPrevSource("template")}>Same template</button>
+          </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            {prevSource === "any"
+              ? "Placeholders use the most recent time you did the exercise, in any workout."
+              : "Placeholders only use sessions started from the same template."}
+          </p>
+        </div>
+
+        <div className="grow" />
+        <button className="btn btn-ghost btn-block" onClick={signOut}>Sign out</button>
+      </aside>
+    </div>
+  );
+}

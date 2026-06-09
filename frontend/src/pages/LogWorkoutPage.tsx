@@ -2,11 +2,13 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
-import type { CreateWorkoutRequest, ExerciseDto, SplitDto, TemplateDto, WorkoutDto } from "../api/types";
+import type { CreateWorkoutRequest, ExerciseDto, TemplateDto } from "../api/types";
 import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, findEx, structureChanged,
   templateExercisesFromBlocks, toCreateSet, uid,
 } from "../logging/engine";
+import { useSettings } from "../settings";
+import StartChooser from "./StartChooser";
 
 const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();
 
@@ -33,9 +35,12 @@ export default function LogWorkoutPage() {
   const bodyweight = me.data?.currentBodyweightKg ?? "";
   const sourceTemplate = templates.data?.find((t) => t.id === templateId) ?? null;
   const done = () => nav("/previous-workouts");
+  const { prevSource } = useSettings();
 
   const prevSetsFor = (exerciseId: string) => {
     for (const w of workouts.data ?? []) {
+      // "Same template" setting: only seed from sessions of this template (when in one).
+      if (prevSource === "template" && templateId && w.templateId !== templateId) continue;
       const b = w.exercises.find((e) => e.exerciseId === exerciseId);
       if (b) return b.sets;
     }
@@ -114,7 +119,7 @@ export default function LogWorkoutPage() {
       {!started ? (
         <StartChooser
           templates={templates.data ?? []} splits={splits.data ?? []} workouts={workouts.data ?? []}
-          onEmpty={startEmpty} onTemplate={startFromTemplate}
+          exercises={exercises.data ?? []} onEmpty={startEmpty} onTemplate={startFromTemplate}
         />
       ) : (
         <>
@@ -181,125 +186,6 @@ export default function LogWorkoutPage() {
         </div>
       )}
     </main>
-  );
-}
-
-/* ---------------------------------------------------------------- start chooser (with splits) */
-function StartChooser({ templates, splits, workouts, onEmpty, onTemplate }: {
-  templates: TemplateDto[]; splits: SplitDto[]; workouts: WorkoutDto[];
-  onEmpty: () => void; onTemplate: (t: TemplateDto) => void;
-}) {
-  const [editing, setEditing] = useState<SplitDto | "new" | null>(null);
-  const byId = useMemo(() => new Map(templates.map((t) => [t.id, t])), [templates]);
-  const grouped = new Set(splits.flatMap((s) => s.templateIds));
-  const ungrouped = templates.filter((t) => !grouped.has(t.id));
-  const lastFor = (id: string) =>
-    workouts.filter((w) => w.templateId === id).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-
-  const TemplateCard = (t: TemplateDto) => {
-    const prev = lastFor(t.id);
-    return (
-      <button key={t.id} className="card w-item" onClick={() => onTemplate(t)}>
-        <div className="w-date">
-          <span className="d" style={{ fontSize: 20 }}>{t.exercises.length}</span>
-          <span className="m">moves</span>
-        </div>
-        <div className="w-meta">
-          <h3>{cleanName(t.name)}</h3>
-          <div className="sub">
-            {prev ? `last: ${new Date(prev.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "no history yet"}
-          </div>
-        </div>
-        <div className="w-stat"><span className="readout" style={{ color: "var(--volt)" }}>›</span></div>
-      </button>
-    );
-  };
-
-  return (
-    <div className="mt">
-      <button className="card w-item fade-up" onClick={onEmpty}>
-        <div className="w-date"><span className="d" style={{ color: "var(--volt)" }}>+</span></div>
-        <div className="w-meta"><h3>Empty session</h3><div className="sub">Start fresh, add exercises as you go</div></div>
-        <div className="w-stat"><span className="micro">blank</span></div>
-      </button>
-
-      {splits.map((s) => (
-        <div key={s.id} className="mt">
-          <div className="spread" style={{ margin: "20px 4px 10px" }}>
-            <span className="micro">{s.name} · {s.templateIds.length} templates</span>
-            <button className="micro" style={{ background: "none", border: "none", color: "var(--volt)", cursor: "pointer" }}
-              onClick={() => setEditing(s)}>edit</button>
-          </div>
-          <div className="w-list">
-            {s.templateIds.map((id) => byId.get(id)).filter(Boolean).map((t) => TemplateCard(t as TemplateDto))}
-            {s.templateIds.length === 0 && <p className="muted" style={{ fontSize: 13, padding: "0 4px" }}>No templates yet — tap edit to add some.</p>}
-          </div>
-        </div>
-      ))}
-
-      {ungrouped.length > 0 && (
-        <div className="mt">
-          <p className="micro" style={{ margin: "20px 4px 10px" }}>{splits.length ? "Other templates" : "Templates"}</p>
-          <div className="w-list">{ungrouped.map(TemplateCard)}</div>
-        </div>
-      )}
-
-      <button className="btn btn-ghost btn-block mt" onClick={() => setEditing("new")}>+ New split</button>
-
-      {editing && (
-        <SplitEditor split={editing === "new" ? null : editing} templates={templates} onClose={() => setEditing(null)} />
-      )}
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------- split editor (create / edit) */
-function SplitEditor({ split, templates, onClose }: {
-  split: SplitDto | null; templates: TemplateDto[]; onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const [name, setName] = useState(split?.name ?? "");
-  const [picked, setPicked] = useState<Set<string>>(new Set(split?.templateIds ?? []));
-  const toggle = (id: string) => setPicked((p) => {
-    const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n;
-  });
-  const close = () => { qc.invalidateQueries({ queryKey: ["splits"] }); onClose(); };
-
-  const save = useMutation({
-    mutationFn: () => {
-      const body = { name: name.trim(), templateIds: [...picked] };
-      return split ? Api.updateSplit(split.id, body) : Api.createSplit(body);
-    },
-    onSuccess: close,
-  });
-  const del = useMutation({ mutationFn: () => Api.deleteSplit(split!.id), onSuccess: close });
-
-  return (
-    <div className="popup-backdrop" onClick={onClose}>
-      <div className="popup-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
-        <span className="micro">{split ? "Edit split" : "New split"}</span>
-        <input className="input mono" placeholder="Split name (e.g. Anterior/Posterior)"
-          value={name} onChange={(e) => setName(e.target.value)} />
-        <span className="micro" style={{ marginTop: 6 }}>Templates in this split</span>
-        <div style={{ maxHeight: 260, overflow: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-          {templates.map((t) => (
-            <button key={t.id} className={`popup-opt${picked.has(t.id) ? " on" : ""}`} onClick={() => toggle(t.id)}>
-              {picked.has(t.id) ? "✓ " : ""}{cleanName(t.name)}
-            </button>
-          ))}
-          {templates.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No templates yet.</p>}
-        </div>
-        <button className="btn btn-volt btn-block" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? "Saving…" : split ? "Save changes" : "Create split"}
-        </button>
-        {split && (
-          <button className="btn btn-ghost btn-block btn-danger" disabled={del.isPending} onClick={() => del.mutate()}>
-            Delete split
-          </button>
-        )}
-        <button className="btn btn-ghost btn-block" onClick={onClose}>Cancel</button>
-      </div>
-    </div>
   );
 }
 
