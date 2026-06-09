@@ -90,6 +90,9 @@ export interface TemplateDto { id: string; name: string; exercises: TemplateExer
 export interface TemplateExerciseInput { exerciseId: string; name?: string | null; position: number; sets: number; }
 export interface SaveTemplateRequest { name: string; exercises: TemplateExerciseInput[]; }
 
+export interface SplitDto { id: string; name: string; templateIds: string[]; }
+export interface SaveSplitRequest { name: string; templateIds: string[]; }
+
 export interface BodyweightEntryDto { recordedAt: string; weightKg: string | null; estimated: boolean; }
 export interface MeDto {
   id: string;

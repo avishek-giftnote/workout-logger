@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import type { SetDto, WorkoutDto } from "../api/types";
 
@@ -24,8 +24,14 @@ function loadLabel(s: SetDto): string {
 export default function WorkoutDetailPage() {
   const { id = "" } = useParams();
   const nav = useNavigate();
+  const qc = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const workout = useQuery({ queryKey: ["workout", id], queryFn: () => Api.getWorkout(id) });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
+  const del = useMutation({
+    mutationFn: () => Api.deleteWorkout(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workouts"] }); nav("/previous-workouts"); },
+  });
 
   const title = useMemo(() => {
     const w = workout.data;
@@ -88,7 +94,25 @@ export default function WorkoutDetailPage() {
         })}
       </div>
 
+      <div className="row mt" style={{ gap: 10 }}>
+        <button className="btn btn-volt grow" onClick={() => nav(`/previous-workouts/${id}/edit`)}>Edit workout</button>
+        <button className="btn btn-ghost btn-danger grow" onClick={() => setConfirmDelete(true)}>Delete</button>
+      </div>
       <button className="btn btn-ghost btn-block mt" onClick={() => nav("/previous-workouts")}>← Back to Training Log</button>
+
+      {confirmDelete && (
+        <div className="popup-backdrop" onClick={() => setConfirmDelete(false)}>
+          <div className="popup-card" onClick={(e) => e.stopPropagation()}>
+            <span className="micro">Delete workout</span>
+            <h3 style={{ fontSize: 20 }}>Delete this session?</h3>
+            <p className="muted" style={{ fontSize: 13 }}>This removes the logged workout. It can't be undone here.</p>
+            <button className="btn btn-ghost btn-block btn-danger" disabled={del.isPending} onClick={() => del.mutate()}>
+              {del.isPending ? "Deleting…" : "Delete workout"}
+            </button>
+            <button className="btn btn-ghost btn-block" onClick={() => setConfirmDelete(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

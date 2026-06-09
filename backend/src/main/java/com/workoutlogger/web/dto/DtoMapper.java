@@ -60,22 +60,31 @@ public final class DtoMapper {
         return new MeDto(u.getId(), u.getEmail(), str(u.getCurrentBodyweightKg()), log);
     }
 
-    /** Builds a new live-logged session from a create request (server mints ids and loggedAt). */
-    public static Workout toWorkout(CreateWorkoutRequest req) {
+    /** Exercise blocks from a request — server mints set ids and loggedAt. Used by create + edit. */
+    public static List<ExerciseBlock> toBlocks(CreateWorkoutRequest req) {
         Instant now = Instant.now();
-        Workout w = new Workout();
-        w.setId(new ObjectId().toHexString());
-        w.setStartedAt(req.startedAt());
-        w.setDurationSeconds(req.durationSeconds());
-        w.setTemplateId(req.templateId());
-        w.setExercises(req.exercises().stream().map(b -> new ExerciseBlock(
+        return req.exercises().stream().map(b -> new ExerciseBlock(
                 b.exerciseId(), b.name(), b.position(), b.note(),
                 b.sets().stream().map(s -> new WorkoutSet(
                         new ObjectId().toHexString(), s.orderIndex(), s.setType(), dec(s.weight()),
                         s.loadMode(), dec(s.loadDelta()), "kg", s.reps(), s.rpe(), s.note(),
                         now, false, null, null
                 )).toList()
-        )).toList());
+        )).toList();
+    }
+
+    /** Builds a new live-logged session from a create request. */
+    public static Workout toWorkout(CreateWorkoutRequest req) {
+        Workout w = new Workout();
+        w.setId(new ObjectId().toHexString());
+        w.setStartedAt(req.startedAt());
+        w.setDurationSeconds(req.durationSeconds());
+        w.setTemplateId(req.templateId());
+        w.setExercises(toBlocks(req));
         return w;
+    }
+
+    public static SplitDto toDto(Split s) {
+        return new SplitDto(s.getId(), s.getName(), List.copyOf(s.getTemplateIds()));
     }
 }

@@ -3,6 +3,7 @@ import { useAuth } from "./auth/auth";
 import LoginPage from "./pages/LoginPage";
 import WorkoutsPage from "./pages/WorkoutsPage";
 import WorkoutDetailPage from "./pages/WorkoutDetailPage";
+import EditWorkoutPage from "./pages/EditWorkoutPage";
 import LogWorkoutPage from "./pages/LogWorkoutPage";
 
 function Brand() {
@@ -26,6 +27,7 @@ function Shell() {
       <Routes>
         <Route path="/previous-workouts" element={<WorkoutsPage />} />
         <Route path="/previous-workouts/:id" element={<WorkoutDetailPage />} />
+        <Route path="/previous-workouts/:id/edit" element={<EditWorkoutPage />} />
         <Route path="/start" element={<LogWorkoutPage />} />
         <Route path="*" element={<Navigate to="/previous-workouts" replace />} />
       </Routes>

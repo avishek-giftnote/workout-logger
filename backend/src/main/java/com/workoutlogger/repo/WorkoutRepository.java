@@ -54,6 +54,17 @@ public class WorkoutRepository {
         return mongo.insert(w);
     }
 
+    /** Replace a session's exercises/sets (full edit of a completed workout). */
+    public Optional<Workout> replaceExercises(String id, List<com.workoutlogger.domain.ExerciseBlock> exercises,
+                                              String templateId) {
+        return findOne(id).map(w -> {
+            w.setExercises(exercises);
+            w.setTemplateId(templateId);
+            w.setUpdatedAt(Instant.now());
+            return mongo.save(w);
+        });
+    }
+
     public boolean softDelete(String id) {
         Update u = new Update().set("deletedAt", Instant.now()).set("updatedAt", Instant.now());
         return mongo.updateFirst(owned().addCriteria(where("_id").is(id)), u, Workout.class)

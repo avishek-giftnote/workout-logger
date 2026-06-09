@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import type { WorkoutDto } from "../api/types";
 
@@ -18,9 +18,15 @@ const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "
 
 export default function WorkoutsPage() {
   const nav = useNavigate();
+  const qc = useQueryClient();
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const me = useQuery({ queryKey: ["me"], queryFn: Api.me });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
+  const del = useMutation({
+    mutationFn: (id: string) => Api.deleteWorkout(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workouts"] }); setDeleteId(null); },
+  });
 
   const nameOf = useMemo(() => {
     const map = new Map((templates.data ?? []).map((t) => [t.id, t.name]));
@@ -55,7 +61,8 @@ export default function WorkoutsPage() {
         {workouts.data?.map((w) => {
           const d = new Date(w.startedAt);
           return (
-            <button key={w.id} className="card w-item" onClick={() => nav(`/previous-workouts/${w.id}`)}>
+            <div key={w.id} className="card w-item" style={{ cursor: "pointer" }}
+              onClick={() => nav(`/previous-workouts/${w.id}`)}>
               <div className="w-date">
                 <span className="d">{d.getDate()}</span>
                 <span className="m">{MONTHS[d.getMonth()]}</span>
@@ -71,10 +78,25 @@ export default function WorkoutsPage() {
                 <b>{workingVolume(w).toLocaleString()}</b>
                 <small>kg volume</small>
               </div>
-            </button>
+              <button className="icon-btn w-del" title="Delete workout"
+                onClick={(e) => { e.stopPropagation(); setDeleteId(w.id); }}>×</button>
+            </div>
           );
         })}
       </div>
+
+      {deleteId && (
+        <div className="popup-backdrop" onClick={() => setDeleteId(null)}>
+          <div className="popup-card" onClick={(e) => e.stopPropagation()}>
+            <span className="micro">Delete workout</span>
+            <h3 style={{ fontSize: 20 }}>Delete this session?</h3>
+            <p className="muted" style={{ fontSize: 13 }}>This removes the logged workout. It can't be undone here.</p>
+            <button className="btn btn-ghost btn-block btn-danger" disabled={del.isPending}
+              onClick={() => del.mutate(deleteId)}>{del.isPending ? "Deleting…" : "Delete workout"}</button>
+            <button className="btn btn-ghost btn-block" onClick={() => setDeleteId(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

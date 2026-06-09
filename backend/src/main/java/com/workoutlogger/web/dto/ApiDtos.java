@@ -56,6 +56,11 @@ public final class ApiDtos {
 
     public record SaveTemplateRequest(@NotNull String name, @NotNull List<TemplateExerciseInput> exercises) {}
 
+    // ---- splits ----
+    public record SplitDto(String id, String name, List<String> templateIds) {}
+
+    public record SaveSplitRequest(@NotNull String name, List<String> templateIds) {}
+
     // ---- me / bodyweight ----
     public record BodyweightEntryDto(Instant recordedAt, String weightKg, boolean estimated) {}
 

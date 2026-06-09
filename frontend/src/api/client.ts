@@ -1,6 +1,6 @@
 import type {
   AuthResponse, CreateWorkoutRequest, ExerciseDto, LastWorkingSetDto,
-  MeDto, SaveTemplateRequest, TemplateDto, WorkoutDto,
+  MeDto, SaveSplitRequest, SaveTemplateRequest, SplitDto, TemplateDto, WorkoutDto,
 } from "./types";
 
 const TOKEN_KEY = "wl.token";
@@ -72,6 +72,8 @@ export const Api = {
   getWorkout: (id: string) => api<WorkoutDto>(`/workouts/${id}`),
   createWorkout: (body: CreateWorkoutRequest) =>
     api<WorkoutDto>("/workouts", { method: "POST", body: JSON.stringify(body) }),
+  updateWorkout: (id: string, body: CreateWorkoutRequest) =>
+    api<WorkoutDto>(`/workouts/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteWorkout: (id: string) => api<void>(`/workouts/${id}`, { method: "DELETE" }),
 
   // templates
@@ -80,4 +82,12 @@ export const Api = {
     api<TemplateDto>("/templates", { method: "POST", body: JSON.stringify(body) }),
   updateTemplate: (id: string, body: SaveTemplateRequest) =>
     api<TemplateDto>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+
+  // splits
+  listSplits: () => api<SplitDto[]>("/splits"),
+  createSplit: (body: SaveSplitRequest) =>
+    api<SplitDto>("/splits", { method: "POST", body: JSON.stringify(body) }),
+  updateSplit: (id: string, body: SaveSplitRequest) =>
+    api<SplitDto>(`/splits/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteSplit: (id: string) => api<void>(`/splits/${id}`, { method: "DELETE" }),
 };
