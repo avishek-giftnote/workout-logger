@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: workout-logger-backend
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/workoutlogger}
+      auto-index-creation: false   # indexes are created explicitly by MongoSchemaInitializer
+
+# Importer configuration (used when the "import" profile is active).
+importer:
+  csv-path: ${IMPORT_CSV:../strong_workouts.csv}
+  # Current bodyweight (kg) used to backfill effective load on historical bodyweight sets.
+  # Counts are independent of this value; it only sets the effective-load baseline.
+  current-bodyweight-kg: ${IMPORT_BODYWEIGHT:75.0}
+  # When false, the importer parses + asserts but does NOT write to MongoDB (no DB required).
+  persist: ${IMPORT_PERSIST:false}
+
+logging:
+  level:
+    com.workoutlogger: INFO

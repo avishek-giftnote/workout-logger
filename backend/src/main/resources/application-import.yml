@@ -1,0 +1,5 @@
+# Active only under the "import" profile: run as a one-shot CLI (no web server),
+# so the process exits once the importer finishes instead of staying up.
+spring:
+  main:
+    web-application-type: none

@@ -1,0 +1,93 @@
+package com.workoutlogger.config;
+
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.CreateCollectionOptions;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.ValidationOptions;
+import org.bson.Document;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+/**
+ * Creates collections with $jsonSchema validators and the indexes from DESIGN.md §2 — the only
+ * database-level guard, since MongoDB has no schema or RLS. Invoked by the importer when persisting;
+ * a normal server start would call the same routine. Idempotent: skips existing collections,
+ * createIndex is a no-op if the index already exists.
+ */
+@Component
+public class MongoSchemaInitializer {
+
+    private final MongoTemplate mongoTemplate;
+
+    public MongoSchemaInitializer(MongoTemplate mongoTemplate) {
+        this.mongoTemplate = mongoTemplate;
+    }
+
+    public void initialize() {
+        MongoDatabase db = mongoTemplate.getDb();
+        List<String> existing = new java.util.ArrayList<>();
+        db.listCollectionNames().forEach(existing::add);
+
+        createIfAbsent(db, existing, "workouts", workoutsSchema());
+        createIfAbsent(db, existing, "exercises", exercisesSchema());
+        createIfAbsent(db, existing, "templates", null);
+        createIfAbsent(db, existing, "users", null);
+
+        // Indexes (DESIGN §2).
+        db.getCollection("workouts").createIndex(
+                new Document("userId", 1).append("startedAt", -1));
+        db.getCollection("workouts").createIndex(
+                new Document("userId", 1).append("exercises.exerciseId", 1).append("startedAt", -1));
+        db.getCollection("workouts").createIndex(
+                new Document("userId", 1).append("startedAt", 1),
+                new IndexOptions().unique(true).name("uniq_user_startedAt"));
+
+        // exercises: partial-unique on the normalized name, excluding soft-deleted docs.
+        db.getCollection("exercises").createIndex(
+                new Document("userId", 1).append("nameKey", 1),
+                new IndexOptions().unique(true).name("uniq_user_nameKey")
+                        .partialFilterExpression(new Document("deletedAt", new Document("$exists", false))));
+
+        db.getCollection("templates").createIndex(new Document("userId", 1).append("name", 1));
+    }
+
+    private void createIfAbsent(MongoDatabase db, List<String> existing, String name, Document schema) {
+        if (existing.contains(name)) return;
+        CreateCollectionOptions opts = new CreateCollectionOptions();
+        if (schema != null) {
+            opts.validationOptions(new ValidationOptions().validator(new Document("$jsonSchema", schema)));
+        }
+        db.createCollection(name, opts);
+    }
+
+    private Document workoutsSchema() {
+        Document setProps = new Document()
+                .append("weight", new Document("bsonType", List.of("decimal", "null")))
+                .append("loadDelta", new Document("bsonType", List.of("decimal", "null")))
+                .append("setType", new Document("enum", List.of("WARMUP", "WORKING", "DROP", "FAILURE")))
+                .append("loadMode", new Document("bsonType", List.of("string", "null")))
+                .append("rpe", new Document("bsonType", List.of("int", "null")).append("minimum", 1).append("maximum", 10))
+                .append("reps", new Document("bsonType", List.of("int", "null")).append("minimum", 0));
+
+        Document set = new Document("bsonType", "object").append("properties", setProps);
+        Document block = new Document("bsonType", "object")
+                .append("properties", new Document("sets", new Document("bsonType", "array").append("items", set)));
+
+        return new Document("bsonType", "object")
+                .append("required", List.of("userId", "startedAt"))
+                .append("properties", new Document()
+                        .append("startedAt", new Document("bsonType", "date"))
+                        .append("exercises", new Document("bsonType", "array").append("items", block)));
+    }
+
+    private Document exercisesSchema() {
+        return new Document("bsonType", "object")
+                .append("required", List.of("userId", "name", "nameKey"))
+                .append("properties", new Document()
+                        .append("name", new Document("bsonType", "string"))
+                        .append("nameKey", new Document("bsonType", "string"))
+                        .append("isBodyweight", new Document("bsonType", "bool")));
+    }
+}

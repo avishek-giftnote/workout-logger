@@ -1,0 +1,29 @@
+# ── Personal data — NEVER commit (real workout history) ───────────────────────
+strong_workouts.csv
+*.csv
+# Generated import preview (contains expanded personal workout data)
+tools/import_preview.json
+
+# ── Secrets / env ─────────────────────────────────────────────────────────────
+.env
+.env.*
+*.local
+secrets/
+
+# ── Java / Maven ──────────────────────────────────────────────────────────────
+backend/target/
+**/target/
+*.class
+.mvn/
+
+# ── Node / frontend (future) ──────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+*.iml
+.vscode/
+*.log
