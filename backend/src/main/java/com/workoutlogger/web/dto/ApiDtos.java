@@ -1,5 +1,7 @@
 package com.workoutlogger.web.dto;
 
+import com.workoutlogger.domain.Equipment;
+import com.workoutlogger.domain.ExerciseCategory;
 import com.workoutlogger.domain.LoadMode;
 import com.workoutlogger.domain.SetType;
 import jakarta.validation.constraints.NotNull;
@@ -16,9 +18,12 @@ public final class ApiDtos {
     private ApiDtos() {}
 
     // ---- exercises ----
-    public record ExerciseDto(String id, String name, boolean isBodyweight, String defaultUnit) {}
+    public record ExerciseDto(String id, String name, boolean isBodyweight, Equipment equipment,
+                              ExerciseCategory category, String defaultUnit) {}
 
     public record CreateExerciseRequest(@NotNull String name, boolean isBodyweight) {}
+
+    public record UpdateExerciseRequest(@NotNull Equipment equipment) {}
 
     // ---- sets / workouts ----
     public record SetDto(String id, int orderIndex, SetType setType, String weight, LoadMode loadMode,

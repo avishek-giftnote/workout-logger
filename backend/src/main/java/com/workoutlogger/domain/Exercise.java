@@ -19,6 +19,8 @@ public class Exercise {
     private String name;            // verbatim display name
     private String nameKey;         // normalized dedup key
     private boolean isBodyweight;
+    private Equipment equipment;                       // nullable until set; BODYWEIGHT <=> isBodyweight
+    private ExerciseCategory category = ExerciseCategory.STRENGTH;
     private String defaultUnit;     // "kg"
     private int schemaVersion = 1;
     private Instant createdAt;
@@ -37,6 +39,10 @@ public class Exercise {
     public void setNameKey(String nameKey) { this.nameKey = nameKey; }
     public boolean isBodyweight() { return isBodyweight; }
     public void setBodyweight(boolean bodyweight) { isBodyweight = bodyweight; }
+    public Equipment getEquipment() { return equipment; }
+    public void setEquipment(Equipment equipment) { this.equipment = equipment; }
+    public ExerciseCategory getCategory() { return category; }
+    public void setCategory(ExerciseCategory category) { this.category = category; }
     public String getDefaultUnit() { return defaultUnit; }
     public void setDefaultUnit(String defaultUnit) { this.defaultUnit = defaultUnit; }
     public int getSchemaVersion() { return schemaVersion; }

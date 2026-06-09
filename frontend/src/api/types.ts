@@ -7,10 +7,15 @@ export type LoadMode = "BODYWEIGHT" | "ADDED" | "ASSISTED";
 
 export interface AuthResponse { token: string; userId: string; email: string; }
 
+export type Equipment =
+  "DUMBBELL" | "BARBELL" | "SMITH_MACHINE" | "KETTLEBELL" | "MACHINE" | "CABLE" | "BODYWEIGHT";
+
 export interface ExerciseDto {
   id: string;
   name: string;
   isBodyweight: boolean;
+  equipment: Equipment | null;
+  category: string;
   defaultUnit: string;
 }
 

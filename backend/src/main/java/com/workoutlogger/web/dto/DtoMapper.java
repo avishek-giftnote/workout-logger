@@ -18,7 +18,8 @@ public final class DtoMapper {
     public static BigDecimal dec(String v) { return (v == null || v.isBlank()) ? null : new BigDecimal(v.trim()); }
 
     public static ExerciseDto toDto(Exercise e) {
-        return new ExerciseDto(e.getId(), e.getName(), e.isBodyweight(), e.getDefaultUnit());
+        return new ExerciseDto(e.getId(), e.getName(), e.isBodyweight(), e.getEquipment(),
+                e.getCategory(), e.getDefaultUnit());
     }
 
     public static SetDto toDto(WorkoutSet s) {

@@ -149,10 +149,24 @@ public class StrongImporter {
         ex.setName(name);
         ex.setNameKey(StrongParsers.nameKey(name));
         ex.setBodyweight(isBw);
+        ex.setEquipment(isBw ? Equipment.BODYWEIGHT : parseEquipment(name));
+        ex.setCategory(ExerciseCategory.STRENGTH);
         ex.setDefaultUnit("kg");
         ex.setCreatedAt(now);
         ex.setUpdatedAt(now);
         return ex;
+    }
+
+    /** Best-effort equipment from a Strong name suffix; null if unknown (user sets it in the app). */
+    static Equipment parseEquipment(String name) {
+        String n = name.toLowerCase();
+        if (n.contains("(barbell)")) return Equipment.BARBELL;
+        if (n.contains("(dumbbell)")) return Equipment.DUMBBELL;
+        if (n.contains("(cable")) return Equipment.CABLE;          // incl. "(Cable - Straight Bar)"
+        if (n.contains("(machine)") || n.contains("(plate loaded)")) return Equipment.MACHINE;
+        if (n.contains("smith")) return Equipment.SMITH_MACHINE;
+        if (n.contains("kettlebell")) return Equipment.KETTLEBELL;
+        return null;
     }
 
     private static String trim(String s) { return s == null ? null : s.trim(); }

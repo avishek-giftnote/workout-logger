@@ -34,6 +34,13 @@ public class ExerciseController {
         return DtoMapper.toDto(exercises.create(req.name(), req.isBodyweight()));
     }
 
+    /** Set the exercise's equipment (BODYWEIGHT also flips the bodyweight flag). */
+    @PatchMapping("/{id}")
+    public ExerciseDto update(@PathVariable String id, @Valid @RequestBody UpdateExerciseRequest req) {
+        return exercises.setEquipment(id, req.equipment()).map(DtoMapper::toDto)
+                .orElseThrow(() -> new NotFoundException("Exercise " + id + " not found"));
+    }
+
     @GetMapping("/{id}/last-working-set")
     public LastWorkingSetDto lastWorkingSet(@PathVariable String id) {
         return workouts.lastWorkingSet(id).map(DtoMapper::toDto)

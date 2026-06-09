@@ -1,5 +1,6 @@
 package com.workoutlogger.repo;
 
+import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.Exercise;
 import com.workoutlogger.importer.StrongParsers;
 import com.workoutlogger.security.Tenant;
@@ -61,9 +62,20 @@ public class ExerciseRepository {
         e.setName(StrongParsers.normalizeName(name));
         e.setNameKey(nameKey);
         e.setBodyweight(isBodyweight);
+        e.setEquipment(isBodyweight ? Equipment.BODYWEIGHT : null);
         e.setDefaultUnit("kg");
         e.setCreatedAt(now);
         e.setUpdatedAt(now);
         return mongo.insert(e);
+    }
+
+    /** Set an exercise's equipment; BODYWEIGHT keeps the isBodyweight flag in sync. */
+    public Optional<Exercise> setEquipment(String id, Equipment equipment) {
+        return findOne(id).map(e -> {
+            e.setEquipment(equipment);
+            e.setBodyweight(equipment == Equipment.BODYWEIGHT);
+            e.setUpdatedAt(Instant.now());
+            return mongo.save(e);
+        });
     }
 }

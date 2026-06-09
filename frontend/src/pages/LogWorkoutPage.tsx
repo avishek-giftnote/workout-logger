@@ -44,6 +44,8 @@ export default function LogWorkoutPage() {
 
   const setBlock = (key: string, sets: DraftBlock["sets"]) =>
     setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, sets } : b)));
+  const setBlockExercise = (key: string, exercise: ExerciseDto) =>
+    setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, exercise } : b)));
   const removeBlock = (key: string) => setBlocks((bs) => bs.filter((b) => b.key !== key));
   const addExercise = (ex: ExerciseDto) => {
     setBlocks((bs) => bs.some((b) => b.exercise.id === ex.id) ? bs : [...bs, { key: uid(), exercise: ex, sets: [] }]);
@@ -122,6 +124,7 @@ export default function LogWorkoutPage() {
                 key={b.key} block={b} bodyweight={bodyweight}
                 prevSets={prevSetsFor(b.exercise.id)} prevReady={workouts.isSuccess}
                 onChange={(sets) => setBlock(b.key, sets)} onRemove={() => removeBlock(b.key)}
+                onExerciseChange={(ex) => setBlockExercise(b.key, ex)}
               />
             ))}
           </div>

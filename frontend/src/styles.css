@@ -202,6 +202,20 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
   background: linear-gradient(180deg, var(--surface-2), transparent);
 }
 .ex-head h3 { font-size: 18px; }
+.equip-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 9px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
+  padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line-2); color: var(--ink-dim);
+  transition: border-color 0.12s, color 0.12s;
+}
+.equip-chip:hover { border-color: var(--volt); color: var(--ink); }
+.equip-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--volt); }
+
+/* exercise-list rows */
+.ex-row { display: flex; align-items: center; gap: 14px; padding: 15px 18px; }
+.ex-row h3 { font-size: 17px; }
+.ex-row .sub { color: var(--muted); font-size: 12px; margin-top: 4px; font-family: var(--font-mono); }
 .ex-head .lasttime { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 4px; }
 .ex-head .lasttime b { color: var(--ink-dim); }
 

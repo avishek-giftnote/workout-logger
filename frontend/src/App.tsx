@@ -4,6 +4,7 @@ import LoginPage from "./pages/LoginPage";
 import WorkoutsPage from "./pages/WorkoutsPage";
 import WorkoutDetailPage from "./pages/WorkoutDetailPage";
 import EditWorkoutPage from "./pages/EditWorkoutPage";
+import ExerciseListPage from "./pages/ExerciseListPage";
 import LogWorkoutPage from "./pages/LogWorkoutPage";
 
 function Brand() {
@@ -18,16 +19,21 @@ function Brand() {
 
 function Shell() {
   const { signOut } = useAuth();
+  const nav = useNavigate();
   return (
     <div className="app">
       <header className="topbar">
         <Brand />
-        <button className="btn btn-ghost" onClick={signOut}>Sign out</button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn btn-ghost" onClick={() => nav("/exercise-list")}>Exercises</button>
+          <button className="btn btn-ghost" onClick={signOut}>Sign out</button>
+        </div>
       </header>
       <Routes>
         <Route path="/previous-workouts" element={<WorkoutsPage />} />
         <Route path="/previous-workouts/:id" element={<WorkoutDetailPage />} />
         <Route path="/previous-workouts/:id/edit" element={<EditWorkoutPage />} />
+        <Route path="/exercise-list" element={<ExerciseListPage />} />
         <Route path="/start" element={<LogWorkoutPage />} />
         <Route path="*" element={<Navigate to="/previous-workouts" replace />} />
       </Routes>

@@ -1,10 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
-import type { ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput } from "../api/types";
+import type { Equipment, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput } from "../api/types";
 
 export const uid = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+
+/** Strength-training equipment options (cardio comes later). */
+export const EQUIPMENT: { value: Equipment; label: string }[] = [
+  { value: "BARBELL", label: "Barbell" },
+  { value: "DUMBBELL", label: "Dumbbell" },
+  { value: "SMITH_MACHINE", label: "Smith machine" },
+  { value: "KETTLEBELL", label: "Kettlebell" },
+  { value: "MACHINE", label: "Machine" },
+  { value: "CABLE", label: "Cable" },
+  { value: "BODYWEIGHT", label: "Bodyweight" },
+];
+export const equipmentLabel = (e: Equipment | null) =>
+  EQUIPMENT.find((x) => x.value === e)?.label ?? "Set equipment";
 
 /** A set being edited. Live entry fields; `p*` hold previous-session placeholders (new-session mode). */
 export interface DraftSet {
@@ -54,7 +67,7 @@ export function filledSet(prev: SetDto, isBw: boolean): DraftSet {
 }
 
 export const findEx = (catalog: ExerciseDto[], id: string, name: string): ExerciseDto =>
-  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, defaultUnit: "kg" };
+  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg" };
 
 export const templateExercisesFromBlocks = (blocks: DraftBlock[]): TemplateExerciseInput[] =>
   blocks.map((b, i) => ({ exerciseId: b.exercise.id, name: b.exercise.name, position: i, sets: b.sets.length }));
@@ -91,13 +104,21 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
 }
 
 /* ---------------------------------------------------------------- exercise block editor */
-export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, showLast = true, onChange, onRemove }: {
+export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, showLast = true, onChange, onRemove, onExerciseChange }: {
   block: DraftBlock; bodyweight: string; prevSets: SetDto[] | null; prevReady: boolean;
   showLast?: boolean; onChange: (sets: DraftSet[]) => void; onRemove: () => void;
+  onExerciseChange?: (ex: ExerciseDto) => void;
 }) {
+  const qc = useQueryClient();
   const isBw = block.exercise.isBodyweight;
   const seeded = useRef(false);
   const [popupKey, setPopupKey] = useState<string | null>(null);
+  const [equipOpen, setEquipOpen] = useState(false);
+
+  const setEquip = useMutation({
+    mutationFn: (eq: Equipment) => Api.setExerciseEquipment(block.exercise.id, eq),
+    onSuccess: (ex) => { qc.invalidateQueries({ queryKey: ["exercises"] }); onExerciseChange?.(ex); setEquipOpen(false); },
+  });
 
   useEffect(() => {
     if (seeded.current || block.sets.length > 0 || !prevReady) return;
@@ -136,8 +157,11 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
     <section className="card ex-block">
       <div className="ex-head">
         <div>
-          <h3>{block.exercise.name} {isBw && <span className="tag tag-bw">BW</span>}</h3>
+          <h3>{block.exercise.name}</h3>
           {showLast && <div className="lasttime">Last time: <b>{lastLabel}</b></div>}
+          <button className="equip-chip" onClick={() => setEquipOpen(true)}>
+            <span className="dot" /> {equipmentLabel(block.exercise.equipment)}
+          </button>
         </div>
         <button className="icon-btn" title="Remove exercise" onClick={onRemove}>×</button>
       </div>
@@ -205,6 +229,18 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
               onClick={() => { update(popupSet.key, { setType: "WARMUP" }); setPopupKey(null); }}>Warm-up set</button>
             <button className="popup-opt danger"
               onClick={() => { removeSet(popupSet.key); setPopupKey(null); }}>Delete set</button>
+          </div>
+        </div>
+      )}
+
+      {equipOpen && (
+        <div className="popup-backdrop" onClick={() => setEquipOpen(false)}>
+          <div className="popup-card" onClick={(e) => e.stopPropagation()}>
+            <span className="micro">Equipment · strength</span>
+            {EQUIPMENT.map((eq) => (
+              <button key={eq.value} className={`popup-opt${block.exercise.equipment === eq.value ? " on" : ""}`}
+                disabled={setEquip.isPending} onClick={() => setEquip.mutate(eq.value)}>{eq.label}</button>
+            ))}
           </div>
         </div>
       )}
