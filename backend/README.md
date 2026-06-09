@@ -103,11 +103,13 @@ mvn -q spring-boot:run
 | POST | `/api/auth/register` · `/api/auth/login` | get a JWT (`{token,userId,email}`) |
 | GET | `/api/me` · PUT `/api/me/bodyweight` | profile + record current bodyweight |
 | GET/POST | `/api/exercises` | list / create (409 returns existing `exerciseId` on name clash) |
+| PATCH | `/api/exercises/{id}` | set equipment (BODYWEIGHT also flips `isBodyweight`) |
 | GET | `/api/exercises/{id}/last-working-set` | deterministic copy-last-set source (excludes warmups) |
-| GET/POST | `/api/workouts` · GET `/api/workouts/{id}` | list / create / fetch a session |
+| GET/POST · GET | `/api/workouts` · `/api/workouts/{id}` | list / create / fetch a session |
+| PUT · DELETE | `/api/workouts/{id}` | full edit (replace exercises/sets) · soft-delete |
 | PATCH | `/api/workouts/{workoutId}/sets/{setId}` | granular set update (addressed by setId, not position) |
-| DELETE | `/api/workouts/{id}` | soft-delete |
-| GET | `/api/templates` · `/api/templates/{id}` | reconstructed templates |
+| GET/POST · PUT | `/api/templates` · `/api/templates/{id}` | list / create / update (exercises + set counts) |
+| GET/POST · PUT/DELETE | `/api/splits` · `/api/splits/{id}` | named groups of templates (many-to-many) |
 
 Quick smoke test:
 
@@ -129,10 +131,10 @@ npx @openapitools/openapi-generator-cli generate \
   -i http://localhost:8080/v3/api-docs -g typescript-fetch -o ../frontend/src/api
 ```
 
-## Notes / next milestone
+## Notes
 
-- Granular set updates bump `version` + `updatedAt` but do not yet enforce `If-Match` optimistic
+- The React frontend in [`../frontend`](../frontend) consumes this API (hand-written types in
+  `src/api/types.ts`; regenerate from OpenAPI when they drift).
+- Granular set updates bump `version` + `updatedAt` but don't yet enforce `If-Match` optimistic
   locking — that lands with the offline/sync layer (mobile phase).
-- Import remains a **one-time bootstrap** (unique `{userId, startedAt}` index guards duplicates).
-- Next: the **React frontend** (Vite) consuming the generated client — logging screen with the
-  single bodyweight field + `last-working-set` copy, then progress charts.
+- Import is a **one-time bootstrap** (unique `{userId, startedAt}` index guards duplicates).

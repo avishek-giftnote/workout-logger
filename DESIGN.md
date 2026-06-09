@@ -1,9 +1,8 @@
-# Workout Logger — Design (v4)
+# Workout Logger — Design (v5, as-implemented)
 
-> Council synthesis over the real Strong CSV (`strong_workouts.csv`), revised by product-owner
-> directives, then stress-tested by a second council against the v3 MongoDB model. Every empirical
-> claim was verified against the raw file. **v4 folds in the council's refinements; §5 (bodyweight
-> entry) awaits product-owner confirmation.**
+> Council synthesis over the real Strong CSV (`strong_workouts.csv`), every empirical claim verified
+> against the raw file, then built out. The web app (Spring Boot backend + React frontend) is live;
+> this documents the as-implemented design. Mobile and cardio remain future work.
 
 ## 0. Stack & directives (settled)
 
@@ -11,8 +10,9 @@
 - **Frontend:** React (Vite) + CSS SPA over a REST API; OpenAPI-generated TS client.
 - **Database:** MongoDB. **Decimal128** for weights.
 - **Importer:** one-off Java service. Import = **one-time bootstrap**; in-app edits win thereafter.
-- **Scope:** 4 templates — Anterior/Posterior × Upper/Lower focus.
-- **Exercise names:** raw string (no equipment parsing).
+- **Import scope:** 4 templates — Anterior/Posterior × Upper/Lower focus.
+- **Exercise names:** raw string; **equipment is a separate field** (parsed from the name suffix at
+  import, user-settable in the UI). `category` is `STRENGTH` (cardio later).
 - **Mobile:** later, after web is fully built. Keep cheap future-proofing; **don't build the sync
   engine now**.
 - **Bodyweight backfill:** single current bodyweight applied across history (rows flagged estimated).
@@ -40,11 +40,14 @@ session, no exercise re-entry → low-KB docs, far under 16MB; embedding is the 
 
 // exercises  (per-user catalog)
 { _id, userId, name, nameKey,           // nameKey = NFC+casefold+trim; display uses name
-  isBodyweight, defaultUnit,
-  schemaVersion, createdAt, updatedAt, deletedAt }
+  isBodyweight, equipment, category,    // equipment enum (BODYWEIGHT<=>isBodyweight); category=STRENGTH
+  defaultUnit, schemaVersion, createdAt, updatedAt, deletedAt }
 
-// templates  (the 4 scoped templates)
-{ _id, userId, name, exercises: [ { exerciseId, position } ], schemaVersion, createdAt, updatedAt }
+// templates  (1+ exercises, each with a planned set count)
+{ _id, userId, name, exercises: [ { exerciseId, name, position, sets } ], schemaVersion, createdAt, updatedAt }
+
+// splits  (named grouping; many-to-many with templates)
+{ _id, userId, name, templateIds: [ ... ], schemaVersion, createdAt, updatedAt }
 
 // workouts  (core collection)
 { _id, userId, version,                 // version = @Version optimistic lock
@@ -52,10 +55,10 @@ session, no exercise re-entry → low-KB docs, far under 16MB; embedding is the 
   exercises: [
     { exerciseId, name, position, note,         // embedded name = immutable historical snapshot
       sets: [
-        { id,                                   // stable per-set identity (addressable writes)
+        { setId,                                // stable per-set identity — NOT `id` (Spring maps id→_id)
           orderIndex, setType,                  // setType: warmup|working|drop|failure
           weight: Decimal128,                   // canonical effective load
-          loadMode, loadDelta,                  // see §5 (pending confirmation)
+          loadMode, loadDelta,                  // bodyweight decomposition — see §5
           weightUnit, reps, rpe, note,
           loggedAt, estimated,                  // estimated=true for backfilled bodyweight rows
           rawImport, importRowIndex } ] } ],
@@ -65,8 +68,9 @@ session, no exercise re-entry → low-KB docs, far under 16MB; embedding is the 
 additively) when a cardio exercise first exists, so the TS client isn't bloated with untested fields.*
 
 **Indexes:** `workouts {userId, startedAt:-1}`; `workouts {userId, 'exercises.exerciseId', startedAt:-1}`
-(seeds last-working-set); `exercises {userId, nameKey}` **partial unique** `{deletedAt:{$exists:false}}`;
-`workouts {userId, startedAt}` **unique** (import idempotency key, computed from normalized instant).
+(seeds last-working-set); `exercises {userId, nameKey}` **partial unique** on `{nameKey:{$exists:true}}`
+(Mongo forbids `$exists:false` in a partial filter); `workouts {userId, startedAt}` **unique** (import
+idempotency key, computed from normalized instant).
 
 **$jsonSchema validators** per collection: `weight` bsonType `decimal` (reject doubles → no float
 drift); `setType`/`loadMode` enums; `rpe` int 1–10; `reps`/`durationSeconds` ≥ 0; required
@@ -139,21 +143,22 @@ never logged a cumulative `70`, and no bodyweight value exists anywhere in the f
 **Placeholder (decided):** prompt for current bodyweight once at import, apply across history, and
 flag those rows `estimated: true`; going forward, live logs snapshot the latest `bodyweightLog` entry.
 
-## 6. API & web data layer
+## 6. API & web app
 
-- REST (Spring Boot), all `userId`-scoped: workouts / exercises / templates / bodyweight CRUD;
-  one-time import endpoint.
-- **Flat projected DTOs** for exercise-centric reads (never the whole session doc): `last-working-set`
-  returns one set; a per-exercise set time-series feeds charts. Granular set write keyed by
-  `(workoutId, setId)`.
-- Typed **409** on exercise-name conflict (returns the existing `exerciseId`) so the React form
-  resolves to the existing catalog entry instead of erroring.
-- React + TanStack Query, optimistic updates, **online-only** this phase.
+- REST (Spring Boot), all `userId`-scoped: workouts (list/get/create/**edit (PUT, full replace)**/
+  soft-delete + granular set PATCH by `(workoutId, setId)`); exercises (list/create, **PATCH equipment**,
+  `last-working-set`); templates (CRUD); **splits (CRUD)**; `me` + bodyweight. One-time import is a CLI.
+- **Decimals as strings** on the wire; `last-working-set` is a deterministic aggregation (excludes
+  warmups + soft-deleted). Typed **409** on exercise-name conflict returns the existing `exerciseId`.
+- **Frontend** (React + Vite + TanStack Query): Training Log (`/previous-workouts`) with detail/edit,
+  Start (`/start`) — empty or template, splits grouped & collapsible + inline template builder,
+  Exercise List/detail (`/exercise-list`), settings sidebar. Logging engine shared by new + edit
+  sessions; weights stay strings. **Online-only** (no offline sync yet).
 
 ## 7. Deferred / operational (noted, not built now)
 
 - **Mobile sync hooks already in place:** `updatedAt`, `deletedAt` tombstones, `version`, `loggedAt`
-  live-vs-import, `schemaVersion`, stable per-set `id`. Additive later — a `GET /workouts?updatedSince=`
+  live-vs-import, `schemaVersion`, stable per-set `setId`. Additive later — a `GET /workouts?updatedSince=`
   delta-read that *returns* tombstones + a tombstone-retention window makes sync a non-migration.
 - **Open operational items** for the build phase: backup/PITR cadence; GDPR hard-delete vs tombstone
   retention (rawImport embeds original-row PII); offline auth/token-refresh lifecycle; `startedAt`

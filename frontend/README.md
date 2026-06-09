@@ -14,29 +14,34 @@ Start the backend first (`cd ../backend && mvn spring-boot:run`, with MongoDB up
 server proxies `/api/*` to it, so JWT auth and all data flow through the real API.
 
 ```bash
-npm run build        # tsc -b && vite build  (type-checks + production bundle in dist/)
-npm run typecheck
+npm run build        # tsc && vite build  (type-checks + production bundle in dist/)
+npm run typecheck    # tsc --noEmit — the only lint gate; there is no ESLint
 ```
 
 ## Structure
 
 ```
 src/
-  api/      types.ts (mirrors backend ApiDtos) · client.ts (typed fetch + token + ApiError)
-  auth/     auth.tsx (token context; JWT in localStorage)
-  pages/    LoginPage · WorkoutsPage · LogWorkoutPage (the hero)
+  api/        types.ts (mirrors backend DTOs) · client.ts (typed fetch + token + ApiError)
+  logging/    engine.tsx — shared set editor, pickers, helpers (used by new + edit pages)
+  auth/ settings/   token context · localStorage-backed settings (prev-source)
+  pages/      WorkoutsPage · WorkoutDetail/EditWorkoutPage · LogWorkoutPage + StartChooser ·
+              ExerciseList/DetailPage · LoginPage
+  components/  SettingsSidebar
   styles.css   the whole design system (tokens, components, motion)
 ```
 
-## Key UX (per the design council)
+## Key UX
 
-- **Bodyweight delta entry** — calisthenics use a single field: enter the *delta* (`+ Add` / `Assist`)
-  and the app shows the cumulative effective load (`bodyweight ± delta`); it sends `weight` +
-  `loadMode` + `loadDelta` to the API.
-- **One-tap copy-last-set** — each exercise calls `/exercises/{id}/last-working-set` and seeds the
-  first set + the "Last time" line; warmups never pollute it (server excludes them).
-- **Decimal-safe** — weights are kept as strings end-to-end; numbers are only parsed for transient
-  display math, never for storage.
+- **Shared logging engine** (`logging/engine.tsx`) — `ExerciseBlockEditor` etc. reused by the
+  new-session and edit-session pages; change logging UX here, not in the pages.
+- **Bodyweight delta entry** — one field per calisthenics set: enter the *delta* (`+`/`−`), the app
+  shows the cumulative effective load and sends `weight` + `loadMode` + `loadDelta`.
+- **Copy-last-set / placeholders** — seeded from `last-working-set` (warmups excluded); the settings
+  sidebar switches the source between any workout and the same template.
+- **Templates, splits, equipment** — Start groups templates into collapsible splits (with an inline
+  template builder); each exercise has a settable equipment type.
+- **Decimal-safe** — weights stay strings end-to-end; parsed to numbers only for transient display.
 
 ## Regenerating API types from OpenAPI
 
