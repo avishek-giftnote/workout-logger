@@ -20,6 +20,9 @@ importer:
   current-bodyweight-kg: ${IMPORT_BODYWEIGHT:75.0}
   # When false, the importer parses + asserts but does NOT write to MongoDB (no DB required).
   persist: ${IMPORT_PERSIST:false}
+  # Account that owns the imported history (created if absent) so it is reachable via login.
+  user-email: ${IMPORT_USER_EMAIL:importer@example.com}
+  user-password: ${IMPORT_USER_PASSWORD:changeme-via-env}
 
 logging:
   level:
