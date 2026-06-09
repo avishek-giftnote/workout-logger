@@ -263,6 +263,7 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
   width: 100%; max-width: 320px; background: linear-gradient(180deg, var(--surface), var(--surface-2));
   border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--shadow-lg);
   padding: 18px; display: flex; flex-direction: column; gap: 8px;
+  max-height: calc(100dvh - 56px); overflow-y: auto;   /* scroll if taller than the viewport */
 }
 .popup-card .micro { margin-bottom: 4px; }
 .popup-opt {
