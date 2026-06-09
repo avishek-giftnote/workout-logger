@@ -8,48 +8,45 @@ import type {
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
+/** A set being edited. Live entry fields start empty; the previous session's values live in the
+ *  `p*` placeholder fields and are used on save when the matching entry is left blank. */
 interface DraftSet {
   key: string;
   setType: SetType;
-  weight: string;          // external load (non-bodyweight)
-  delta: string;           // bodyweight added/assist magnitude
+  weight: string;                 // external load entry (non-bodyweight)
+  delta: string;                  // bodyweight added/assist entry
   mode: "ADDED" | "ASSISTED";
   reps: string;
   rpe: string;
+  pWeight?: string;               // ── placeholders (last time, per set) ──
+  pDelta?: string;
+  pReps?: string;
+  pRpe?: string;
 }
 interface DraftBlock { key: string; exercise: ExerciseDto; sets: DraftSet[]; }
 
 const blankSet = (setType: SetType = "WORKING"): DraftSet =>
-  ({ key: uid(), setType, weight: "", delta: "0", mode: "ADDED", reps: "", rpe: "" });
+  ({ key: uid(), setType, weight: "", delta: "", mode: "ADDED", reps: "", rpe: "" });
 
-// Reconstruct a draft set from a previously logged set (prefill weights/reps from last time).
-function draftFromSet(s: SetDto, isBw: boolean): DraftSet {
-  const d = blankSet(s.setType);
-  d.reps = s.reps != null ? String(s.reps) : "";
-  d.rpe = s.rpe != null ? String(s.rpe) : "";
+/** Build a draft set whose placeholders carry a previously-logged set's values. */
+function seededSet(prev: SetDto, isBw: boolean): DraftSet {
+  const d = blankSet(prev.setType);
   if (isBw) {
-    d.mode = s.loadMode === "ASSISTED" ? "ASSISTED" : "ADDED";
-    d.delta = s.loadDelta ?? "0";
-  } else {
-    d.weight = s.weight ?? "";
+    d.mode = prev.loadMode === "ASSISTED" ? "ASSISTED" : "ADDED";
+    d.pDelta = prev.loadDelta ?? "0";
+  } else if (prev.weight) {
+    d.pWeight = prev.weight;
   }
+  if (prev.reps != null) d.pReps = String(prev.reps);
+  if (prev.rpe != null) d.pRpe = String(prev.rpe);
   return d;
 }
-const findEx = (catalog: ExerciseDto[], id: string, name: string, isBw: boolean): ExerciseDto =>
-  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: isBw, defaultUnit: "kg" };
 
-// Clone a whole previous session — every exercise + set with its weights/reps.
-const blocksFromWorkout = (w: WorkoutDto, catalog: ExerciseDto[]): DraftBlock[] =>
-  w.exercises.map((b) => {
-    const isBw = b.sets.some((s) => s.loadMode != null) ||
-      (catalog.find((e) => e.id === b.exerciseId)?.isBodyweight ?? false);
-    const ex = findEx(catalog, b.exerciseId, b.name, isBw);
-    return { key: uid(), exercise: ex, sets: b.sets.map((s) => draftFromSet(s, ex.isBodyweight)) };
-  });
+const findEx = (catalog: ExerciseDto[], id: string, name: string): ExerciseDto =>
+  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, defaultUnit: "kg" };
 
-// Fallback when a template has no logged session yet: just its exercise lineup (editor seeds sets).
 const blocksFromTemplate = (t: TemplateDto, catalog: ExerciseDto[]): DraftBlock[] =>
-  t.exercises.map((te) => ({ key: uid(), exercise: findEx(catalog, te.exerciseId, te.name, false), sets: [] }));
+  t.exercises.map((te) => ({ key: uid(), exercise: findEx(catalog, te.exerciseId, te.name), sets: [] }));
 
 export default function LogWorkoutPage() {
   const nav = useNavigate();
@@ -67,15 +64,13 @@ export default function LogWorkoutPage() {
   const startedAt = useMemo(() => new Date(), []);
   const bodyweight = me.data?.currentBodyweightKg ?? "";
 
-  const startEmpty = () => { setTemplateId(null); setBlocks([]); setStarted(true); };
-  const startFromTemplate = (t: TemplateDto) => {
-    const catalog = exercises.data ?? [];
-    const prev = (workouts.data ?? [])
-      .filter((w) => w.templateId === t.id)
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-    setBlocks(prev ? blocksFromWorkout(prev, catalog) : blocksFromTemplate(t, catalog));
-    setTemplateId(t.id);
-    setStarted(true);
+  // Most recent session's sets for a given exercise (API returns workouts newest-first).
+  const prevSetsFor = (exerciseId: string): SetDto[] | null => {
+    for (const w of workouts.data ?? []) {
+      const b = w.exercises.find((e) => e.exerciseId === exerciseId);
+      if (b) return b.sets;
+    }
+    return null;
   };
 
   const setBlock = (key: string, sets: DraftSet[]) =>
@@ -84,6 +79,12 @@ export default function LogWorkoutPage() {
   const addExercise = (ex: ExerciseDto) => {
     setBlocks((bs) => bs.some((b) => b.exercise.id === ex.id) ? bs : [...bs, { key: uid(), exercise: ex, sets: [] }]);
     setPicking(false);
+  };
+  const startEmpty = () => { setTemplateId(null); setBlocks([]); setStarted(true); };
+  const startFromTemplate = (t: TemplateDto) => {
+    setBlocks(blocksFromTemplate(t, exercises.data ?? []));
+    setTemplateId(t.id);
+    setStarted(true);
   };
 
   const totalSets = blocks.reduce((n, b) => n + b.sets.length, 0);
@@ -133,6 +134,7 @@ export default function LogWorkoutPage() {
             {blocks.map((b) => (
               <ExerciseBlockEditor
                 key={b.key} block={b} bodyweight={bodyweight}
+                prevSets={prevSetsFor(b.exercise.id)} prevReady={workouts.isSuccess}
                 onChange={(sets) => setBlock(b.key, sets)} onRemove={() => removeBlock(b.key)}
               />
             ))}
@@ -162,27 +164,175 @@ export default function LogWorkoutPage() {
   );
 }
 
+/** Resolve a field to its entry, falling back to the placeholder (previous value). */
+const orPrev = (entry: string, prev?: string) => (entry.trim() || prev || "");
+
+function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, bodyweight: string) {
+  const reps = orPrev(s.reps, s.pReps);
+  const rpe = orPrev(s.rpe, s.pRpe);
+  let weight: string, loadMode: LoadMode | null, loadDelta: string | null;
+  if (isBw) {
+    const bw = parseFloat(bodyweight || "0");
+    const d = parseFloat(orPrev(s.delta, s.pDelta) || "0");
+    weight = String(s.mode === "ASSISTED" ? bw - d : bw + d);
+    loadMode = d === 0 ? "BODYWEIGHT" : s.mode;
+    loadDelta = String(d);
+  } else {
+    weight = orPrev(s.weight, s.pWeight) || "0";
+    loadMode = null;
+    loadDelta = null;
+  }
+  return {
+    orderIndex, setType: s.setType, weight, loadMode, loadDelta,
+    reps: reps ? parseInt(reps, 10) : null,
+    rpe: rpe ? parseInt(rpe, 10) : null,
+  };
+}
+
+/* ---------------------------------------------------------------- exercise block */
+function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, onChange, onRemove }: {
+  block: DraftBlock; bodyweight: string; prevSets: SetDto[] | null; prevReady: boolean;
+  onChange: (sets: DraftSet[]) => void; onRemove: () => void;
+}) {
+  const isBw = block.exercise.isBodyweight;
+  const seeded = useRef(false);
+  const [popupKey, setPopupKey] = useState<string | null>(null);
+
+  // Seed the block once: one draft set per previous-session set (count + placeholders match).
+  useEffect(() => {
+    if (seeded.current || block.sets.length > 0 || !prevReady) return;
+    seeded.current = true;
+    onChange(prevSets && prevSets.length
+      ? prevSets.map((p) => seededSet(p, isBw))
+      : [blankSet("WORKING")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prevReady]);
+
+  const update = (key: string, patch: Partial<DraftSet>) =>
+    onChange(block.sets.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+  const removeSet = (key: string) => onChange(block.sets.filter((s) => s.key !== key));
+  const copySet = (key: string) => {
+    const i = block.sets.findIndex((s) => s.key === key);
+    if (i < 0) return;
+    const copy: DraftSet = { ...block.sets[i], key: uid(), setType: "WORKING" };
+    const next = [...block.sets];
+    next.splice(i + 1, 0, copy);
+    onChange(next);
+  };
+  const addSet = () => {
+    const last = [...block.sets].reverse().find((s) => s.setType === "WORKING") ?? block.sets[block.sets.length - 1];
+    onChange([...block.sets, last ? { ...last, key: uid(), setType: "WORKING" } : blankSet("WORKING")]);
+  };
+
+  const lastWork = (prevSets ?? []).filter((s) => s.setType === "WORKING").slice(-1)[0];
+  const lastLabel = lastWork
+    ? `${lastWork.loadMode === "ASSISTED" ? "−" : ""}${lastWork.weight} kg × ${lastWork.reps ?? "?"}${prevSets ? ` · ${prevSets.length} sets` : ""}`
+    : "first time";
+
+  const popupSet = popupKey ? block.sets.find((s) => s.key === popupKey) : null;
+  let workingNo = 0;
+
+  return (
+    <section className="card ex-block">
+      <div className="ex-head">
+        <div>
+          <h3>{block.exercise.name} {isBw && <span className="tag tag-bw">BW</span>}</h3>
+          <div className="lasttime">Last time: <b>{lastLabel}</b></div>
+        </div>
+        <button className="icon-btn" title="Remove exercise" onClick={onRemove}>×</button>
+      </div>
+
+      {block.sets.map((s) => {
+        const warm = s.setType === "WARMUP";
+        const idx = warm ? "W" : String(++workingNo);
+        const eff = isBw
+          ? parseFloat(bodyweight || "0") + (s.mode === "ASSISTED" ? -1 : 1) * parseFloat(orPrev(s.delta, s.pDelta) || "0")
+          : null;
+        return (
+          <div key={s.key} className={`set-row${warm ? " is-warmup" : ""}`}>
+            <button className={`set-idx${warm ? " warm" : ""}`} title="Set options"
+              onClick={() => setPopupKey(s.key)}>{idx}<i className="set-idx-caret" /></button>
+
+            {isBw ? (
+              <div className="cell">
+                <span className="micro" style={{ color: Number.isFinite(eff) ? "var(--ice)" : undefined }}>
+                  {Number.isFinite(eff) ? `= ${eff} kg` : "± kg"}
+                </span>
+                <div className="row" style={{ gap: 4 }}>
+                  <button type="button" className="bw-mode" title="Added (+) / Assisted (−)"
+                    onClick={() => update(s.key, { mode: s.mode === "ADDED" ? "ASSISTED" : "ADDED" })}>
+                    {s.mode === "ASSISTED" ? "−" : "+"}
+                  </button>
+                  <input className="cell-input" inputMode="decimal" value={s.delta}
+                    placeholder={s.pDelta ?? "0"} onChange={(e) => update(s.key, { delta: e.target.value })} />
+                </div>
+              </div>
+            ) : (
+              <div className="cell">
+                <span className="micro">kg</span>
+                <input className="cell-input" inputMode="decimal" value={s.weight}
+                  placeholder={s.pWeight ?? "—"} onChange={(e) => update(s.key, { weight: e.target.value })} />
+              </div>
+            )}
+
+            <div className="cell">
+              <span className="micro">reps</span>
+              <input className="cell-input" inputMode="numeric" value={s.reps}
+                placeholder={s.pReps ?? "—"} onChange={(e) => update(s.key, { reps: e.target.value })} />
+            </div>
+            <div className="cell">
+              <span className="micro">rpe</span>
+              <input className="cell-input" inputMode="numeric" value={s.rpe}
+                placeholder={s.pRpe ?? "—"} onChange={(e) => update(s.key, { rpe: e.target.value })} />
+            </div>
+
+            <button className="set-copy" title="Copy this set" onClick={() => copySet(s.key)}>+</button>
+          </div>
+        );
+      })}
+
+      <div className="ex-actions">
+        <button className="btn btn-ghost btn-block" onClick={addSet}>+ Add set</button>
+      </div>
+
+      {popupSet && (
+        <div className="popup-backdrop" onClick={() => setPopupKey(null)}>
+          <div className="popup-card" onClick={(e) => e.stopPropagation()}>
+            <span className="micro">Set {popupSet.setType === "WARMUP" ? "· warm-up" : ""}</span>
+            <button className={`popup-opt${popupSet.setType === "WORKING" ? " on" : ""}`}
+              onClick={() => { update(popupSet.key, { setType: "WORKING" }); setPopupKey(null); }}>Working set</button>
+            <button className={`popup-opt${popupSet.setType === "WARMUP" ? " on" : ""}`}
+              onClick={() => { update(popupSet.key, { setType: "WARMUP" }); setPopupKey(null); }}>Warm-up set</button>
+            <button className="popup-opt danger"
+              onClick={() => { removeSet(popupSet.key); setPopupKey(null); }}>Delete set</button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /* ---------------------------------------------------------------- start chooser */
 function StartChooser({ templates, workouts, onEmpty, onTemplate }: {
   templates: TemplateDto[]; workouts: WorkoutDto[];
   onEmpty: () => void; onTemplate: (t: TemplateDto) => void;
 }) {
-  const lastForTemplate = (id: string) =>
+  const lastFor = (id: string) =>
     workouts.filter((w) => w.templateId === id).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-  const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();   // "Anterior (Upper focus)" -> "Anterior (Upper)"
+  const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();
 
   return (
     <div className="stagger mt">
-      <button className="card w-item choose-empty" onClick={onEmpty}>
+      <button className="card w-item" onClick={onEmpty}>
         <div className="w-date"><span className="d" style={{ color: "var(--volt)" }}>+</span></div>
         <div className="w-meta"><h3>Empty session</h3><div className="sub">Start fresh, add exercises as you go</div></div>
         <div className="w-stat"><span className="micro">blank</span></div>
       </button>
 
-      <p className="micro" style={{ margin: "20px 4px 10px" }}>Or repeat a template — last weights load in</p>
+      <p className="micro" style={{ margin: "20px 4px 10px" }}>Or repeat a template — last sets load in</p>
 
       {templates.map((t) => {
-        const prev = lastForTemplate(t.id);
+        const prev = lastFor(t.id);
         return (
           <button key={t.id} className="card w-item" onClick={() => onTemplate(t)}>
             <div className="w-date">
@@ -201,148 +351,6 @@ function StartChooser({ templates, workouts, onEmpty, onTemplate }: {
         );
       })}
     </div>
-  );
-}
-
-function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, bodyweight: string) {
-  let weight: string, loadMode: LoadMode | null, loadDelta: string | null;
-  if (isBw) {
-    const bw = parseFloat(bodyweight || "0");
-    const d = parseFloat(s.delta || "0");
-    const eff = s.mode === "ASSISTED" ? bw - d : bw + d;
-    weight = String(eff);
-    loadMode = d === 0 ? "BODYWEIGHT" : s.mode;
-    loadDelta = String(d);
-  } else {
-    weight = s.weight.trim() || "0";
-    loadMode = null;
-    loadDelta = null;
-  }
-  return {
-    orderIndex, setType: s.setType, weight, loadMode, loadDelta,
-    reps: s.reps ? parseInt(s.reps, 10) : null,
-    rpe: s.rpe ? parseInt(s.rpe, 10) : null,
-  };
-}
-
-/* ---------------------------------------------------------------- exercise block */
-function ExerciseBlockEditor({ block, bodyweight, onChange, onRemove }: {
-  block: DraftBlock; bodyweight: string;
-  onChange: (sets: DraftSet[]) => void; onRemove: () => void;
-}) {
-  const isBw = block.exercise.isBodyweight;
-  const last = useQuery({
-    queryKey: ["lastWorkingSet", block.exercise.id],
-    queryFn: () => Api.lastWorkingSet(block.exercise.id),
-  });
-  const seeded = useRef(false);
-
-  // Seed the first set from "last time" once the lookup settles — instant prefill.
-  useEffect(() => {
-    if (seeded.current || block.sets.length > 0 || last.isLoading) return;
-    seeded.current = true;
-    onChange([seedFromLast()]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [last.isLoading]);
-
-  function seedFromLast(): DraftSet {
-    const l = last.data;
-    const s = blankSet("WORKING");
-    if (!l) return s;
-    if (isBw) {
-      s.delta = l.loadDelta ?? "0";
-      s.mode = l.loadMode === "ASSISTED" ? "ASSISTED" : "ADDED";
-    } else if (l.weight) {
-      s.weight = l.weight;
-    }
-    if (l.reps != null) s.reps = String(l.reps);
-    return s;
-  }
-
-  const update = (key: string, patch: Partial<DraftSet>) =>
-    onChange(block.sets.map((s) => (s.key === key ? { ...s, ...patch } : s)));
-  const addSet = (type: SetType) => {
-    const prev = [...block.sets].reverse().find((s) => s.setType === "WORKING");
-    const base = prev ? { ...prev, key: uid(), setType: type } : (block.sets.length ? { ...block.sets[block.sets.length - 1], key: uid(), setType: type } : seedFromLast());
-    onChange([...block.sets, { ...base, setType: type }]);
-  };
-  const removeSet = (key: string) => onChange(block.sets.filter((s) => s.key !== key));
-
-  const lt = last.data;
-  const lastLabel = lt
-    ? `${lt.loadMode === "ASSISTED" ? "−" : ""}${lt.weight} kg × ${lt.reps ?? "?"}`
-    : "first time";
-
-  let workingNo = 0;
-  return (
-    <section className="card ex-block">
-      <div className="ex-head">
-        <div>
-          <h3>{block.exercise.name} {isBw && <span className="tag tag-bw">BW</span>}</h3>
-          <div className="lasttime">Last time: <b>{lastLabel}</b></div>
-        </div>
-        <button className="icon-btn" title="Remove exercise" onClick={onRemove}>×</button>
-      </div>
-
-      {isBw && (
-        <div className="bw-row">
-          <span className="micro">Effective = bodyweight {bodyweight || "?"} kg ± entry</span>
-        </div>
-      )}
-
-      {block.sets.map((s) => {
-        const warm = s.setType === "WARMUP";
-        const idx = warm ? "W" : String(++workingNo);
-        const eff = isBw
-          ? (parseFloat(bodyweight || "0") + (s.mode === "ASSISTED" ? -1 : 1) * parseFloat(s.delta || "0"))
-          : null;
-        return (
-          <div key={s.key} className={`set-row${warm ? " is-warmup" : ""}`}>
-            <div className={`set-idx${warm ? " warm" : ""}`}>{idx}</div>
-
-            {isBw ? (
-              <div className="cell" style={{ gridColumn: "span 2" }}>
-                <span className="micro">{s.mode === "ASSISTED" ? "Assist −kg" : "Added +kg"}</span>
-                <div className="row">
-                  <div className="seg">
-                    <button className={s.mode === "ADDED" ? "on" : ""} onClick={() => update(s.key, { mode: "ADDED" })}>+ Add</button>
-                    <button className={s.mode === "ASSISTED" ? "on" : ""} onClick={() => update(s.key, { mode: "ASSISTED" })}>Assist</button>
-                  </div>
-                  <input className="cell-input" inputMode="decimal" value={s.delta}
-                    onChange={(e) => update(s.key, { delta: e.target.value })} placeholder="0" />
-                  <span className="readout" style={{ color: "var(--ice)", whiteSpace: "nowrap" }}>= {Number.isFinite(eff) ? eff : "–"} kg</span>
-                </div>
-              </div>
-            ) : (
-              <div className="cell">
-                <span className="micro">kg</span>
-                <input className="cell-input" inputMode="decimal" value={s.weight}
-                  onChange={(e) => update(s.key, { weight: e.target.value })} placeholder="0" />
-              </div>
-            )}
-
-            {!isBw && <div />}
-
-            <div className="cell">
-              <span className="micro">reps</span>
-              <input className="cell-input" inputMode="numeric" value={s.reps}
-                onChange={(e) => update(s.key, { reps: e.target.value })} placeholder="0" />
-            </div>
-            <div className="cell">
-              <span className="micro">rpe</span>
-              <input className="cell-input" inputMode="numeric" value={s.rpe}
-                onChange={(e) => update(s.key, { rpe: e.target.value })} placeholder="–" />
-            </div>
-            <button className="icon-btn" title="Remove set" onClick={() => removeSet(s.key)}>×</button>
-          </div>
-        );
-      })}
-
-      <div className="ex-actions">
-        <button className="btn btn-volt grow" onClick={() => addSet("WORKING")}>+ Copy last set</button>
-        <button className="btn btn-ghost" onClick={() => addSet("WARMUP")}>+ Warmup</button>
-      </div>
-    </section>
   );
 }
 

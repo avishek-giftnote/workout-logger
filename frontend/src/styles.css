@@ -203,17 +203,61 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
 .ex-head .lasttime b { color: var(--ink-dim); }
 
 .set-row {
-  display: grid; grid-template-columns: 34px 1fr 1fr 56px 40px; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: 36px 1fr 58px 50px 40px; align-items: end; gap: 9px;
   padding: 11px 18px; border-bottom: 1px solid var(--line);
 }
 .set-row:last-child { border-bottom: none; }
 .set-row.is-warmup { background: rgba(255,122,69,0.04); }
 .set-idx {
-  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
-  font-family: var(--font-mono); font-weight: 600; font-size: 13px;
+  position: relative; width: 34px; height: 38px; border-radius: 9px; display: grid; place-items: center;
+  font-family: var(--font-mono); font-weight: 700; font-size: 14px; cursor: pointer;
   background: var(--surface-3); color: var(--ink-dim); border: 1px solid var(--line);
+  transition: border-color 0.12s, color 0.12s;
 }
-.set-idx.warm { color: var(--ember); border-color: rgba(255,122,69,0.4); }
+.set-idx:hover { border-color: var(--line-2); color: var(--ink); }
+.set-idx.warm { color: var(--ember); border-color: rgba(255,122,69,0.45); background: rgba(255,122,69,0.08); }
+.set-idx-caret {
+  position: absolute; right: 4px; bottom: 4px; width: 0; height: 0;
+  border-left: 3px solid transparent; border-right: 3px solid transparent; border-top: 4px solid currentColor; opacity: 0.5;
+}
+.bw-mode {
+  width: 34px; height: 38px; flex: 0 0 34px; border-radius: 7px; cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line-2); color: var(--volt);
+  font-family: var(--font-mono); font-weight: 700; font-size: 18px; line-height: 1;
+}
+.bw-mode:hover { border-color: var(--volt); }
+.set-copy {
+  width: 34px; height: 34px; border-radius: 50%; cursor: pointer; justify-self: center;
+  background: transparent; border: 1.5px solid var(--volt); color: var(--volt);
+  font-family: var(--font-mono); font-weight: 700; font-size: 18px; line-height: 1;
+  display: grid; place-items: center;
+  transition: background 0.12s, transform 0.08s, box-shadow 0.15s;
+}
+.set-copy:hover { background: var(--volt); color: #0a0b0c; box-shadow: 0 6px 18px -8px var(--volt); }
+.set-copy:active { transform: scale(0.92); }
+
+/* set-options popup */
+.popup-backdrop {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: rgba(8,9,10,0.66); backdrop-filter: blur(3px); padding: 24px;
+  animation: fadeUp 0.18s ease both;
+}
+.popup-card {
+  width: 100%; max-width: 320px; background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--shadow-lg);
+  padding: 18px; display: flex; flex-direction: column; gap: 8px;
+}
+.popup-card .micro { margin-bottom: 4px; }
+.popup-opt {
+  text-align: left; padding: 14px 16px; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--ink);
+  font-family: var(--font-mono); font-size: 14px; letter-spacing: 0.02em;
+  transition: border-color 0.12s, background 0.12s;
+}
+.popup-opt:hover { border-color: var(--line-2); }
+.popup-opt.on { border-color: var(--volt); color: var(--volt); box-shadow: inset 0 0 0 1px var(--volt); }
+.popup-opt.danger { color: var(--ember); border-color: rgba(255,122,69,0.3); }
+.popup-opt.danger:hover { border-color: var(--ember); background: rgba(255,122,69,0.08); }
 .cell { display: flex; flex-direction: column; gap: 3px; }
 .cell .micro { font-size: 9px; letter-spacing: 0.14em; }
 .cell-input {
