@@ -101,6 +101,10 @@ public class ImportRunner implements CommandLineRunner {
             log.info("Importing into existing account {}", email);
             return existing;
         }).orElseGet(() -> {
+            if (props.getUserPassword() == null || props.getUserPassword().isBlank()) {
+                throw new IllegalStateException(
+                        "Set IMPORT_USER_PASSWORD to create the import account " + email);
+            }
             User u = new User();
             u.setId(new ObjectId().toHexString());
             u.setEmail(email);

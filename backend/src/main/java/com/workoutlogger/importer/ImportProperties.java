@@ -17,11 +17,13 @@ public class ImportProperties {
     /** When false, parse + assert only (no MongoDB required). When true, write to MongoDB. */
     private boolean persist = false;
 
-    /** Account that owns the imported history (created if absent), so it is reachable via login. */
+    /** Account that owns the imported history (created if absent), so it is reachable via login.
+     *  Override with IMPORT_USER_EMAIL — do NOT commit a real address. */
     private String userEmail = "importer@example.com";
 
-    /** Password set when the import account is created (ignored if the account already exists). */
-    private String userPassword = "changeme-via-env";
+    /** Password set when the import account is created. REQUIRED via IMPORT_USER_PASSWORD when
+     *  persisting; intentionally has no committed default (never store a real password in source). */
+    private String userPassword = "";
 
     public String getCsvPath() { return csvPath; }
     public void setCsvPath(String csvPath) { this.csvPath = csvPath; }

@@ -8,8 +8,9 @@ spring:
 
 security:
   jwt:
-    # MUST be >= 32 bytes. Override in production: SECURITY_JWT_SECRET=...
-    secret: ${SECURITY_JWT_SECRET:set-via-SECURITY_JWT_SECRET}
+    # Provide via SECURITY_JWT_SECRET (>= 32 bytes). No default: blank => an ephemeral random
+    # key is generated at startup (tokens reset on restart) — fine for local dev only.
+    secret: ${SECURITY_JWT_SECRET:}
     expiry-minutes: ${SECURITY_JWT_EXPIRY_MINUTES:10080}
 
 # Importer configuration (used when the "import" profile is active).
@@ -21,8 +22,9 @@ importer:
   # When false, the importer parses + asserts but does NOT write to MongoDB (no DB required).
   persist: ${IMPORT_PERSIST:false}
   # Account that owns the imported history (created if absent) so it is reachable via login.
+  # Provide both via env when persisting; user-password has no default (never commit a real one).
   user-email: ${IMPORT_USER_EMAIL:importer@example.com}
-  user-password: ${IMPORT_USER_PASSWORD:changeme-via-env}
+  user-password: ${IMPORT_USER_PASSWORD:}
 
 logging:
   level:

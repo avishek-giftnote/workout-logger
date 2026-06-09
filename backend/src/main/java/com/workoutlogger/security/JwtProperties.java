@@ -6,8 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "security.jwt")
 public class JwtProperties {
 
-    /** HMAC signing secret. Override in production via SECURITY_JWT_SECRET. */
-    private String secret = "set-via-SECURITY_JWT_SECRET";
+    /** HMAC signing secret (>= 32 bytes), provided via SECURITY_JWT_SECRET. No committed default:
+     *  if blank, an ephemeral random key is generated at startup (fine for local dev). */
+    private String secret = "";
 
     /** Token lifetime in minutes. */
     private long expiryMinutes = 60 * 24 * 7;   // 7 days

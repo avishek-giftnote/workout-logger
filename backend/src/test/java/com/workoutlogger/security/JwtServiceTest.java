@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class JwtServiceTest {
 
     private JwtService service() {
-        JwtProperties p = new JwtProperties();   // default 58-char secret, 7-day expiry
+        JwtProperties p = new JwtProperties();   // blank secret -> ephemeral random key
         return new JwtService(p);
     }
 
