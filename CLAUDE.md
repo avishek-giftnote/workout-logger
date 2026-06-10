@@ -23,12 +23,40 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
 ### Frontend (`cd frontend`, Node)
 - `npm install`, then `npm run dev` (`:5173`, dev-proxies `/api` → `:8080`).
 - `npm run build` (`tsc && vite build`) and `npm run typecheck` — **`tsc --noEmit` (strict) is the lint gate; there is no ESLint.**
-- `npm test` — Vitest unit tests for the logging engine's pure functions (`src/logging/engine.test.ts`).
+- `npm test` — Vitest unit tests for pure functions (`src/**/*.test.ts`: logging engine, periodization).
 - API types in `src/api/types.ts` are hand-written to match the backend DTOs; regenerate from the live
   contract with `npx openapi-typescript http://localhost:8080/v3/api-docs -o src/api/schema.ts` when they drift.
 
 There is no MongoDB in this dev image by default; `brew` can't build `mongodb-community` here (Command Line
 Tools too old). Use MongoDB Atlas (set `MONGODB_URI`) or the official precompiled binary.
+
+## Testing & verification (do this for EVERY functional change)
+
+**Always add/extend tests for what you change, then run the suites — never commit on a manual smoke test
+alone.** A change is "done" only when new behaviour is covered, edge cases are probed, and previously-passing
+tests still pass.
+
+1. **Cover three things, not one:** the happy path; **edge cases** (empty/insufficient data and the gates that
+   guard it, boundary values, nulls on pre-existing docs, same-day/zero-span, unrecognised input); and
+   **regression** — re-run the suites for any feature your change touches.
+2. **Where tests go.** Backend: pure logic → a plain JUnit test that runs in `mvn test` (e.g. `MuscleSeedTest`,
+   `EnergyServiceTest`, `StrongParsersTest`); anything hitting an endpoint/Mongo → add to `ApiIntegrationTest`
+   (gated by `RUN_MONGO_TESTS=1`). Frontend: pure functions → a `*.test.ts` Vitest beside the source
+   (`engine.test.ts`, `periodization.test.ts`). Prefer extracting logic into pure functions so it's testable.
+3. **The pre-commit gate.** Frontend: `npx tsc --noEmit` + `npm test` + `npm run build`. Backend: `mvn test`,
+   and **`RUN_MONGO_TESTS=1 mvn test` whenever you touched an endpoint, DTO, repo, or domain**. Plus a curl
+   smoke test of new/changed endpoints against the running server (matches the live wire shape).
+4. **Project-specific things to always assert:** tenant isolation (user B gets 404 / empty on A's data);
+   decimals-as-strings on the wire (no float drift); additive/nullable fields don't break existing docs;
+   data-sufficiency gates return the "gathering"/insufficient state below threshold. These are the bugs that
+   have actually bitten this codebase (see DESIGN.md / the invariants below).
+5. **Complex or cross-cutting features:** after building, consider convening the **council** (a `Workflow` over
+   the specialists in `.claude/agents/`, see `.claude/agents/README.md`) to review the system end-to-end for
+   correctness, missed edge cases, and regressions — the same way the cardio / energy-balance / progression
+   designs were vetted. Worth it when a change spans backend+frontend+data model or has safety implications.
+
+Current suite size (keep roughly current when you add tests): **backend 38** (`mvn test` runs 25; `+13`
+`ApiIntegrationTest` with `RUN_MONGO_TESTS=1`), **frontend 19** (`npm test`).
 
 ## Architecture (big picture)
 

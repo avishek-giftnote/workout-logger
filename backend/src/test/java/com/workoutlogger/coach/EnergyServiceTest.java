@@ -82,4 +82,23 @@ class EnergyServiceTest {
         EnergyDto e = svc.estimate(user(true, 80.0, 80.0, 8, 28));
         assertThat(e.phase()).isEqualTo("MAINTENANCE");
     }
+
+    @Test
+    void maleGateBoundary_sixWeighInsOverFourteenDays_isReady() {
+        EnergyDto e = svc.estimate(user(true, 80.0, 80.8, 6, 14));
+        assertThat(e.status()).isEqualTo("READY");
+    }
+
+    @Test
+    void femaleNeedsLongerSpan() {
+        User u = user(true, 80.0, 81.6, 8, 16);   // ok for male, below the 21-day female gate
+        u.getProfile().setSex(Sex.FEMALE);
+        assertThat(svc.estimate(u).status()).isEqualTo("GATHERING_DATA");
+    }
+
+    @Test
+    void sameDayWeighIns_dontCrashOrFalselyClassify() {
+        EnergyDto e = svc.estimate(user(true, 80.0, 80.0, 8, 0));   // zero span guard
+        assertThat(e.status()).isEqualTo("GATHERING_DATA");
+    }
 }

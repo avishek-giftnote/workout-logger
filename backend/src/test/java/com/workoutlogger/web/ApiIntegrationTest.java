@@ -32,7 +32,7 @@ class ApiIntegrationTest {
 
     @BeforeEach
     void clean() {
-        for (String c : new String[]{"users", "workouts", "exercises", "templates", "splits"}) {
+        for (String c : new String[]{"users", "workouts", "exercises", "templates", "splits", "plans"}) {
             mongo.getDb().getCollection(c).deleteMany(new org.bson.Document());
         }
     }
@@ -213,5 +213,75 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.exercises[0].sets[0].distanceM").value("5200"))
                 .andExpect(jsonPath("$.exercises[0].sets[0].durationS").value(1574))
                 .andExpect(jsonPath("$.exercises[0].sets[0].cadenceSpm").value(168));
+    }
+
+    @Test
+    void profilePartialUpdateMergesFields() throws Exception {
+        String t = register("prof@example.com");
+        mvc.perform(put("/api/me/profile").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"sex\":\"MALE\",\"heightCm\":\"180\"}"))
+                .andExpect(jsonPath("$.profile.sex").value("MALE"))
+                .andExpect(jsonPath("$.profile.heightCm").value("180"));
+        mvc.perform(put("/api/me/profile").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"goal\":\"GAIN_MUSCLE\"}"))
+                .andExpect(jsonPath("$.profile.sex").value("MALE"))            // preserved across partial update
+                .andExpect(jsonPath("$.profile.goal").value("GAIN_MUSCLE"));
+    }
+
+    @Test
+    void backdatedWeighInKeepsLatestAsCurrent() throws Exception {
+        String t = register("bw@example.com");
+        mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"70.0\"}"))
+                .andExpect(jsonPath("$.currentBodyweightKg").value("70.0"));
+        mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"60.0\",\"recordedAt\":\"2020-01-01\"}"))
+                .andExpect(jsonPath("$.currentBodyweightKg").value("70.0"))    // backdated old weight doesn't change current
+                .andExpect(jsonPath("$.bodyweightLog.length()").value(2));
+    }
+
+    @Test
+    void exerciseMuscleMapSeedsFromNameAndPersists() throws Exception {
+        String t = register("mm@example.com");
+        String ex = createExercise(t, "Barbell Bench Press", false);
+        mvc.perform(get("/api/exercises").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$[0].muscleContributions[?(@.muscle=='CHEST')]").exists());   // seeded on read
+        mvc.perform(patch("/api/exercises/" + ex).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"muscleContributions\":[{\"muscle\":\"LAT\",\"fraction\":\"1.0\"}]}"))
+                .andExpect(jsonPath("$.muscleContributions.length()").value(1))
+                .andExpect(jsonPath("$.muscleContributions[0].muscle").value("LAT"));
+    }
+
+    @Test
+    void workoutCyclePhaseRoundTrips() throws Exception {
+        String t = register("cp@example.com");
+        String ex = createExercise(t, "Squat", false);
+        String body = "{\"startedAt\":\"2026-06-05T10:00:00Z\",\"cyclePhase\":\"DELOAD\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"40\",\"reps\":8}]}]}";
+        String wid = id(mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.cyclePhase").value("DELOAD")).andReturn().getResponse().getContentAsString());
+        mvc.perform(get("/api/workouts/" + wid).header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.cyclePhase").value("DELOAD"));
+    }
+
+    @Test
+    void planLifecycleAndIsolation() throws Exception {
+        String a = register("plana@example.com");
+        String b = register("planb@example.com");
+        mvc.perform(get("/api/plan").header("Authorization", bearer(a))).andExpect(status().isNoContent());
+
+        mvc.perform(post("/api/plan").header("Authorization", bearer(a)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Block\",\"mesocycles\":[{\"name\":\"M1\",\"accumulationWeeks\":2,\"phase\":\"SURPLUS\",\"focusMuscles\":[\"CHEST\"]}]}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.week").value(1));
+        mvc.perform(post("/api/plan/advance").header("Authorization", bearer(a))).andExpect(jsonPath("$.week").value(2));
+        mvc.perform(post("/api/plan/advance").header("Authorization", bearer(a))).andExpect(jsonPath("$.week").value(3)); // deload week
+        mvc.perform(post("/api/plan/advance").header("Authorization", bearer(a))).andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        mvc.perform(get("/api/plan").header("Authorization", bearer(b))).andExpect(status().isNoContent());     // isolation
+        mvc.perform(post("/api/plan/advance").header("Authorization", bearer(b))).andExpect(status().isNotFound());
+        mvc.perform(get("/api/plan").header("Authorization", bearer(a))).andExpect(status().isNoContent());     // completed ≠ active
     }
 }
