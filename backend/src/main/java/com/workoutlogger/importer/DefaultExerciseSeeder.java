@@ -12,14 +12,17 @@ import com.workoutlogger.domain.MuscleContribution;
 import org.bson.types.ObjectId;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import static org.springframework.data.mongodb.core.query.Criteria.where;
 
 /**
  * Seeds a new user's catalog from {@code resources/default-exercises.json} — the shared starting set with
@@ -43,33 +46,46 @@ public class DefaultExerciseSeeder {
 
     public int count() { return seeds.size(); }
 
-    /** Creates the default catalog for a freshly-registered user. */
+    /** Creates the full default catalog for a freshly-registered user (no existing exercises). */
     public void seed(String userId) {
         Instant now = Instant.now();
-        List<Exercise> list = new ArrayList<>(seeds.size());
-        for (Seed s : seeds) {
-            Exercise e = new Exercise();
-            e.setId(new ObjectId().toHexString());
-            e.setUserId(userId);
-            e.setName(StrongParsers.normalizeName(s.name()));
-            e.setNameKey(StrongParsers.nameKey(s.name()));
-            e.setCategory(s.category() == null ? ExerciseCategory.STRENGTH : ExerciseCategory.valueOf(s.category()));
-            e.setEquipment(s.equipment() == null ? null : Equipment.valueOf(s.equipment()));
-            e.setBodyweight(s.isBodyweight());
-            e.setLoadable(s.loadable());
-            e.setLaterality(s.laterality() == null ? null : Laterality.valueOf(s.laterality()));
-            e.setMechanic(s.mechanic() == null ? null : Mechanic.valueOf(s.mechanic()));
-            e.setDefaultUnit("kg");
-            if (s.muscles() != null && !s.muscles().isEmpty()) {
-                e.setMuscleContributions(s.muscles().stream()
-                        .map(m -> new MuscleContribution(Muscle.valueOf(m.muscle()), new BigDecimal(m.fraction())))
-                        .toList());
-            }
-            e.setCreatedAt(now);
-            e.setUpdatedAt(now);
-            list.add(e);
+        mongo.insert(seeds.stream().map(s -> build(s, userId, now)).toList(), Exercise.class);
+    }
+
+    /** Adds only the default exercises this user doesn't already have (by nameKey). Returns the number added. */
+    public int seedMissing(String userId) {
+        var have = mongo.find(new Query(where("userId").is(userId)), Exercise.class).stream()
+                .map(Exercise::getNameKey).collect(Collectors.toSet());
+        Instant now = Instant.now();
+        List<Exercise> add = seeds.stream()
+                .filter(s -> !have.contains(StrongParsers.nameKey(s.name())))
+                .map(s -> build(s, userId, now))
+                .toList();
+        if (!add.isEmpty()) mongo.insert(add, Exercise.class);
+        return add.size();
+    }
+
+    private Exercise build(Seed s, String userId, Instant now) {
+        Exercise e = new Exercise();
+        e.setId(new ObjectId().toHexString());
+        e.setUserId(userId);
+        e.setName(StrongParsers.normalizeName(s.name()));
+        e.setNameKey(StrongParsers.nameKey(s.name()));
+        e.setCategory(s.category() == null ? ExerciseCategory.STRENGTH : ExerciseCategory.valueOf(s.category()));
+        e.setEquipment(s.equipment() == null ? null : Equipment.valueOf(s.equipment()));
+        e.setBodyweight(s.isBodyweight());
+        e.setLoadable(s.loadable());
+        e.setLaterality(s.laterality() == null ? null : Laterality.valueOf(s.laterality()));
+        e.setMechanic(s.mechanic() == null ? null : Mechanic.valueOf(s.mechanic()));
+        e.setDefaultUnit("kg");
+        if (s.muscles() != null && !s.muscles().isEmpty()) {
+            e.setMuscleContributions(s.muscles().stream()
+                    .map(m -> new MuscleContribution(Muscle.valueOf(m.muscle()), new BigDecimal(m.fraction())))
+                    .toList());
         }
-        mongo.insert(list, Exercise.class);
+        e.setCreatedAt(now);
+        e.setUpdatedAt(now);
+        return e;
     }
 
     record Seed(String name, String category, String equipment, boolean isBodyweight, Boolean loadable,

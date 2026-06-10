@@ -72,6 +72,7 @@ export const Api = {
 
   // exercises
   listExercises: () => api<ExerciseDto[]>("/exercises"),
+  restoreDefaultExercises: () => api<{ added: number }>("/exercises/restore-defaults", { method: "POST" }),
   createExercise: (name: string, isBodyweight: boolean, category: string = "STRENGTH",
                    restSeconds?: number | null, cardioMetrics?: CardioMetric[] | null) =>
     api<ExerciseDto>("/exercises", { method: "POST", body: JSON.stringify({ name, isBodyweight, category, restSeconds, cardioMetrics }) }),

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { equipmentLabel } from "../logging/engine";
 
@@ -16,10 +16,15 @@ const fmtDate = (iso: string) =>
 
 export default function ExerciseListPage() {
   const nav = useNavigate();
+  const qc = useQueryClient();
   const exercises = useQuery({ queryKey: ["exercises"], queryFn: Api.listExercises });
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<Sort>("alpha");
+  const restore = useMutation({
+    mutationFn: Api.restoreDefaultExercises,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exercises"] }),
+  });
 
   // Per-exercise stats: how many sessions it appears in, and the most recent date.
   const stats = useMemo(() => {
@@ -53,9 +58,17 @@ export default function ExerciseListPage() {
       <div className="screen-head fade-up">
         <div>
           <h1>Exercises</h1>
-          <p>{(exercises.data ?? []).length} exercises · strength</p>
+          <p>{(exercises.data ?? []).length} exercises</p>
         </div>
+        <button className="btn btn-ghost" disabled={restore.isPending} title="Add any default exercises you're missing"
+          onClick={() => restore.mutate()}>{restore.isPending ? "…" : "+ Defaults"}</button>
       </div>
+
+      {restore.isSuccess && (
+        <p className="muted" style={{ fontSize: 12, margin: "0 4px 10px" }}>
+          {restore.data.added > 0 ? `Added ${restore.data.added} default exercise${restore.data.added === 1 ? "" : "s"}.` : "Your catalog already has all the defaults."}
+        </p>
+      )}
 
       <input className="input mono" placeholder="Search exercises…" value={q}
         onChange={(e) => setQ(e.target.value)} />

@@ -281,6 +281,16 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void restoreDefaultsAddsMissingAndIsIdempotent() throws Exception {
+        String t = register("restore@example.com");                       // seeded with the full catalog
+        mongo.getDb().getCollection("exercises").deleteOne(new org.bson.Document("name", "Plank"));   // user now missing one
+        mvc.perform(post("/api/exercises/restore-defaults").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.added").value(1));                  // re-adds the missing default
+        mvc.perform(post("/api/exercises/restore-defaults").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.added").value(0));                  // nothing left to add — no duplicates
+    }
+
+    @Test
     void workoutCyclePhaseRoundTrips() throws Exception {
         String t = register("cp@example.com");
         String ex = createExercise(t, "Squat", false);
