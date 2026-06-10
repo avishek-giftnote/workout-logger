@@ -1,5 +1,5 @@
 import type {
-  AuthResponse, CardioMetric, CreateWorkoutRequest, Equipment, ExerciseDto, LastWorkingSetDto,
+  AuthResponse, CardioMetric, CreateWorkoutRequest, EnergyDto, Equipment, ExerciseDto, LastWorkingSetDto,
   MeDto, MuscleContributionDto, SaveSplitRequest, SaveTemplateRequest, SplitDto, TemplateDto,
   UpdateProfileRequest, WorkoutDto,
 } from "./types";
@@ -59,6 +59,7 @@ export const Api = {
     api<MeDto>("/me/bodyweight", { method: "PUT", body: JSON.stringify({ weightKg }) }),
   updateProfile: (patch: UpdateProfileRequest) =>
     api<MeDto>("/me/profile", { method: "PUT", body: JSON.stringify(patch) }),
+  energy: () => api<EnergyDto>("/me/energy"),
 
   // exercises
   listExercises: () => api<ExerciseDto[]>("/exercises"),

@@ -95,4 +95,11 @@ public final class ApiDtos {
     /** Partial profile update — only non-null fields are applied. dateOfBirth is ISO yyyy-MM-dd. */
     public record UpdateProfileRequest(String dateOfBirth, String heightCm, Sex sex, Goal goal,
                                        ActivityLevel activityLevel, Integer initialIntakeKcal) {}
+
+    /** Read-time energy-balance estimate (see docs/coach.md). Derived, never stored. NOT medical advice. */
+    public record EnergyDto(String status, String phase, String confidence,
+                            int weighIns, int spanDays, int minWeighIns, int minSpanDays,
+                            String ratePerWeekKg, Integer maintenanceKcalLow, Integer maintenanceKcalHigh,
+                            Integer surplusDeficitKcalLow, Integer surplusDeficitKcalHigh,
+                            List<String> missingProfile) {}
 }

@@ -151,3 +151,19 @@ export interface MeDto {
   bodyweightLog: BodyweightEntryDto[];
   profile: ProfileDto | null;
 }
+
+export interface EnergyDto {
+  status: "GATHERING_DATA" | "READY";
+  phase: "SURPLUS" | "DEFICIT" | "MAINTENANCE" | "UNKNOWN";
+  confidence: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+  weighIns: number;
+  spanDays: number;
+  minWeighIns: number;
+  minSpanDays: number;
+  ratePerWeekKg: string | null;
+  maintenanceKcalLow: number | null;
+  maintenanceKcalHigh: number | null;
+  surplusDeficitKcalLow: number | null;
+  surplusDeficitKcalHigh: number | null;
+  missingProfile: string[];
+}

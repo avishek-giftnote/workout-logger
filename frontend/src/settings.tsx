@@ -15,6 +15,8 @@ interface SettingsCtx {
   setRestTimerEnabled: (v: boolean) => void;
   charts: string[];                    // which graphs to show on exercise/template pages
   toggleChart: (key: string) => void;
+  coachEnabled: boolean;               // show the energy-balance Coach card
+  setCoachEnabled: (v: boolean) => void;
 }
 
 const KEY = "wl.settings.prevSource";
@@ -22,6 +24,7 @@ const RPE_KEY = "wl.settings.showRpe";
 const REST_KEY = "wl.settings.restTarget";
 const REST_ON_KEY = "wl.settings.restTimerEnabled";
 const CHARTS_KEY = "wl.settings.charts";
+const COACH_KEY = "wl.settings.coachEnabled";
 const Ctx = createContext<SettingsCtx | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -50,7 +53,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return next;
   });
 
-  return <Ctx.Provider value={{ prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget, restTimerEnabled, setRestTimerEnabled, charts, toggleChart }}>{children}</Ctx.Provider>;
+  const [coachEnabled, setCoachState] = useState<boolean>(() => localStorage.getItem(COACH_KEY) !== "false");
+  const setCoachEnabled = (v: boolean) => { localStorage.setItem(COACH_KEY, String(v)); setCoachState(v); };
+
+  return <Ctx.Provider value={{ prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget, restTimerEnabled, setRestTimerEnabled, charts, toggleChart, coachEnabled, setCoachEnabled }}>{children}</Ctx.Provider>;
 }
 
 export function useSettings(): SettingsCtx {

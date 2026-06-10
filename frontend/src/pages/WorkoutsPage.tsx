@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import { useSettings } from "../settings";
+import CoachCard from "../components/CoachCard";
 import type { WorkoutDto } from "../api/types";
 
 function workingVolume(w: WorkoutDto): number {
@@ -24,6 +26,7 @@ const VIEW_KEY = "wl.logView";
 export default function WorkoutsPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
+  const { coachEnabled } = useSettings();
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
   const [view, setView] = useState<"list" | "calendar">(() => (localStorage.getItem(VIEW_KEY) as "list" | "calendar") || "calendar");
@@ -80,6 +83,8 @@ export default function WorkoutsPage() {
         </div>
         <button className="btn btn-volt" onClick={() => nav("/start")}>+ New</button>
       </div>
+
+      {coachEnabled && <CoachCard />}
 
       {!empty && (
         <div className="seg fade-up" style={{ marginBottom: 16 }}>

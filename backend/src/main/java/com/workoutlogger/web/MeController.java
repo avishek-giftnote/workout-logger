@@ -1,10 +1,12 @@
 package com.workoutlogger.web;
 
+import com.workoutlogger.coach.EnergyService;
 import com.workoutlogger.domain.BodyweightEntry;
 import com.workoutlogger.domain.Profile;
 import com.workoutlogger.domain.User;
 import com.workoutlogger.repo.UserRepository;
 import com.workoutlogger.security.Tenant;
+import com.workoutlogger.web.dto.ApiDtos.EnergyDto;
 import com.workoutlogger.web.dto.ApiDtos.MeDto;
 import com.workoutlogger.web.dto.ApiDtos.SetBodyweightRequest;
 import com.workoutlogger.web.dto.ApiDtos.UpdateProfileRequest;
@@ -22,10 +24,18 @@ public class MeController {
 
     private final UserRepository users;
     private final Tenant tenant;
+    private final EnergyService energy;
 
-    public MeController(UserRepository users, Tenant tenant) {
+    public MeController(UserRepository users, Tenant tenant, EnergyService energy) {
         this.users = users;
         this.tenant = tenant;
+        this.energy = energy;
+    }
+
+    /** Read-time energy-balance estimate (derived; never stored). */
+    @GetMapping("/energy")
+    public EnergyDto energy() {
+        return energy.estimate(current());
     }
 
     private User current() {

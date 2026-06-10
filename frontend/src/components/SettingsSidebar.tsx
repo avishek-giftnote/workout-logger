@@ -15,7 +15,7 @@ const ACTIVITY_OPTS: { v: ActivityLevel; label: string }[] = [{ v: "SEDENTARY", 
 export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signOut } = useAuth();
   const { prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget,
-    restTimerEnabled, setRestTimerEnabled, charts, toggleChart } = useSettings();
+    restTimerEnabled, setRestTimerEnabled, charts, toggleChart, coachEnabled, setCoachEnabled } = useSettings();
   const strengthCharts = EXERCISE_CHARTS.filter((c) => !c.cardio);
   const cardioCharts = EXERCISE_CHARTS.filter((c) => c.cardio);
   const REST_PRESETS: { v: number; label: string }[] = [
@@ -129,6 +129,17 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
             onBlur={() => { const n = parseInt(kcal, 10); saveProfile.mutate({ initialIntakeKcal: isNaN(n) ? null : n }); }} />
           <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
             A rough current intake — a one-time starting point. The app infers the rest from your weight trend.
+          </p>
+        </div>
+
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>Coach (energy estimate)</label>
+          <div className="seg" style={{ width: "100%", marginTop: 4 }}>
+            <button className={coachEnabled ? "on" : ""} style={{ flex: 1 }} onClick={() => setCoachEnabled(true)}>On</button>
+            <button className={!coachEnabled ? "on" : ""} style={{ flex: 1 }} onClick={() => setCoachEnabled(false)}>Off</button>
+          </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            A surplus/deficit/maintenance estimate from your weight trend, shown on the Training Log. Not medical advice.
           </p>
         </div>
 
