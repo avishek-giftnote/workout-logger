@@ -13,7 +13,7 @@ function workoutToBlocks(w: WorkoutDto, catalog: ExerciseDto[]): DraftBlock[] {
     const cat = catalog.find((e) => e.id === b.exerciseId);
     const isBw = cat?.isBodyweight ?? b.sets.some((s) => s.loadMode != null);
     const exercise: ExerciseDto = { ...findEx(catalog, b.exerciseId, b.name), isBodyweight: isBw };
-    return { key: uid(), exercise, sets: b.sets.map((s) => filledSet(s, isBw)) };
+    return { key: uid(), exercise, sets: b.sets.map((s) => filledSet(s, isBw)), note: b.note ?? undefined };
   });
 }
 
@@ -42,7 +42,14 @@ export default function EditWorkoutPage() {
     setBlocks((bs) => (bs ?? []).map((b) => (b.key === key ? { ...b, sets } : b)));
   const setBlockExercise = (key: string, exercise: ExerciseDto) =>
     setBlocks((bs) => (bs ?? []).map((b) => (b.key === key ? { ...b, exercise } : b)));
+  const setBlockNote = (key: string, note: string) =>
+    setBlocks((bs) => (bs ?? []).map((b) => (b.key === key ? { ...b, note } : b)));
   const removeBlock = (key: string) => setBlocks((bs) => (bs ?? []).filter((b) => b.key !== key));
+  const moveBlock = (key: string, dir: -1 | 1) => setBlocks((bs) => {
+    const arr = bs ?? []; const i = arr.findIndex((b) => b.key === key), j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return bs;
+    const next = [...arr]; [next[i], next[j]] = [next[j], next[i]]; return next;
+  });
   const addExercise = (ex: ExerciseDto) => {
     setBlocks((bs) => (bs ?? []).some((b) => b.exercise.id === ex.id) ? bs : [...(bs ?? []), { key: uid(), exercise: ex, sets: [] }]);
     setPicking(false);
@@ -55,7 +62,7 @@ export default function EditWorkoutPage() {
         startedAt: w.startedAt,
         templateId: w.templateId ?? undefined,
         exercises: (blocks ?? []).map((b, i) => ({
-          exerciseId: b.exercise.id, name: b.exercise.name, position: i,
+          exerciseId: b.exercise.id, name: b.exercise.name, position: i, note: b.note?.trim() || undefined,
           sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe, isCardioEx(b.exercise))),
         })),
       };
@@ -84,11 +91,14 @@ export default function EditWorkoutPage() {
       </div>
 
       <div className="stagger">
-        {blocks.map((b) => (
+        {blocks.map((b, i) => (
           <ExerciseBlockEditor
             key={b.key} block={b} bodyweight={bodyweight} prevSets={null} prevReady showLast={false}
             onChange={(sets) => setBlock(b.key, sets)} onRemove={() => removeBlock(b.key)}
             onExerciseChange={(ex) => setBlockExercise(b.key, ex)}
+            onMoveUp={i > 0 ? () => moveBlock(b.key, -1) : undefined}
+            onMoveDown={i < blocks.length - 1 ? () => moveBlock(b.key, 1) : undefined}
+            onNoteChange={(note) => setBlockNote(b.key, note)}
           />
         ))}
       </div>

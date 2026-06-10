@@ -8,6 +8,7 @@ import {
   templateExercisesFromBlocks, toCreateSet, uid,
 } from "../logging/engine";
 import { useSettings } from "../settings";
+import RestTimer from "../components/RestTimer";
 import StartChooser from "./StartChooser";
 
 const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();
@@ -36,7 +37,8 @@ export default function LogWorkoutPage() {
   const bodyweight = me.data?.currentBodyweightKg ?? "";
   const sourceTemplate = templates.data?.find((t) => t.id === templateId) ?? null;
   const done = () => nav("/previous-workouts");
-  const { prevSource, showRpe } = useSettings();
+  const { prevSource, showRpe, restTarget } = useSettings();
+  const [restStart, setRestStart] = useState<number | null>(null);
 
   const prevSetsFor = (exerciseId: string) => {
     for (const w of workouts.data ?? []) {
@@ -52,7 +54,14 @@ export default function LogWorkoutPage() {
     setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, sets } : b)));
   const setBlockExercise = (key: string, exercise: ExerciseDto) =>
     setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, exercise } : b)));
+  const setBlockNote = (key: string, note: string) =>
+    setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, note } : b)));
   const removeBlock = (key: string) => setBlocks((bs) => bs.filter((b) => b.key !== key));
+  const moveBlock = (key: string, dir: -1 | 1) => setBlocks((bs) => {
+    const i = bs.findIndex((b) => b.key === key), j = i + dir;
+    if (i < 0 || j < 0 || j >= bs.length) return bs;
+    const next = [...bs]; [next[i], next[j]] = [next[j], next[i]]; return next;
+  });
   const addExercise = (ex: ExerciseDto) => {
     setBlocks((bs) => bs.some((b) => b.exercise.id === ex.id) ? bs : [...bs, { key: uid(), exercise: ex, sets: [] }]);
     setPicking(false);
@@ -81,6 +90,7 @@ export default function LogWorkoutPage() {
           exerciseId: b.exercise.id,
           name: b.exercise.name,
           position: i,
+          note: b.note?.trim() || undefined,
           sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe, isCardioEx(b.exercise))),
         })),
       };
@@ -132,12 +142,16 @@ export default function LogWorkoutPage() {
       ) : (
         <>
           <div className="stagger">
-            {blocks.map((b) => (
+            {blocks.map((b, i) => (
               <ExerciseBlockEditor
                 key={b.key} block={b} bodyweight={bodyweight}
                 prevSets={prevSetsFor(b.exercise.id)} prevReady={workouts.isSuccess}
                 onChange={(sets) => setBlock(b.key, sets)} onRemove={() => removeBlock(b.key)}
                 onExerciseChange={(ex) => setBlockExercise(b.key, ex)}
+                onSetCompleted={() => setRestStart(Date.now())}
+                onMoveUp={i > 0 ? () => moveBlock(b.key, -1) : undefined}
+                onMoveDown={i < blocks.length - 1 ? () => moveBlock(b.key, 1) : undefined}
+                onNoteChange={(note) => setBlockNote(b.key, note)}
               />
             ))}
           </div>
@@ -152,6 +166,8 @@ export default function LogWorkoutPage() {
           )}
 
           {error && <p className="err mt">{error}</p>}
+
+          <RestTimer start={restStart} target={restTarget} onDismiss={() => setRestStart(null)} />
 
           <div className="action-bar">
             <button className="btn btn-ghost grow" onClick={() => nav("/previous-workouts")}>Discard</button>

@@ -7,7 +7,11 @@ import { useSettings } from "../settings";
 /** Slide-out settings panel; closes when the backdrop (anywhere outside) is clicked. */
 export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signOut } = useAuth();
-  const { prevSource, setPrevSource, showRpe, setShowRpe } = useSettings();
+  const { prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget } = useSettings();
+  const REST_PRESETS: { v: number; label: string }[] = [
+    { v: 0, label: "Off" }, { v: 60, label: "1:00" }, { v: 90, label: "1:30" },
+    { v: 120, label: "2:00" }, { v: 180, label: "3:00" },
+  ];
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ["me"], queryFn: Api.me, enabled: open });
   const [bw, setBw] = useState("");
@@ -65,6 +69,19 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
           </div>
           <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
             Hiding removes the RPE input while off; previously logged RPE is kept and returns when you show it again.
+          </p>
+        </div>
+
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>Rest timer target</label>
+          <div className="seg" style={{ width: "100%", marginTop: 4 }}>
+            {REST_PRESETS.map((p) => (
+              <button key={p.v} className={restTarget === p.v ? "on" : ""} style={{ flex: 1, fontSize: 11 }}
+                onClick={() => setRestTarget(p.v)}>{p.label}</button>
+            ))}
+          </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            A rest timer starts when you tick a set ✓; it highlights once the target is reached.
           </p>
         </div>
 

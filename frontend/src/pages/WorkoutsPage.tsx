@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import { TrendChart } from "../components/Chart";
 import type { WorkoutDto } from "../api/types";
 
 function workingVolume(w: WorkoutDto): number {
@@ -32,6 +33,11 @@ export default function WorkoutsPage() {
     return (w: WorkoutDto) => (w.templateId && map.get(w.templateId)) || w.exercises[0]?.name || "Workout";
   }, [templates.data]);
 
+  // working volume per session, oldest → newest (excludes warmups)
+  const volPoints = useMemo(() =>
+    [...(workouts.data ?? [])].reverse().map((w) => ({ label: w.startedAt, value: workingVolume(w) })),
+    [workouts.data]);
+
   return (
     <main className="screen">
       <div className="screen-head fade-up">
@@ -43,6 +49,13 @@ export default function WorkoutsPage() {
       </div>
 
       {workouts.isLoading && <div className="spinner" />}
+
+      {volPoints.length >= 2 && (
+        <div className="card card-pad fade-up" style={{ marginBottom: 18 }}>
+          <span className="micro">Working volume (kg) per session</span>
+          <div className="mt"><TrendChart points={volPoints} color="var(--volt)" /></div>
+        </div>
+      )}
 
       {workouts.data && workouts.data.length === 0 && (
         <div className="empty fade-up">

@@ -44,7 +44,7 @@ export interface DraftSet {
   pDistance?: string;
   pTime?: string;
 }
-export interface DraftBlock { key: string; exercise: ExerciseDto; sets: DraftSet[]; }
+export interface DraftBlock { key: string; exercise: ExerciseDto; sets: DraftSet[]; note?: string }
 
 export const blankSet = (setType: SetType = "WORKING"): DraftSet =>
   ({ key: uid(), setType, weight: "", delta: "", mode: "ADDED", reps: "", rpe: "" });
@@ -161,10 +161,11 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
 }
 
 /* ---------------------------------------------------------------- exercise block editor */
-export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, showLast = true, onChange, onRemove, onExerciseChange }: {
+export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, showLast = true, onChange, onRemove, onExerciseChange, onSetCompleted, onMoveUp, onMoveDown, onNoteChange }: {
   block: DraftBlock; bodyweight: string; prevSets: SetDto[] | null; prevReady: boolean;
   showLast?: boolean; onChange: (sets: DraftSet[]) => void; onRemove: () => void;
-  onExerciseChange?: (ex: ExerciseDto) => void;
+  onExerciseChange?: (ex: ExerciseDto) => void; onSetCompleted?: () => void;
+  onMoveUp?: () => void; onMoveDown?: () => void; onNoteChange?: (note: string) => void;
 }) {
   const qc = useQueryClient();
   const { showRpe } = useSettings();
@@ -191,6 +192,14 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
   const update = (key: string, patch: Partial<DraftSet>) =>
     onChange(block.sets.map((s) => (s.key === key ? { ...s, ...patch } : s)));
   const removeSet = (key: string) => onChange(block.sets.filter((s) => s.key !== key));
+  const moveSet = (key: string, dir: -1 | 1) => {
+    const i = block.sets.findIndex((s) => s.key === key);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= block.sets.length) return;
+    const next = [...block.sets];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
   const copySet = (key: string) => {
     const i = block.sets.findIndex((s) => s.key === key);
     if (i < 0) return;
@@ -214,6 +223,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
     else if (isBw) { fill("delta", s.pDelta); fill("reps", s.pReps); fill("rpe", s.pRpe); }
     else { fill("weight", s.pWeight); fill("reps", s.pReps); fill("rpe", s.pRpe); }
     update(s.key, p);
+    onSetCompleted?.();   // (re)start the rest timer
   };
 
   const lastWork = (prevSets ?? []).filter((s) => s.setType === "WORKING").slice(-1)[0];
@@ -239,7 +249,11 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
             </button>
           )}
         </div>
-        <button className="icon-btn" title="Remove exercise" onClick={onRemove}>×</button>
+        <div className="row" style={{ gap: 2 }}>
+          {onMoveUp && <button className="icon-btn" title="Move up" onClick={onMoveUp}>↑</button>}
+          {onMoveDown && <button className="icon-btn" title="Move down" onClick={onMoveDown}>↓</button>}
+          <button className="icon-btn" title="Remove exercise" onClick={onRemove}>×</button>
+        </div>
       </div>
 
       {block.sets.map((s) => {
@@ -330,6 +344,11 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
         );
       })}
 
+      {onNoteChange && (
+        <input className="ex-note" placeholder="Note (optional)…" value={block.note ?? ""}
+          onChange={(e) => onNoteChange(e.target.value)} />
+      )}
+
       <div className="ex-actions">
         <button className="btn btn-ghost btn-block" onClick={addSet}>+ Add set</button>
       </div>
@@ -344,6 +363,12 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
               onClick={() => { update(popupSet.key, { setType: "WARMUP" }); setPopupKey(null); }}>Warm-up set</button>
             <button className="popup-opt"
               onClick={() => { copySet(popupSet.key); setPopupKey(null); }}>Duplicate set</button>
+            <div className="row" style={{ gap: 6 }}>
+              <button className="popup-opt grow" disabled={block.sets[0]?.key === popupSet.key}
+                onClick={() => { moveSet(popupSet.key, -1); setPopupKey(null); }}>↑ Move up</button>
+              <button className="popup-opt grow" disabled={block.sets[block.sets.length - 1]?.key === popupSet.key}
+                onClick={() => { moveSet(popupSet.key, 1); setPopupKey(null); }}>↓ Move down</button>
+            </div>
             <button className="popup-opt danger"
               onClick={() => { removeSet(popupSet.key); setPopupKey(null); }}>Delete set</button>
           </div>

@@ -76,6 +76,7 @@ export default function WorkoutDetailPage() {
           return (
             <section key={b.exerciseId + b.position} className="card ex-block">
               <div className="ex-head"><h3>{b.name}</h3></div>
+              {b.note && <div className="block-note">“{b.note}”</div>}
               {b.sets.map((s, i) => {
                 const warm = s.setType === "WARMUP";
                 return (

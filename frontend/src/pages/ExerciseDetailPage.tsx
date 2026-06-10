@@ -2,17 +2,47 @@ import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Api } from "../api/client";
-import { equipmentLabel } from "../logging/engine";
+import { equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
+import { TrendChart, type Point } from "../components/Chart";
 import type { SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+const est1rm = (weight: number, reps: number) => weight * (1 + reps / 30);   // Epley
 
 function loadLabel(s: SetDto): string {
+  if (s.kind === "CARDIO") {
+    const parts: string[] = [];
+    if (s.distanceM) parts.push(`${(parseFloat(s.distanceM) / 1000).toFixed(2)} km`);
+    if (s.durationS != null) parts.push(fmtTime(s.durationS));
+    if (s.distanceM && s.durationS) {
+      const ps = paceSpeed(parseFloat(s.distanceM) / 1000, s.durationS);
+      if (ps) parts.push(ps.pace);
+    }
+    return parts.join(" · ") || "—";
+  }
   if (s.loadMode === "BODYWEIGHT") return `${s.weight} kg · BW`;
   if (s.loadMode === "ADDED") return `${s.weight} kg · BW +${s.loadDelta}`;
   if (s.loadMode === "ASSISTED") return `${s.weight} kg · assist −${s.loadDelta}`;
   return `${s.weight ?? "—"} kg`;
+}
+
+function Stat({ value, label, color }: { value: string; label: string; color: string }) {
+  return (
+    <div className="card card-pad grow" style={{ textAlign: "center" }}>
+      <b className="mono" style={{ fontSize: 22, color }}>{value}</b>
+      <div className="micro mt">{label}</div>
+    </div>
+  );
+}
+function ChartCard({ title, points, color }: { title: string; points: Point[]; color: string }) {
+  return (
+    <div className="card card-pad" style={{ marginBottom: 12 }}>
+      <span className="micro">{title}</span>
+      <div className="mt"><TrendChart points={points} color={color} /></div>
+    </div>
+  );
 }
 
 export default function ExerciseDetailPage() {
@@ -23,6 +53,7 @@ export default function ExerciseDetailPage() {
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
 
   const ex = (exercises.data ?? []).find((e) => e.id === id);
+  const cardio = ex ? isCardioEx(ex) : false;
   const tName = useMemo(() => {
     const m = new Map((templates.data ?? []).map((t: TemplateDto) => [t.id, t.name]));
     return (w: WorkoutDto) => (w.templateId && m.get(w.templateId)) || "Workout";
@@ -33,15 +64,32 @@ export default function ExerciseDetailPage() {
     .filter((x): x is { w: WorkoutDto; block: NonNullable<typeof x.block> } => !!x.block)
     .sort((a, b) => b.w.startedAt.localeCompare(a.w.startedAt)), [workouts.data, id]);
 
-  const best = useMemo(() => {
-    let top: { weight: number; reps: number | null } | null = null;
-    for (const { block } of history)
-      for (const s of block.sets)
-        if (s.setType === "WORKING" && s.weight) {
-          const wgt = parseFloat(s.weight);
-          if (!top || wgt > top.weight) top = { weight: wgt, reps: s.reps };
+  // chronological (oldest → newest) for trend charts
+  const stats = useMemo(() => {
+    const asc = [...history].reverse();
+    const oneRm: Point[] = [], vol: Point[] = [], dist: Point[] = [];
+    let topW = 0, topWReps = 0, bestRm = 0, bestVol = 0, longDist = 0, fastPace = Infinity, longTime = 0;
+    for (const { w, block } of asc) {
+      let s1 = 0, sv = 0, sd = 0;
+      for (const s of block.sets) {
+        if (s.kind === "CARDIO") {
+          if (s.distanceM) { const m = parseFloat(s.distanceM); sd += m; longDist = Math.max(longDist, m); }
+          if (s.durationS != null) longTime = Math.max(longTime, s.durationS);
+          if (s.distanceM && s.durationS) fastPace = Math.min(fastPace, s.durationS / (parseFloat(s.distanceM) / 1000));
+        } else if (s.setType === "WORKING" && s.weight) {
+          const wgt = parseFloat(s.weight), reps = s.reps ?? 1;
+          s1 = Math.max(s1, est1rm(wgt, reps)); sv += wgt * (s.reps ?? 0);
+          if (wgt > topW) { topW = wgt; topWReps = s.reps ?? 0; }
+          bestRm = Math.max(bestRm, est1rm(wgt, reps));
         }
-    return top;
+      }
+      const label = w.startedAt;
+      if (s1 > 0) oneRm.push({ label, value: Math.round(s1) });
+      if (sv > 0) vol.push({ label, value: Math.round(sv) });
+      if (sd > 0) dist.push({ label, value: +(sd / 1000).toFixed(2) });
+    }
+    bestVol = vol.reduce((m, p) => Math.max(m, p.value), 0);
+    return { oneRm, vol, dist, topW, topWReps, bestRm: Math.round(bestRm), bestVol, longDist, fastPace, longTime };
   }, [history]);
 
   if (exercises.isLoading) return <main className="screen"><div className="spinner" /></main>;
@@ -59,22 +107,35 @@ export default function ExerciseDetailPage() {
           <button className="micro" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 10 }}
             onClick={() => nav("/exercise-list")}>← Exercises</button>
           <h1>{ex.name}</h1>
-          <p><span className="tag">{equipmentLabel(ex.equipment)}</span> · strength</p>
+          <p><span className="tag">{cardio ? "Cardio" : equipmentLabel(ex.equipment)}</span> · {cardio ? "cardiovascular" : "strength"}</p>
         </div>
       </div>
 
-      <div className="row" style={{ gap: 12, marginBottom: 18 }}>
-        <div className="card card-pad grow" style={{ textAlign: "center" }}>
-          <b className="mono" style={{ fontSize: 24, color: "var(--volt)" }}>{history.length}</b>
-          <div className="micro mt">sessions</div>
-        </div>
-        <div className="card card-pad grow" style={{ textAlign: "center" }}>
-          <b className="mono" style={{ fontSize: 24, color: "var(--ice)" }}>{best ? `${best.weight}` : "—"}</b>
-          <div className="micro mt">top set kg{best?.reps ? ` ×${best.reps}` : ""}</div>
-        </div>
+      {/* records */}
+      <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+        <Stat value={String(history.length)} label="sessions" color="var(--ink)" />
+        {cardio ? (
+          <>
+            <Stat value={stats.longDist ? `${(stats.longDist / 1000).toFixed(2)}` : "—"} label="longest km" color="var(--volt)" />
+            <Stat value={Number.isFinite(stats.fastPace) ? fmtTime(Math.round(stats.fastPace)) : "—"} label="best /km" color="var(--ice)" />
+          </>
+        ) : (
+          <>
+            <Stat value={stats.topW ? `${stats.topW}` : "—"} label={`top kg${stats.topWReps ? ` ×${stats.topWReps}` : ""}`} color="var(--volt)" />
+            <Stat value={stats.bestRm ? `${stats.bestRm}` : "—"} label="est. 1RM kg" color="var(--ice)" />
+          </>
+        )}
       </div>
 
-      <p className="micro" style={{ margin: "0 4px 10px" }}>History</p>
+      {/* trends */}
+      {cardio
+        ? <ChartCard title="Distance (km) over time" points={stats.dist} color="var(--volt)" />
+        : <>
+            <ChartCard title="Est. 1RM (kg) over time" points={stats.oneRm} color="var(--volt)" />
+            <ChartCard title="Volume (kg) per session" points={stats.vol} color="var(--ice)" />
+          </>}
+
+      <p className="micro" style={{ margin: "18px 4px 10px" }}>History</p>
       {history.length === 0 && <div className="empty"><div className="big">No records yet</div><p>Log this exercise to see its history.</p></div>}
 
       <div className="stagger">
@@ -90,14 +151,15 @@ export default function ExerciseDetailPage() {
                 </div>
                 <span className="readout" style={{ color: "var(--volt)" }}>›</span>
               </button>
+              {block.note && <div className="block-note">“{block.note}”</div>}
               {block.sets.map((s, i) => {
                 const warm = s.setType === "WARMUP";
                 return (
                   <div key={i} className="detail-row">
                     <span className={`set-idx${warm ? " warm" : ""}`} style={{ cursor: "default" }}>{warm ? "W" : String(++workingNo)}</span>
                     <span className="readout grow">{loadLabel(s)}</span>
-                    <span className="mono detail-reps">{s.reps ?? "—"} <span className="micro">reps</span></span>
-                    <span className="mono detail-rpe">{s.rpe != null ? `RPE ${s.rpe}` : "—"}</span>
+                    {!cardio && <span className="mono detail-reps">{s.reps ?? "—"} <span className="micro">reps</span></span>}
+                    {!cardio && <span className="mono detail-rpe">{s.rpe != null ? `RPE ${s.rpe}` : "—"}</span>}
                   </div>
                 );
               })}
