@@ -125,8 +125,67 @@ across the block. Surplus stretches cadence toward 6 wk; deficit shortens toward
 - **Layer 2 — Energy "Coach" card (read-time, gated).** Mifflin + PAL + slope → phase behind the data gate +
   disclaimer; rounded ranges + word-confidence.
 - **Layer 3a — Stateless volume preview.** Trailing-window logged sets + recovery taps + (gated) phase → one
-  proposed split placed at MEV with the bounded phase modifier; Accept creates a new split.
-- **Layer 3b — Stateful mesocycle/deload engine.** Later.
+  proposed split placed at MEV with the bounded phase modifier; Accept creates a new split. ✅ built
+- **Layer 3b — Stateful mesocycle/deload engine.** ✅ built — `Macrocycle` (cursor `mesoIndex`/`week`) + per-week
+  `targetSets`; `DELOAD` workouts excluded from progression charts.
+- **Layer 4 — Macrocycle planner.** ↓ designed by council, below.
+
+---
+
+## Layer 4 — Macrocycle planner (council-designed)
+
+Generate a months-to-year+ training arc from a **goal + duration/target-date**, broken into a sequence of
+mesocycle **blocks**, plus a **split + templates with exercises** for the current block. Extends the existing
+`Macrocycle`/`Mesocycle` model additively; **never auto-applies** (preview → Accept creates plan + split +
+templates, never mutates existing).
+
+### Keystone: two orthogonal axes
+`targetSets` today welds the volume ceiling to the **energy phase** (SURPLUS→MRV / DEFICIT→MAV[0] /
+MAINTENANCE→MAV[1]) — so a low-volume **STRENGTH/PEAK block in a contest-prep deficit is unrepresentable**.
+Split them:
+- **`blockType`** (new, nullable; null ⇒ HYPERTROPHY) drives the **volume band + rep target**.
+- **energy `phase`** drives a **multiplicative deficit-trim** on top.
+
+| blockType | volume ceiling (focus) | reps / RIR (intensityBand) |
+| --- | --- | --- |
+| HYPERTROPHY | MRV (non-focus MEV) | 8–15 @ RIR 1–2 (~65–75% 1RM) |
+| STRENGTH | MAV-low | 3–6 @ RIR 1–2 (~80–90%) |
+| PEAK | MV | 1–3 @ ~90%+ |
+| RESENSITIZATION / MAINTENANCE | MV (all) | light |
+| PREP | hypertrophy band, trimmed | 8–15, deficit-trimmed toward MEV |
+
+`Mesocycle` gains nullable `blockType` + `intensityBand {repLow, repHigh, targetRir, pctLow?, pctHigh?}`
+(reps are the primary contract; %1RM optional). `Macrocycle` gains nullable `goal`, `targetDate`,
+`focusMuscles`. Set counts stay plain ints; only weights are decimals-as-strings.
+
+### Goal → block recipe (`planMacrocycle`, pure, tested)
+Work **backward from `targetDate`** when present (the terminal block is immovable; accumulation absorbs slack);
+else forward from now for `durationWeeks`. Every block = N accumulation (3–5, default 4) + 1 deload; snap
+fractional math to whole blocks. Enforce **phase potentiation** (no STRENGTH before ≥1 HYPERTROPHY; PEAK is
+terminal-only and date-gated).
+- **GENERAL_HYPERTROPHY** — repeat `[HYP 4+1]×2 → [STRENGTH 3+1]` (the strength block doubles as periodic
+  resensitization), no pinned focus; volume MEV→MAV.
+- **MUSCLE_FOCUS** — same, but `focusMuscles` (1–3, capped) pinned every block → focus → MRV band, others held
+  at MEV (specialization).
+- **STRENGTH** — HYP → STRENGTH → STRENGTH(peak-ish), volume down / intensity up each block; terminal STRENGTH
+  or a 2–3 wk PEAK if dated.
+- **CONTEST_PREP** (requires `targetDate`, phase DEFICIT) — chain DEFICIT hypertrophy/maintenance blocks (each
+  4+1), focus held near MAV-low trimming toward MEV as weeks-to-show shrink, ending in a **1–2 wk PEAK** block
+  anchored to the date; optional SURPLUS off-season blocks before the cut if the runway allows.
+
+### Split / template generation
+Generate a split + templates **for the current (first) block only**; distal blocks stay as **intent**
+(type/weeks/focus snapshot). Split **shape by days/week** (2→Full-Body, 3→FB/PPL, 4→Upper-Lower, 5–6→PPL).
+Pick exercises from the **user's catalog** by muscle (`muscleContributions`, fallback `MuscleSeed.infer`);
+assign integer set counts across sessions to hit the block's per-muscle targets. **Catalog-coverage gaps are
+first-class output** — warn ("side-delt MRV needs a lateral-raise you don't have") rather than silently
+under-deliver. The same pure function computes the **preview and the accept payload**, so preview == accept.
+
+### Top risk
+A **confidently-wrong, over-long auto-plan** the user accepts wholesale (peak placed a week off; a deficit
+block ramping toward MRV; a focus muscle with no catalog exercise). Mitigations: backward-from-date with an
+immovable terminal block, every set/exercise an **editable preview**, coverage warnings, accept is additive
+(creates, never mutates), and only the current block's training is materialized.
 
 ---
 

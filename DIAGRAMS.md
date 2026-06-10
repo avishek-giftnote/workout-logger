@@ -329,3 +329,27 @@ sequenceDiagram
   WC-->>ED: 200 OK
   ED->>U: navigate to detail
 ```
+
+### 10. Macrocycle planner (Layer 4)
+
+```mermaid
+flowchart TD
+  I["Inputs: goal · duration or targetDate · focus muscles · days/week"] --> PM["planMacrocycle (pure, tested)"]
+  PM --> SEQ{"targetDate set?"}
+  SEQ -- "yes" --> BW["lay terminal block on the date (PEAK/STRENGTH), fill backward"]
+  SEQ -- "no" --> FW["tile goal recipe forward for durationWeeks"]
+  BW --> BLOCKS["ordered Mesocycle blocks (type · weeks · focus · intensityBand)"]
+  FW --> BLOCKS
+  BLOCKS --> CUR["current block only: pick exercises by muscle map → split + templates"]
+  CUR --> WARN{"catalog covers focus muscles?"}
+  WARN -- "gaps" --> W["warnings: e.g. side-delt needs a lateral raise you do not have"]
+  WARN -- "ok" --> PREVIEW
+  W --> PREVIEW["PREVIEW: block timeline + current split/templates + warnings"]
+  PREVIEW --> A{"Accept?"}
+  A -- "edit" --> PM
+  A -- "accept" --> CREATE["POST /api/plan (blocks) + create Split + Templates (additive)"]
+  CREATE --> RUN["per-week view drives logging; advance through microcycles"]
+```
+
+> blockType (volume band + reps) and energy phase (deficit-trim) are orthogonal axes; accept creates, never
+> mutates; only the current block's training is materialized — distal blocks stay as intent.
