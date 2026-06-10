@@ -31,6 +31,7 @@ export default function LogWorkoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | "save-template" | "update-template">(null);
   const [templateName, setTemplateName] = useState("");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const startedAt = useMemo(() => new Date(), []);
   const bodyweight = me.data?.currentBodyweightKg ?? "";
   const sourceTemplate = templates.data?.find((t) => t.id === templateId) ?? null;
@@ -64,13 +65,19 @@ export default function LogWorkoutPage() {
   };
 
   const totalSets = blocks.reduce((n, b) => n + b.sets.length, 0);
+  const doneSets = blocks.reduce((n, b) => n + b.sets.filter((s) => s.done).length, 0);
+  const hasIncomplete = blocks.some((b) => b.sets.some((s) => !s.done));
+  // Only completed sets are saved; exercises with no completed set are dropped (and so is their template entry).
+  const finishedBlocks = () =>
+    blocks.map((b) => ({ ...b, sets: b.sets.filter((s) => s.done) })).filter((b) => b.sets.length > 0);
 
   const save = useMutation({
     mutationFn: () => {
+      const fin = finishedBlocks();
       const body: CreateWorkoutRequest = {
         startedAt: startedAt.toISOString(),
         templateId: templateId ?? undefined,
-        exercises: blocks.map((b, i) => ({
+        exercises: fin.map((b, i) => ({
           exerciseId: b.exercise.id,
           name: b.exercise.name,
           position: i,
@@ -81,21 +88,28 @@ export default function LogWorkoutPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workouts"] });
-      if (!templateId && blocks.length) { setTemplateName(""); setDialog("save-template"); }
-      else if (sourceTemplate && structureChanged(sourceTemplate, blocks)) setDialog("update-template");
+      const fin = finishedBlocks();
+      if (!templateId && fin.length) { setTemplateName(""); setDialog("save-template"); }
+      else if (sourceTemplate && structureChanged(sourceTemplate, fin)) setDialog("update-template");
       else done();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save workout."),
   });
 
+  const onFinish = () => { if (hasIncomplete) setConfirmDiscard(true); else save.mutate(); };
+  const discardAndFinish = () => {
+    setConfirmDiscard(false);
+    if (finishedBlocks().length === 0) done(); else save.mutate();   // nothing completed → just leave
+  };
+
   const saveTemplate = useMutation({
-    mutationFn: (name: string) => Api.createTemplate({ name, exercises: templateExercisesFromBlocks(blocks) }),
+    mutationFn: (name: string) => Api.createTemplate({ name, exercises: templateExercisesFromBlocks(finishedBlocks()) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); done(); },
     onError: done,
   });
   const updateTemplate = useMutation({
     mutationFn: () => Api.updateTemplate(sourceTemplate!.id,
-      { name: sourceTemplate!.name, exercises: templateExercisesFromBlocks(blocks) }),
+      { name: sourceTemplate!.name, exercises: templateExercisesFromBlocks(finishedBlocks()) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); done(); },
     onError: done,
   });
@@ -142,11 +156,27 @@ export default function LogWorkoutPage() {
           <div className="action-bar">
             <button className="btn btn-ghost grow" onClick={() => nav("/previous-workouts")}>Discard</button>
             <button className="btn btn-volt grow btn-lg" disabled={totalSets === 0 || save.isPending}
-              onClick={() => save.mutate()}>
-              {save.isPending ? "Saving…" : `Finish · ${totalSets} sets`}
+              onClick={onFinish}>
+              {save.isPending ? "Saving…" : `Finish · ${doneSets}/${totalSets} done`}
             </button>
           </div>
         </>
+      )}
+
+      {confirmDiscard && (
+        <div className="popup-backdrop" onClick={() => setConfirmDiscard(false)}>
+          <div className="popup-card" onClick={(e) => e.stopPropagation()}>
+            <span className="micro">Sets not complete</span>
+            <h3 style={{ fontSize: 20 }}>{totalSets - doneSets} unfinished set{totalSets - doneSets === 1 ? "" : "s"}</h3>
+            <p className="muted" style={{ fontSize: 13 }}>
+              Only sets you tick ✓ are saved. Finishing now discards the unticked sets (treated as not performed).
+            </p>
+            <button className="btn btn-ghost btn-block" onClick={() => setConfirmDiscard(false)}>Continue workout</button>
+            <button className="btn btn-volt btn-block" onClick={discardAndFinish}>
+              {doneSets > 0 ? `Discard & finish · ${doneSets} done` : "Discard workout"}
+            </button>
+          </div>
+        </div>
       )}
 
       {dialog && (
@@ -156,7 +186,7 @@ export default function LogWorkoutPage() {
             {dialog === "save-template" ? (
               <>
                 <h3 style={{ fontSize: 20 }}>Save as a template?</h3>
-                <p className="muted" style={{ fontSize: 13 }}>Reuse this lineup ({blocks.length} exercises) next time.</p>
+                <p className="muted" style={{ fontSize: 13 }}>Reuse this lineup ({finishedBlocks().length} exercises) next time.</p>
                 <input className="input mono" placeholder="Template name (e.g. Push Day)"
                   value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
                 <button className="btn btn-volt btn-block" disabled={!templateName.trim() || saveTemplate.isPending}

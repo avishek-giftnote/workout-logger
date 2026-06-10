@@ -91,6 +91,7 @@ export function seededSet(prev: SetDto, isBw: boolean): DraftSet {
 /** Entry fields carry the actual values (used when editing a completed workout). */
 export function filledSet(prev: SetDto, isBw: boolean): DraftSet {
   const d = blankSet(prev.setType);
+  d.done = true;   // already-performed sets in an edited workout show as completed
   if (prev.kind === "CARDIO") {
     if (prev.distanceM) d.distance = String(parseFloat(prev.distanceM) / 1000);
     if (prev.durationS != null) d.time = secToMmss(prev.durationS);
@@ -202,6 +203,18 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
     const last = [...block.sets].reverse().find((s) => s.setType === "WORKING") ?? block.sets[block.sets.length - 1];
     onChange([...block.sets, last ? { ...last, key: uid(), setType: "WORKING" } : blankSet("WORKING")]);
   };
+  // Completing a set commits its placeholders (last-time values) into the real entry fields.
+  const toggleDone = (s: DraftSet) => {
+    if (s.done) { update(s.key, { done: false }); return; }
+    const p: Partial<DraftSet> = { done: true };
+    const fill = (entry: keyof DraftSet, val?: string) => {
+      if (!((s[entry] as string) ?? "").trim() && val) (p as Record<string, unknown>)[entry] = val;
+    };
+    if (isCardio) { fill("distance", s.pDistance); fill("time", s.pTime); }
+    else if (isBw) { fill("delta", s.pDelta); fill("reps", s.pReps); fill("rpe", s.pRpe); }
+    else { fill("weight", s.pWeight); fill("reps", s.pReps); fill("rpe", s.pRpe); }
+    update(s.key, p);
+  };
 
   const lastWork = (prevSets ?? []).filter((s) => s.setType === "WORKING").slice(-1)[0];
   const lastLabel = !lastWork ? "first time"
@@ -262,7 +275,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
               </div>
               <button className={`set-done${s.done ? " on" : ""}`}
                 title={s.done ? "Completed — tap to undo" : "Complete set"}
-                onClick={() => update(s.key, { done: !s.done })}>✓</button>
+                onClick={() => toggleDone(s)}>✓</button>
             </div>
           );
         }
@@ -312,7 +325,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
 
             <button className={`set-done${s.done ? " on" : ""}`}
               title={s.done ? "Completed — tap to undo" : "Complete set"}
-              onClick={() => update(s.key, { done: !s.done })}>✓</button>
+              onClick={() => toggleDone(s)}>✓</button>
           </div>
         );
       })}
