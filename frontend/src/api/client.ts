@@ -59,8 +59,8 @@ export const Api = {
 
   // exercises
   listExercises: () => api<ExerciseDto[]>("/exercises"),
-  createExercise: (name: string, isBodyweight: boolean) =>
-    api<ExerciseDto>("/exercises", { method: "POST", body: JSON.stringify({ name, isBodyweight }) }),
+  createExercise: (name: string, isBodyweight: boolean, category: string = "STRENGTH") =>
+    api<ExerciseDto>("/exercises", { method: "POST", body: JSON.stringify({ name, isBodyweight, category }) }),
   setExerciseEquipment: (id: string, equipment: Equipment) =>
     api<ExerciseDto>(`/exercises/${id}`, { method: "PATCH", body: JSON.stringify({ equipment }) }),
   lastWorkingSet: (exerciseId: string) =>

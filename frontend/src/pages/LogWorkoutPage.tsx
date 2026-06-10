@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
 import type { CreateWorkoutRequest, ExerciseDto, TemplateDto } from "../api/types";
 import {
-  DraftBlock, ExerciseBlockEditor, ExercisePicker, findEx, structureChanged,
+  DraftBlock, ExerciseBlockEditor, ExercisePicker, findEx, isCardioEx, structureChanged,
   templateExercisesFromBlocks, toCreateSet, uid,
 } from "../logging/engine";
 import { useSettings } from "../settings";
@@ -74,7 +74,7 @@ export default function LogWorkoutPage() {
           exerciseId: b.exercise.id,
           name: b.exercise.name,
           position: i,
-          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe)),
+          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe, isCardioEx(b.exercise))),
         })),
       };
       return Api.createWorkout(body);

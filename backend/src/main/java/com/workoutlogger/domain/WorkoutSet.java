@@ -38,5 +38,14 @@ public record WorkoutSet(
         Instant loggedAt,
         boolean estimated,
         Integer importRowIndex,
-        java.util.Map<String, String> rawImport
+        java.util.Map<String, String> rawImport,
+
+        // ── cardio (all nullable; null/STRENGTH kind ⇒ a strength set) ──
+        SetKind kind,               // null treated as STRENGTH
+        BigDecimal distanceM,       // meters (Decimal128; string on wire)
+        Integer durationS,          // per-effort seconds
+        BigDecimal gradePct,        // treadmill continuous incline %
+        BigDecimal elevationGainM,  // outdoor cumulative ascent, meters
+        Integer cadenceSpm          // per-minute: steps / rpm / strokes (label by context)
+        // pace & speed are DERIVED from distance/duration — never stored.
 ) {}

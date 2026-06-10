@@ -2,6 +2,7 @@ package com.workoutlogger.repo;
 
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.Exercise;
+import com.workoutlogger.domain.ExerciseCategory;
 import com.workoutlogger.importer.StrongParsers;
 import com.workoutlogger.security.Tenant;
 import com.workoutlogger.web.error.ApiExceptions.ConflictException;
@@ -49,7 +50,7 @@ public class ExerciseRepository {
     }
 
     /** Creates a catalog entry, or 409s with the existing id if the normalized name already exists. */
-    public Exercise create(String name, boolean isBodyweight) {
+    public Exercise create(String name, boolean isBodyweight, ExerciseCategory category) {
         String nameKey = StrongParsers.nameKey(name);
         findByNameKey(nameKey).ifPresent(existing -> {
             throw new ConflictException("Exercise already exists",
@@ -61,6 +62,7 @@ public class ExerciseRepository {
         e.setUserId(tenant.userId());
         e.setName(StrongParsers.normalizeName(name));
         e.setNameKey(nameKey);
+        e.setCategory(category == null ? ExerciseCategory.STRENGTH : category);
         e.setBodyweight(isBodyweight);
         e.setEquipment(isBodyweight ? Equipment.BODYWEIGHT : null);
         e.setDefaultUnit("kg");

@@ -16,6 +16,7 @@ export const EQUIPMENT: { value: Equipment; label: string }[] = [
   { value: "MACHINE", label: "Machine" },
   { value: "CABLE", label: "Cable" },
   { value: "BODYWEIGHT", label: "Bodyweight" },
+  { value: "OTHER", label: "Other" },
 ];
 export const equipmentLabel = (e: Equipment | null) =>
   EQUIPMENT.find((x) => x.value === e)?.label ?? "Set equipment";
@@ -34,15 +35,48 @@ export interface DraftSet {
   pDelta?: string;
   pReps?: string;
   pRpe?: string;
+  // cardio entries (km, mm:ss, %, m, spm) — strings like the rest
+  distance?: string;
+  time?: string;
+  grade?: string;
+  elev?: string;
+  cadence?: string;
+  pDistance?: string;
+  pTime?: string;
 }
 export interface DraftBlock { key: string; exercise: ExerciseDto; sets: DraftSet[]; }
 
 export const blankSet = (setType: SetType = "WORKING"): DraftSet =>
   ({ key: uid(), setType, weight: "", delta: "", mode: "ADDED", reps: "", rpe: "" });
 
+// ── cardio helpers ──
+export const isCardioEx = (ex: ExerciseDto) => ex.category === "CARDIO";
+const secToMmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+export function mmssToSec(t: string): number | null {
+  const v = (t ?? "").trim();
+  if (!v) return null;
+  if (v.includes(":")) {
+    const [m, s] = v.split(":");
+    return (parseInt(m || "0", 10) || 0) * 60 + (parseInt(s || "0", 10) || 0);
+  }
+  return Math.round(parseFloat(v) * 60);   // bare number = minutes
+}
+/** Derived pace (/km) + speed (km/h) from distance(km) + duration(s) — never stored. */
+export function paceSpeed(distanceKm: number, durationS: number): { pace: string; speed: string } | null {
+  if (!(distanceKm > 0) || !(durationS > 0)) return null;
+  const speed = distanceKm / (durationS / 3600);
+  const paceSec = durationS / distanceKm;
+  return { pace: `${secToMmss(Math.round(paceSec))} /km`, speed: `${speed.toFixed(1)} km/h` };
+}
+
 /** Placeholders carry a previous set's values (used when starting a new session). */
 export function seededSet(prev: SetDto, isBw: boolean): DraftSet {
   const d = blankSet(prev.setType);
+  if (prev.kind === "CARDIO") {
+    if (prev.distanceM) d.pDistance = String(parseFloat(prev.distanceM) / 1000);
+    if (prev.durationS != null) d.pTime = secToMmss(prev.durationS);
+    return d;
+  }
   if (isBw) {
     d.mode = prev.loadMode === "ASSISTED" ? "ASSISTED" : "ADDED";
     d.pDelta = prev.loadDelta ?? "0";
@@ -57,6 +91,14 @@ export function seededSet(prev: SetDto, isBw: boolean): DraftSet {
 /** Entry fields carry the actual values (used when editing a completed workout). */
 export function filledSet(prev: SetDto, isBw: boolean): DraftSet {
   const d = blankSet(prev.setType);
+  if (prev.kind === "CARDIO") {
+    if (prev.distanceM) d.distance = String(parseFloat(prev.distanceM) / 1000);
+    if (prev.durationS != null) d.time = secToMmss(prev.durationS);
+    if (prev.gradePct) d.grade = prev.gradePct;
+    if (prev.elevationGainM) d.elev = prev.elevationGainM;
+    if (prev.cadenceSpm != null) d.cadence = String(prev.cadenceSpm);
+    return d;
+  }
   if (isBw) {
     d.mode = prev.loadMode === "ASSISTED" ? "ASSISTED" : "ADDED";
     d.delta = prev.loadDelta ?? "0";
@@ -83,7 +125,19 @@ export const structureChanged = (t: TemplateDto, blocks: DraftBlock[]): boolean 
 
 const orPrev = (entry: string, prev?: string) => (entry.trim() || prev || "");
 
-export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, bodyweight: string, includeRpe = true) {
+export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, bodyweight: string, includeRpe = true, isCardio = false) {
+  if (isCardio) {
+    const km = parseFloat(orPrev(s.distance ?? "", s.pDistance) || "");
+    return {
+      orderIndex, setType: s.setType, kind: "CARDIO" as const,
+      weight: null, loadMode: null, loadDelta: null, reps: null, rpe: null,
+      distanceM: Number.isFinite(km) && km > 0 ? String(km * 1000) : null,
+      durationS: mmssToSec(orPrev(s.time ?? "", s.pTime)),
+      gradePct: (s.grade ?? "").trim() || null,
+      elevationGainM: (s.elev ?? "").trim() || null,
+      cadenceSpm: (s.cadence ?? "").trim() ? parseInt(s.cadence!, 10) : null,
+    };
+  }
   const reps = orPrev(s.reps, s.pReps);
   const rpe = includeRpe ? orPrev(s.rpe, s.pRpe) : "";
   let weight: string, loadMode: LoadMode | null, loadDelta: string | null;
@@ -99,7 +153,7 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
     loadDelta = null;
   }
   return {
-    orderIndex, setType: s.setType, weight, loadMode, loadDelta,
+    orderIndex, setType: s.setType, kind: "STRENGTH" as const, weight, loadMode, loadDelta,
     reps: reps ? parseInt(reps, 10) : null,
     rpe: rpe ? parseInt(rpe, 10) : null,
   };
@@ -114,6 +168,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
   const qc = useQueryClient();
   const { showRpe } = useSettings();
   const isBw = block.exercise.isBodyweight;
+  const isCardio = isCardioEx(block.exercise);
   const seeded = useRef(false);
   const [popupKey, setPopupKey] = useState<string | null>(null);
   const [equipOpen, setEquipOpen] = useState(false);
@@ -149,9 +204,10 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
   };
 
   const lastWork = (prevSets ?? []).filter((s) => s.setType === "WORKING").slice(-1)[0];
-  const lastLabel = lastWork
-    ? `${lastWork.loadMode === "ASSISTED" ? "−" : ""}${lastWork.weight} kg × ${lastWork.reps ?? "?"}${prevSets ? ` · ${prevSets.length} sets` : ""}`
-    : "first time";
+  const lastLabel = !lastWork ? "first time"
+    : isCardio
+      ? `${lastWork.distanceM ? (parseFloat(lastWork.distanceM) / 1000).toFixed(2) + " km" : "?"}${lastWork.durationS ? " · " + secToMmss(lastWork.durationS) : ""}`
+      : `${lastWork.loadMode === "ASSISTED" ? "−" : ""}${lastWork.weight} kg × ${lastWork.reps ?? "?"}${prevSets ? ` · ${prevSets.length} sets` : ""}`;
 
   const popupSet = popupKey ? block.sets.find((s) => s.key === popupKey) : null;
   let workingNo = 0;
@@ -162,9 +218,13 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
         <div>
           <h3>{block.exercise.name}</h3>
           {showLast && <div className="lasttime">Last time: <b>{lastLabel}</b></div>}
-          <button className="equip-chip" onClick={() => setEquipOpen(true)}>
-            <span className="dot" /> {equipmentLabel(block.exercise.equipment)}
-          </button>
+          {isCardio ? (
+            <span className="tag" style={{ marginTop: 9, display: "inline-block" }}>Cardio</span>
+          ) : (
+            <button className="equip-chip" onClick={() => setEquipOpen(true)}>
+              <span className="dot" /> {equipmentLabel(block.exercise.equipment)}
+            </button>
+          )}
         </div>
         <button className="icon-btn" title="Remove exercise" onClick={onRemove}>×</button>
       </div>
@@ -172,6 +232,41 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
       {block.sets.map((s) => {
         const warm = s.setType === "WARMUP";
         const idx = warm ? "W" : String(++workingNo);
+
+        if (isCardio) {
+          const km = parseFloat(orPrev(s.distance ?? "", s.pDistance) || "");
+          const ds = mmssToSec(orPrev(s.time ?? "", s.pTime));
+          const ps = Number.isFinite(km) && ds ? paceSpeed(km, ds) : null;
+          const cField = (label: string, k: keyof DraftSet, ph: string, mode: string) => (
+            <label className="cardio-field">
+              <span className="micro">{label}</span>
+              <input className="cell-input" inputMode={mode as never} value={(s[k] as string) ?? ""}
+                placeholder={ph} onChange={(e) => update(s.key, { [k]: e.target.value } as Partial<DraftSet>)} />
+            </label>
+          );
+          return (
+            <div key={s.key} className={`set-row cardio-row${s.done ? " is-done" : ""}`}>
+              <button className={`set-idx${warm ? " warm" : ""}`} title="Set options"
+                onClick={() => setPopupKey(s.key)}>{idx}<i className="set-idx-caret" /></button>
+              <div className="cardio-fields">
+                <div className="cardio-line">
+                  {cField("km", "distance", s.pDistance ?? "—", "decimal")}
+                  {cField("time", "time", s.pTime ?? "mm:ss", "text")}
+                  <span className="cardio-derived">{ps ? `${ps.pace} · ${ps.speed}` : "—"}</span>
+                </div>
+                <div className="cardio-line">
+                  {cField("grade %", "grade", "–", "decimal")}
+                  {cField("elev m", "elev", "–", "decimal")}
+                  {cField("cad spm", "cadence", "–", "numeric")}
+                </div>
+              </div>
+              <button className={`set-done${s.done ? " on" : ""}`}
+                title={s.done ? "Completed — tap to undo" : "Complete set"}
+                onClick={() => update(s.key, { done: !s.done })}>✓</button>
+            </div>
+          );
+        }
+
         const eff = isBw
           ? parseFloat(bodyweight || "0") + (s.mode === "ASSISTED" ? -1 : 1) * parseFloat(orPrev(s.delta, s.pDelta) || "0")
           : null;
@@ -266,12 +361,12 @@ export function ExercisePicker({ exercises, disabledIds, onPick, onClose }: {
 }) {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
-  const [bw, setBw] = useState(false);
+  const [cat, setCat] = useState<"STRENGTH" | "CARDIO">("STRENGTH");
   const filtered = exercises.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
   const exact = exercises.some((e) => e.name.toLowerCase() === q.trim().toLowerCase());
 
   const create = useMutation({
-    mutationFn: () => Api.createExercise(q.trim(), bw),
+    mutationFn: () => Api.createExercise(q.trim(), false, cat),   // equipment/bodyweight set later via the chip
     onSuccess: (ex) => { qc.invalidateQueries({ queryKey: ["exercises"] }); onPick(ex); },
   });
 
@@ -296,10 +391,11 @@ export function ExercisePicker({ exercises, disabledIds, onPick, onClose }: {
 
       {q.trim() && !exact && (
         <div className="card-pad" style={{ borderTop: "1px solid var(--line)", marginTop: 10, paddingLeft: 0, paddingRight: 0 }}>
-          <label className="row micro" style={{ cursor: "pointer", marginBottom: 10 }}>
-            <input type="checkbox" checked={bw} onChange={(e) => setBw(e.target.checked)} />
-            Bodyweight / calisthenics
-          </label>
+          <span className="micro">Category</span>
+          <div className="seg" style={{ width: "100%", margin: "6px 0 12px" }}>
+            <button className={cat === "STRENGTH" ? "on" : ""} style={{ flex: 1 }} onClick={() => setCat("STRENGTH")}>Strength Training</button>
+            <button className={cat === "CARDIO" ? "on" : ""} style={{ flex: 1 }} onClick={() => setCat("CARDIO")}>Cardiovascular</button>
+          </div>
           <button className="btn btn-volt btn-block" disabled={create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? "Creating…" : `Create “${q.trim()}”`}
           </button>

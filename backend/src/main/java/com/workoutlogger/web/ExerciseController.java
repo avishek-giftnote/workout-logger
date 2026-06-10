@@ -31,7 +31,7 @@ public class ExerciseController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ExerciseDto create(@Valid @RequestBody CreateExerciseRequest req) {
-        return DtoMapper.toDto(exercises.create(req.name(), req.isBodyweight()));
+        return DtoMapper.toDto(exercises.create(req.name(), req.isBodyweight(), req.category()));
     }
 
     /** Set the exercise's equipment (BODYWEIGHT also flips the bodyweight flag). */

@@ -11,5 +11,6 @@ public enum Equipment {
     KETTLEBELL,
     MACHINE,
     CABLE,
-    BODYWEIGHT
+    BODYWEIGHT,
+    OTHER
 }

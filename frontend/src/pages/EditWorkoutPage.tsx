@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
 import type { CreateWorkoutRequest, ExerciseDto, WorkoutDto } from "../api/types";
 import {
-  DraftBlock, ExerciseBlockEditor, ExercisePicker, filledSet, findEx, toCreateSet, uid,
+  DraftBlock, ExerciseBlockEditor, ExercisePicker, filledSet, findEx, isCardioEx, toCreateSet, uid,
 } from "../logging/engine";
 import { useSettings } from "../settings";
 
@@ -56,7 +56,7 @@ export default function EditWorkoutPage() {
         templateId: w.templateId ?? undefined,
         exercises: (blocks ?? []).map((b, i) => ({
           exerciseId: b.exercise.id, name: b.exercise.name, position: i,
-          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe)),
+          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe, isCardioEx(b.exercise))),
         })),
       };
       return Api.updateWorkout(id, body);

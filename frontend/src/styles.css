@@ -272,6 +272,17 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
 .equip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .equip-pop .popup-opt { padding: 10px 8px; font-size: 12.5px; text-align: center; }
 
+/* cardio set row */
+.cardio-row { grid-template-columns: 34px 1fr 38px; align-items: start; }
+.cardio-fields { display: flex; flex-direction: column; gap: 8px; }
+.cardio-line { display: flex; align-items: flex-end; gap: 8px; }
+.cardio-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.cardio-field .micro { font-size: 9px; letter-spacing: 0.14em; }
+.cardio-derived {
+  flex: 1.3; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--ice); text-align: right; align-self: center; white-space: nowrap;
+}
+
 /* set-options popup */
 .popup-backdrop {
   position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;

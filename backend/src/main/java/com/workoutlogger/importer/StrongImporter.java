@@ -91,7 +91,8 @@ public class StrongImporter {
                     null,                                  // loggedAt: no per-set time in export
                     estimated,
                     idx,
-                    new LinkedHashMap<>(r)                 // lossless raw row
+                    new LinkedHashMap<>(r),                // lossless raw row
+                    com.workoutlogger.domain.SetKind.STRENGTH, null, null, null, null, null  // cardio: n/a
             ));
         }
 

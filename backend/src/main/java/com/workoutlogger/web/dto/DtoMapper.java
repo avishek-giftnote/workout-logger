@@ -24,7 +24,9 @@ public final class DtoMapper {
 
     public static SetDto toDto(WorkoutSet s) {
         return new SetDto(s.setId(), s.orderIndex(), s.setType(), str(s.weight()), s.loadMode(),
-                str(s.loadDelta()), s.weightUnit(), s.reps(), s.rpe(), s.note(), s.estimated());
+                str(s.loadDelta()), s.weightUnit(), s.reps(), s.rpe(), s.note(), s.estimated(),
+                s.kind(), str(s.distanceM()), s.durationS(), str(s.gradePct()),
+                str(s.elevationGainM()), s.cadenceSpm());
     }
 
     public static ExerciseBlockDto toDto(ExerciseBlock b) {
@@ -69,7 +71,9 @@ public final class DtoMapper {
                 b.sets().stream().map(s -> new WorkoutSet(
                         new ObjectId().toHexString(), s.orderIndex(), s.setType(), dec(s.weight()),
                         s.loadMode(), dec(s.loadDelta()), "kg", s.reps(), s.rpe(), s.note(),
-                        now, false, null, null
+                        now, false, null, null,
+                        s.kind() == null ? SetKind.STRENGTH : s.kind(), dec(s.distanceM()), s.durationS(),
+                        dec(s.gradePct()), dec(s.elevationGainM()), s.cadenceSpm()
                 )).toList()
         )).toList();
     }

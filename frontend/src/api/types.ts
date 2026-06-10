@@ -8,7 +8,9 @@ export type LoadMode = "BODYWEIGHT" | "ADDED" | "ASSISTED";
 export interface AuthResponse { token: string; userId: string; email: string; }
 
 export type Equipment =
-  "DUMBBELL" | "BARBELL" | "SMITH_MACHINE" | "KETTLEBELL" | "MACHINE" | "CABLE" | "BODYWEIGHT";
+  "DUMBBELL" | "BARBELL" | "SMITH_MACHINE" | "KETTLEBELL" | "MACHINE" | "CABLE" | "BODYWEIGHT" | "OTHER";
+
+export type SetKind = "STRENGTH" | "CARDIO";
 
 export interface ExerciseDto {
   id: string;
@@ -31,6 +33,13 @@ export interface SetDto {
   rpe: number | null;
   note: string | null;
   estimated: boolean | null;
+  // cardio (nullable; pace/speed derived from distance + duration)
+  kind: SetKind | null;
+  distanceM: string | null;
+  durationS: number | null;
+  gradePct: string | null;
+  elevationGainM: string | null;
+  cadenceSpm: number | null;
 }
 
 export interface ExerciseBlockDto {
@@ -61,6 +70,12 @@ export interface CreateSetRequest {
   reps?: number | null;
   rpe?: number | null;
   note?: string | null;
+  kind?: SetKind | null;
+  distanceM?: string | null;
+  durationS?: number | null;
+  gradePct?: string | null;
+  elevationGainM?: string | null;
+  cadenceSpm?: number | null;
 }
 
 export interface CreateBlockRequest {

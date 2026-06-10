@@ -3,6 +3,7 @@ package com.workoutlogger.web.dto;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.ExerciseCategory;
 import com.workoutlogger.domain.LoadMode;
+import com.workoutlogger.domain.SetKind;
 import com.workoutlogger.domain.SetType;
 import jakarta.validation.constraints.NotNull;
 
@@ -21,14 +22,15 @@ public final class ApiDtos {
     public record ExerciseDto(String id, String name, boolean isBodyweight, Equipment equipment,
                               ExerciseCategory category, String defaultUnit) {}
 
-    public record CreateExerciseRequest(@NotNull String name, boolean isBodyweight) {}
+    public record CreateExerciseRequest(@NotNull String name, boolean isBodyweight, ExerciseCategory category) {}
 
     public record UpdateExerciseRequest(@NotNull Equipment equipment) {}
 
-    // ---- sets / workouts ----
+    // ---- sets / workouts ----  (cardio fields nullable; decimals are STRINGS on the wire)
     public record SetDto(String id, int orderIndex, SetType setType, String weight, LoadMode loadMode,
                          String loadDelta, String weightUnit, Integer reps, Integer rpe, String note,
-                         Boolean estimated) {}
+                         Boolean estimated, SetKind kind, String distanceM, Integer durationS,
+                         String gradePct, String elevationGainM, Integer cadenceSpm) {}
 
     public record ExerciseBlockDto(String exerciseId, String name, int position, String note,
                                    List<SetDto> sets) {}
@@ -38,7 +40,9 @@ public final class ApiDtos {
                              Instant createdAt, Instant updatedAt) {}
 
     public record CreateSetRequest(int orderIndex, @NotNull SetType setType, String weight,
-                                   LoadMode loadMode, String loadDelta, Integer reps, Integer rpe, String note) {}
+                                   LoadMode loadMode, String loadDelta, Integer reps, Integer rpe, String note,
+                                   SetKind kind, String distanceM, Integer durationS, String gradePct,
+                                   String elevationGainM, Integer cadenceSpm) {}
 
     public record CreateBlockRequest(@NotNull String exerciseId, String name, int position, String note,
                                      @NotNull List<CreateSetRequest> sets) {}

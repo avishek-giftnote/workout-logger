@@ -74,7 +74,14 @@ public class MongoSchemaInitializer {
                 .append("setType", new Document("enum", List.of("WARMUP", "WORKING", "DROP", "FAILURE")))
                 .append("loadMode", new Document("bsonType", List.of("string", "null")))
                 .append("rpe", new Document("bsonType", List.of("int", "null")).append("minimum", 1).append("maximum", 10))
-                .append("reps", new Document("bsonType", List.of("int", "null")).append("minimum", 0));
+                .append("reps", new Document("bsonType", List.of("int", "null")).append("minimum", 0))
+                // cardio (all nullable; pace/speed are derived, never stored)
+                .append("kind", new Document("enum", List.of("STRENGTH", "CARDIO")))
+                .append("distanceM", new Document("bsonType", List.of("decimal", "null")))
+                .append("durationS", new Document("bsonType", List.of("int", "null")).append("minimum", 0))
+                .append("gradePct", new Document("bsonType", List.of("decimal", "null")))
+                .append("elevationGainM", new Document("bsonType", List.of("decimal", "null")))
+                .append("cadenceSpm", new Document("bsonType", List.of("int", "null")).append("minimum", 0));
 
         Document set = new Document("bsonType", "object").append("properties", setProps);
         Document block = new Document("bsonType", "object")
