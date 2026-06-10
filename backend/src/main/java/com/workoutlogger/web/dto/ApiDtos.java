@@ -1,5 +1,6 @@
 package com.workoutlogger.web.dto;
 
+import com.workoutlogger.domain.CardioMetric;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.ExerciseCategory;
 import com.workoutlogger.domain.LoadMode;
@@ -20,11 +21,14 @@ public final class ApiDtos {
 
     // ---- exercises ----
     public record ExerciseDto(String id, String name, boolean isBodyweight, Equipment equipment,
-                              ExerciseCategory category, String defaultUnit) {}
+                              ExerciseCategory category, String defaultUnit, Integer restSeconds,
+                              List<CardioMetric> cardioMetrics) {}
 
-    public record CreateExerciseRequest(@NotNull String name, boolean isBodyweight, ExerciseCategory category) {}
+    public record CreateExerciseRequest(@NotNull String name, boolean isBodyweight, ExerciseCategory category,
+                                        Integer restSeconds, List<CardioMetric> cardioMetrics) {}
 
-    public record UpdateExerciseRequest(@NotNull Equipment equipment) {}
+    /** Partial update — only non-null fields are applied. */
+    public record UpdateExerciseRequest(Equipment equipment, Integer restSeconds, List<CardioMetric> cardioMetrics) {}
 
     // ---- sets / workouts ----  (cardio fields nullable; decimals are STRINGS on the wire)
     public record SetDto(String id, int orderIndex, SetType setType, String weight, LoadMode loadMode,

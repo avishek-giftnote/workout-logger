@@ -1,5 +1,5 @@
 import type {
-  AuthResponse, CreateWorkoutRequest, Equipment, ExerciseDto, LastWorkingSetDto,
+  AuthResponse, CardioMetric, CreateWorkoutRequest, Equipment, ExerciseDto, LastWorkingSetDto,
   MeDto, SaveSplitRequest, SaveTemplateRequest, SplitDto, TemplateDto, WorkoutDto,
 } from "./types";
 
@@ -59,10 +59,13 @@ export const Api = {
 
   // exercises
   listExercises: () => api<ExerciseDto[]>("/exercises"),
-  createExercise: (name: string, isBodyweight: boolean, category: string = "STRENGTH") =>
-    api<ExerciseDto>("/exercises", { method: "POST", body: JSON.stringify({ name, isBodyweight, category }) }),
+  createExercise: (name: string, isBodyweight: boolean, category: string = "STRENGTH",
+                   restSeconds?: number | null, cardioMetrics?: CardioMetric[] | null) =>
+    api<ExerciseDto>("/exercises", { method: "POST", body: JSON.stringify({ name, isBodyweight, category, restSeconds, cardioMetrics }) }),
   setExerciseEquipment: (id: string, equipment: Equipment) =>
     api<ExerciseDto>(`/exercises/${id}`, { method: "PATCH", body: JSON.stringify({ equipment }) }),
+  updateExercise: (id: string, patch: { equipment?: Equipment; restSeconds?: number | null; cardioMetrics?: CardioMetric[] | null }) =>
+    api<ExerciseDto>(`/exercises/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   lastWorkingSet: (exerciseId: string) =>
     api<LastWorkingSetDto | null>(`/exercises/${exerciseId}/last-working-set`).catch((e) => {
       if (e instanceof ApiError && e.status === 404) return null;

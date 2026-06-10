@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { useSettings } from "../settings";
-import type { Equipment, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput } from "../api/types";
+import type { CardioMetric, Equipment, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput } from "../api/types";
 
 export const uid = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
@@ -51,6 +51,25 @@ export const blankSet = (setType: SetType = "WORKING"): DraftSet =>
 
 // ── cardio helpers ──
 export const isCardioEx = (ex: ExerciseDto) => ex.category === "CARDIO";
+export const CARDIO_METRICS: { value: CardioMetric; label: string }[] = [
+  { value: "DISTANCE", label: "Distance" },
+  { value: "DURATION", label: "Time" },
+  { value: "PACE", label: "Pace / speed" },
+  { value: "GRADE", label: "Grade %" },
+  { value: "ELEVATION", label: "Elevation" },
+  { value: "CADENCE", label: "Cadence" },
+];
+export const DEFAULT_CARDIO_METRICS: CardioMetric[] = ["DISTANCE", "DURATION", "PACE"];
+export const cardioMetricsOf = (ex: ExerciseDto): CardioMetric[] =>
+  ex.cardioMetrics && ex.cardioMetrics.length ? ex.cardioMetrics : DEFAULT_CARDIO_METRICS;
+
+/** Rest-timer presets (seconds); null = use the global default. */
+export const REST_PRESETS: { v: number | null; label: string }[] = [
+  { v: null, label: "Default" }, { v: 60, label: "1:00" }, { v: 90, label: "1:30" },
+  { v: 120, label: "2:00" }, { v: 180, label: "3:00" }, { v: 300, label: "5:00" },
+];
+export const fmtRest = (s: number | null | undefined) =>
+  s == null ? "Default" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 const secToMmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 export function mmssToSec(t: string): number | null {
   const v = (t ?? "").trim();
@@ -112,7 +131,7 @@ export function filledSet(prev: SetDto, isBw: boolean): DraftSet {
 }
 
 export const findEx = (catalog: ExerciseDto[], id: string, name: string): ExerciseDto =>
-  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg" };
+  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg", restSeconds: null, cardioMetrics: null };
 
 export const templateExercisesFromBlocks = (blocks: DraftBlock[]): TemplateExerciseInput[] =>
   blocks.map((b, i) => ({ exerciseId: b.exercise.id, name: b.exercise.name, position: i, sets: b.sets.length }));
@@ -161,10 +180,11 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
 }
 
 /* ---------------------------------------------------------------- exercise block editor */
-export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, showLast = true, onChange, onRemove, onExerciseChange, onSetCompleted, onMoveUp, onMoveDown, onNoteChange }: {
+export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, showLast = true, onChange, onRemove, onExerciseChange, onSetCompleted, onSetUncompleted, onMoveUp, onMoveDown, onNoteChange }: {
   block: DraftBlock; bodyweight: string; prevSets: SetDto[] | null; prevReady: boolean;
   showLast?: boolean; onChange: (sets: DraftSet[]) => void; onRemove: () => void;
-  onExerciseChange?: (ex: ExerciseDto) => void; onSetCompleted?: () => void;
+  onExerciseChange?: (ex: ExerciseDto) => void;
+  onSetCompleted?: (restSeconds: number | null) => void; onSetUncompleted?: () => void;
   onMoveUp?: () => void; onMoveDown?: () => void; onNoteChange?: (note: string) => void;
 }) {
   const qc = useQueryClient();
@@ -214,7 +234,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
   };
   // Completing a set commits its placeholders (last-time values) into the real entry fields.
   const toggleDone = (s: DraftSet) => {
-    if (s.done) { update(s.key, { done: false }); return; }
+    if (s.done) { update(s.key, { done: false }); onSetUncompleted?.(); return; }   // un-tick clears the rest timer
     const p: Partial<DraftSet> = { done: true };
     const fill = (entry: keyof DraftSet, val?: string) => {
       if (!((s[entry] as string) ?? "").trim() && val) (p as Record<string, unknown>)[entry] = val;
@@ -223,7 +243,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
     else if (isBw) { fill("delta", s.pDelta); fill("reps", s.pReps); fill("rpe", s.pRpe); }
     else { fill("weight", s.pWeight); fill("reps", s.pReps); fill("rpe", s.pRpe); }
     update(s.key, p);
-    onSetCompleted?.();   // (re)start the rest timer
+    onSetCompleted?.(block.exercise.restSeconds ?? null);   // (re)start the rest timer (exercise-specific target)
   };
 
   const lastWork = (prevSets ?? []).filter((s) => s.setType === "WORKING").slice(-1)[0];
@@ -261,6 +281,8 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
         const idx = warm ? "W" : String(++workingNo);
 
         if (isCardio) {
+          const m = cardioMetricsOf(block.exercise);
+          const has = (x: CardioMetric) => m.includes(x);
           const km = parseFloat(orPrev(s.distance ?? "", s.pDistance) || "");
           const ds = mmssToSec(orPrev(s.time ?? "", s.pTime));
           const ps = Number.isFinite(km) && ds ? paceSpeed(km, ds) : null;
@@ -271,21 +293,24 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
                 placeholder={ph} onChange={(e) => update(s.key, { [k]: e.target.value } as Partial<DraftSet>)} />
             </label>
           );
+          const line2 = has("GRADE") || has("ELEVATION") || has("CADENCE");
           return (
             <div key={s.key} className={`set-row cardio-row${s.done ? " is-done" : ""}`}>
               <button className={`set-idx${warm ? " warm" : ""}`} title="Set options"
                 onClick={() => setPopupKey(s.key)}>{idx}<i className="set-idx-caret" /></button>
               <div className="cardio-fields">
                 <div className="cardio-line">
-                  {cField("km", "distance", s.pDistance ?? "—", "decimal")}
-                  {cField("time", "time", s.pTime ?? "mm:ss", "text")}
-                  <span className="cardio-derived">{ps ? `${ps.pace} · ${ps.speed}` : "—"}</span>
+                  {has("DISTANCE") && cField("km", "distance", s.pDistance ?? "—", "decimal")}
+                  {has("DURATION") && cField("time", "time", s.pTime ?? "mm:ss", "text")}
+                  {has("PACE") && <span className="cardio-derived">{ps ? `${ps.pace} · ${ps.speed}` : "—"}</span>}
                 </div>
-                <div className="cardio-line">
-                  {cField("grade %", "grade", "–", "decimal")}
-                  {cField("elev m", "elev", "–", "decimal")}
-                  {cField("cad spm", "cadence", "–", "numeric")}
-                </div>
+                {line2 && (
+                  <div className="cardio-line">
+                    {has("GRADE") && cField("grade %", "grade", "–", "decimal")}
+                    {has("ELEVATION") && cField("elev m", "elev", "–", "decimal")}
+                    {has("CADENCE") && cField("cad spm", "cadence", "–", "numeric")}
+                  </div>
+                )}
               </div>
               <button className={`set-done${s.done ? " on" : ""}`}
                 title={s.done ? "Completed — tap to undo" : "Complete set"}
@@ -400,11 +425,15 @@ export function ExercisePicker({ exercises, disabledIds, onPick, onClose }: {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<"STRENGTH" | "CARDIO">("STRENGTH");
+  const [restSec, setRestSec] = useState<number | null>(null);
+  const [metrics, setMetrics] = useState<CardioMetric[]>(DEFAULT_CARDIO_METRICS);
+  const toggleMetric = (m: CardioMetric) =>
+    setMetrics((cur) => cur.includes(m) ? (cur.length > 1 ? cur.filter((x) => x !== m) : cur) : [...cur, m]);
   const filtered = exercises.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
   const exact = exercises.some((e) => e.name.toLowerCase() === q.trim().toLowerCase());
 
   const create = useMutation({
-    mutationFn: () => Api.createExercise(q.trim(), false, cat),   // equipment/bodyweight set later via the chip
+    mutationFn: () => Api.createExercise(q.trim(), false, cat, restSec, cat === "CARDIO" ? metrics : null),
     onSuccess: (ex) => { qc.invalidateQueries({ queryKey: ["exercises"] }); onPick(ex); },
   });
 
@@ -434,6 +463,27 @@ export function ExercisePicker({ exercises, disabledIds, onPick, onClose }: {
             <button className={cat === "STRENGTH" ? "on" : ""} style={{ flex: 1 }} onClick={() => setCat("STRENGTH")}>Strength Training</button>
             <button className={cat === "CARDIO" ? "on" : ""} style={{ flex: 1 }} onClick={() => setCat("CARDIO")}>Cardiovascular</button>
           </div>
+
+          {cat === "CARDIO" && (
+            <>
+              <span className="micro">Metrics to log</span>
+              <div className="chip-wrap" style={{ margin: "6px 0 12px" }}>
+                {CARDIO_METRICS.map((m) => (
+                  <button key={m.value} className={`chip-toggle${metrics.includes(m.value) ? " on" : ""}`}
+                    onClick={() => toggleMetric(m.value)}>{m.label}</button>
+                ))}
+              </div>
+            </>
+          )}
+
+          <span className="micro">Rest timer</span>
+          <div className="chip-wrap" style={{ margin: "6px 0 12px" }}>
+            {REST_PRESETS.map((p) => (
+              <button key={String(p.v)} className={`chip-toggle${restSec === p.v ? " on" : ""}`}
+                onClick={() => setRestSec(p.v)}>{p.label}</button>
+            ))}
+          </div>
+
           <button className="btn btn-volt btn-block" disabled={create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? "Creating…" : `Create “${q.trim()}”`}
           </button>

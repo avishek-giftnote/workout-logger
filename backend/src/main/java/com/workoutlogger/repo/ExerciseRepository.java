@@ -1,5 +1,6 @@
 package com.workoutlogger.repo;
 
+import com.workoutlogger.domain.CardioMetric;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.Exercise;
 import com.workoutlogger.domain.ExerciseCategory;
@@ -50,7 +51,8 @@ public class ExerciseRepository {
     }
 
     /** Creates a catalog entry, or 409s with the existing id if the normalized name already exists. */
-    public Exercise create(String name, boolean isBodyweight, ExerciseCategory category) {
+    public Exercise create(String name, boolean isBodyweight, ExerciseCategory category,
+                           Integer restSeconds, List<CardioMetric> cardioMetrics) {
         String nameKey = StrongParsers.nameKey(name);
         findByNameKey(nameKey).ifPresent(existing -> {
             throw new ConflictException("Exercise already exists",
@@ -66,16 +68,23 @@ public class ExerciseRepository {
         e.setBodyweight(isBodyweight);
         e.setEquipment(isBodyweight ? Equipment.BODYWEIGHT : null);
         e.setDefaultUnit("kg");
+        e.setRestSeconds(restSeconds);
+        e.setCardioMetrics(cardioMetrics);
         e.setCreatedAt(now);
         e.setUpdatedAt(now);
         return mongo.insert(e);
     }
 
-    /** Set an exercise's equipment; BODYWEIGHT keeps the isBodyweight flag in sync. */
-    public Optional<Exercise> setEquipment(String id, Equipment equipment) {
+    /** Partial update — applies only the non-null fields. BODYWEIGHT keeps isBodyweight in sync. */
+    public Optional<Exercise> update(String id, Equipment equipment, Integer restSeconds,
+                                     List<CardioMetric> cardioMetrics) {
         return findOne(id).map(e -> {
-            e.setEquipment(equipment);
-            e.setBodyweight(equipment == Equipment.BODYWEIGHT);
+            if (equipment != null) {
+                e.setEquipment(equipment);
+                e.setBodyweight(equipment == Equipment.BODYWEIGHT);
+            }
+            if (restSeconds != null) e.setRestSeconds(restSeconds < 0 ? null : restSeconds);
+            if (cardioMetrics != null) e.setCardioMetrics(cardioMetrics);
             e.setUpdatedAt(Instant.now());
             return mongo.save(e);
         });

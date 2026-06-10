@@ -8,13 +8,16 @@ interface SettingsCtx {
   setPrevSource: (v: PrevSource) => void;
   showRpe: boolean;
   setShowRpe: (v: boolean) => void;
-  restTarget: number;                  // rest-timer target seconds; 0 = off
+  restTarget: number;                  // global default rest seconds; 0 = none
   setRestTarget: (v: number) => void;
+  restTimerEnabled: boolean;           // master on/off for the rest timer
+  setRestTimerEnabled: (v: boolean) => void;
 }
 
 const KEY = "wl.settings.prevSource";
 const RPE_KEY = "wl.settings.showRpe";
 const REST_KEY = "wl.settings.restTarget";
+const REST_ON_KEY = "wl.settings.restTimerEnabled";
 const Ctx = createContext<SettingsCtx | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -30,7 +33,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     () => { const v = localStorage.getItem(REST_KEY); return v == null ? 90 : parseInt(v, 10) || 0; });
   const setRestTarget = (v: number) => { localStorage.setItem(REST_KEY, String(v)); setRestState(v); };
 
-  return <Ctx.Provider value={{ prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget }}>{children}</Ctx.Provider>;
+  const [restTimerEnabled, setRestOnState] = useState<boolean>(
+    () => localStorage.getItem(REST_ON_KEY) !== "false");   // default on
+  const setRestTimerEnabled = (v: boolean) => { localStorage.setItem(REST_ON_KEY, String(v)); setRestOnState(v); };
+
+  return <Ctx.Provider value={{ prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget, restTimerEnabled, setRestTimerEnabled }}>{children}</Ctx.Provider>;
 }
 
 export function useSettings(): SettingsCtx {

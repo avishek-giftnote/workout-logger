@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import type { ExerciseDto, SplitDto, TemplateDto, TemplateExerciseInput, WorkoutDto } from "../api/types";
@@ -25,6 +26,7 @@ export default function StartChooser({ templates, splits, workouts, exercises, o
 }) {
   const [editing, setEditing] = useState<SplitDto | "new" | null>(null);
   const [tq, setTq] = useState("");
+  const nav = useNavigate();
   const collapsed = useCollapsed();
   const byId = useMemo(() => new Map(templates.map((t) => [t.id, t])), [templates]);
 
@@ -34,7 +36,7 @@ export default function StartChooser({ templates, splits, workouts, exercises, o
   const TemplateCard = (t: TemplateDto) => {
     const lu = lastUsed(t.id);
     return (
-      <button key={t.id} className="card w-item" onClick={() => onTemplate(t)}>
+      <div key={t.id} className="card w-item" style={{ cursor: "pointer" }} onClick={() => onTemplate(t)}>
         <div className="w-date">
           <span className="d" style={{ fontSize: 20 }}>{t.exercises.length}</span>
           <span className="m">moves</span>
@@ -43,8 +45,10 @@ export default function StartChooser({ templates, splits, workouts, exercises, o
           <h3>{cleanName(t.name)}</h3>
           <div className="sub">{lu ? `last: ${new Date(lu).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "no history yet"}</div>
         </div>
+        <button className="btn btn-ghost" style={{ padding: "5px 10px", fontSize: 11 }}
+          onClick={(e) => { e.stopPropagation(); nav(`/templates/${t.id}`); }}>stats</button>
         <div className="w-stat"><span className="readout" style={{ color: "var(--volt)" }}>›</span></div>
-      </button>
+      </div>
     );
   };
 

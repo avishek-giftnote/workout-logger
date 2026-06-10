@@ -37,8 +37,8 @@ export default function LogWorkoutPage() {
   const bodyweight = me.data?.currentBodyweightKg ?? "";
   const sourceTemplate = templates.data?.find((t) => t.id === templateId) ?? null;
   const done = () => nav("/previous-workouts");
-  const { prevSource, showRpe, restTarget } = useSettings();
-  const [restStart, setRestStart] = useState<number | null>(null);
+  const { prevSource, showRpe, restTarget, restTimerEnabled } = useSettings();
+  const [rest, setRest] = useState<{ at: number; target: number } | null>(null);
 
   const prevSetsFor = (exerciseId: string) => {
     for (const w of workouts.data ?? []) {
@@ -148,7 +148,8 @@ export default function LogWorkoutPage() {
                 prevSets={prevSetsFor(b.exercise.id)} prevReady={workouts.isSuccess}
                 onChange={(sets) => setBlock(b.key, sets)} onRemove={() => removeBlock(b.key)}
                 onExerciseChange={(ex) => setBlockExercise(b.key, ex)}
-                onSetCompleted={() => setRestStart(Date.now())}
+                onSetCompleted={(rs) => { if (restTimerEnabled) setRest({ at: Date.now(), target: rs ?? restTarget }); }}
+                onSetUncompleted={() => setRest(null)}
                 onMoveUp={i > 0 ? () => moveBlock(b.key, -1) : undefined}
                 onMoveDown={i < blocks.length - 1 ? () => moveBlock(b.key, 1) : undefined}
                 onNoteChange={(note) => setBlockNote(b.key, note)}
@@ -167,7 +168,7 @@ export default function LogWorkoutPage() {
 
           {error && <p className="err mt">{error}</p>}
 
-          <RestTimer start={restStart} target={restTarget} onDismiss={() => setRestStart(null)} />
+          <RestTimer start={rest?.at ?? null} target={rest?.target ?? 0} onDismiss={() => setRest(null)} />
 
           <div className="action-bar">
             <button className="btn btn-ghost grow" onClick={() => nav("/previous-workouts")}>Discard</button>

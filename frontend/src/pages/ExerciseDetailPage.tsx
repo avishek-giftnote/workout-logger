@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
-import { equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
-import { TrendChart, type Point } from "../components/Chart";
-import type { SetDto, TemplateDto, WorkoutDto } from "../api/types";
+import { CARDIO_METRICS, REST_PRESETS, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
+import { ChartCard, type Point } from "../components/Chart";
+import type { CardioMetric, SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
@@ -36,24 +36,24 @@ function Stat({ value, label, color }: { value: string; label: string; color: st
     </div>
   );
 }
-function ChartCard({ title, points, color }: { title: string; points: Point[]; color: string }) {
-  return (
-    <div className="card card-pad" style={{ marginBottom: 12 }}>
-      <span className="micro">{title}</span>
-      <div className="mt"><TrendChart points={points} color={color} /></div>
-    </div>
-  );
-}
 
 export default function ExerciseDetailPage() {
   const { id = "" } = useParams();
   const nav = useNavigate();
+  const qc = useQueryClient();
   const exercises = useQuery({ queryKey: ["exercises"], queryFn: Api.listExercises });
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
+  const save = useMutation({
+    mutationFn: (patch: { restSeconds?: number | null; cardioMetrics?: CardioMetric[] }) => Api.updateExercise(id, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exercises"] }),
+  });
 
   const ex = (exercises.data ?? []).find((e) => e.id === id);
   const cardio = ex ? isCardioEx(ex) : false;
+  const curMetrics = ex ? cardioMetricsOf(ex) : [];
+  const toggleMetric = (m: CardioMetric) =>
+    save.mutate({ cardioMetrics: curMetrics.includes(m) ? (curMetrics.length > 1 ? curMetrics.filter((x) => x !== m) : curMetrics) : [...curMetrics, m] });
   const tName = useMemo(() => {
     const m = new Map((templates.data ?? []).map((t: TemplateDto) => [t.id, t.name]));
     return (w: WorkoutDto) => (w.templateId && m.get(w.templateId)) || "Workout";
@@ -111,6 +111,28 @@ export default function ExerciseDetailPage() {
         </div>
       </div>
 
+      {/* per-exercise settings */}
+      <div className="card card-pad fade-up" style={{ marginBottom: 14 }}>
+        <span className="micro">Rest timer</span>
+        <div className="chip-wrap" style={{ marginTop: 6 }}>
+          {REST_PRESETS.map((p) => (
+            <button key={String(p.v)} className={`chip-toggle${(ex.restSeconds ?? null) === p.v ? " on" : ""}`}
+              disabled={save.isPending} onClick={() => save.mutate({ restSeconds: p.v == null ? -1 : p.v })}>{p.label}</button>
+          ))}
+        </div>
+        {cardio && (
+          <>
+            <span className="micro" style={{ display: "block", marginTop: 14 }}>Metrics to log</span>
+            <div className="chip-wrap" style={{ marginTop: 6 }}>
+              {CARDIO_METRICS.map((m) => (
+                <button key={m.value} className={`chip-toggle${curMetrics.includes(m.value) ? " on" : ""}`}
+                  disabled={save.isPending} onClick={() => toggleMetric(m.value)}>{m.label}</button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
       {/* records */}
       <div className="row" style={{ gap: 12, marginBottom: 14 }}>
         <Stat value={String(history.length)} label="sessions" color="var(--ink)" />
@@ -129,10 +151,10 @@ export default function ExerciseDetailPage() {
 
       {/* trends */}
       {cardio
-        ? <ChartCard title="Distance (km) over time" points={stats.dist} color="var(--volt)" />
+        ? <ChartCard title="Distance per session" yLabel="Distance (km)" points={stats.dist} color="var(--volt)" />
         : <>
-            <ChartCard title="Est. 1RM (kg) over time" points={stats.oneRm} color="var(--volt)" />
-            <ChartCard title="Volume (kg) per session" points={stats.vol} color="var(--ice)" />
+            <ChartCard title="Estimated 1RM" yLabel="Est. 1RM (kg)" points={stats.oneRm} color="var(--volt)" />
+            <ChartCard title="Volume per session" yLabel="Volume (kg)" points={stats.vol} color="var(--ice)" />
           </>}
 
       <p className="micro" style={{ margin: "18px 4px 10px" }}>History</p>

@@ -31,13 +31,14 @@ public class ExerciseController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ExerciseDto create(@Valid @RequestBody CreateExerciseRequest req) {
-        return DtoMapper.toDto(exercises.create(req.name(), req.isBodyweight(), req.category()));
+        return DtoMapper.toDto(exercises.create(req.name(), req.isBodyweight(), req.category(),
+                req.restSeconds(), req.cardioMetrics()));
     }
 
-    /** Set the exercise's equipment (BODYWEIGHT also flips the bodyweight flag). */
+    /** Partial update: equipment, exercise-specific rest seconds, and/or cardio metrics. */
     @PatchMapping("/{id}")
     public ExerciseDto update(@PathVariable String id, @Valid @RequestBody UpdateExerciseRequest req) {
-        return exercises.setEquipment(id, req.equipment()).map(DtoMapper::toDto)
+        return exercises.update(id, req.equipment(), req.restSeconds(), req.cardioMetrics()).map(DtoMapper::toDto)
                 .orElseThrow(() -> new NotFoundException("Exercise " + id + " not found"));
     }
 

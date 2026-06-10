@@ -4,6 +4,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Per-user exercise catalog entry, keyed by the RAW Strong name (no equipment parsing).
@@ -22,6 +23,8 @@ public class Exercise {
     private Equipment equipment;                       // nullable until set; BODYWEIGHT <=> isBodyweight
     private ExerciseCategory category = ExerciseCategory.STRENGTH;
     private String defaultUnit;     // "kg"
+    private Integer restSeconds;                        // exercise-specific rest timer; null ⇒ use the global default
+    private List<CardioMetric> cardioMetrics;          // CARDIO only: which inputs to log; null ⇒ client default
     private int schemaVersion = 1;
     private Instant createdAt;
     private Instant updatedAt;
@@ -45,6 +48,10 @@ public class Exercise {
     public void setCategory(ExerciseCategory category) { this.category = category; }
     public String getDefaultUnit() { return defaultUnit; }
     public void setDefaultUnit(String defaultUnit) { this.defaultUnit = defaultUnit; }
+    public Integer getRestSeconds() { return restSeconds; }
+    public void setRestSeconds(Integer restSeconds) { this.restSeconds = restSeconds; }
+    public List<CardioMetric> getCardioMetrics() { return cardioMetrics; }
+    public void setCardioMetrics(List<CardioMetric> cardioMetrics) { this.cardioMetrics = cardioMetrics; }
     public int getSchemaVersion() { return schemaVersion; }
     public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
     public Instant getCreatedAt() { return createdAt; }

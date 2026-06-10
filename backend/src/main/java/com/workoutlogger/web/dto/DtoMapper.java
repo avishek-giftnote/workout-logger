@@ -19,7 +19,7 @@ public final class DtoMapper {
 
     public static ExerciseDto toDto(Exercise e) {
         return new ExerciseDto(e.getId(), e.getName(), e.isBodyweight(), e.getEquipment(),
-                e.getCategory(), e.getDefaultUnit());
+                e.getCategory(), e.getDefaultUnit(), e.getRestSeconds(), e.getCardioMetrics());
     }
 
     public static SetDto toDto(WorkoutSet s) {

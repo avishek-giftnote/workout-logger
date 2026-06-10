@@ -12,6 +12,8 @@ export type Equipment =
 
 export type SetKind = "STRENGTH" | "CARDIO";
 
+export type CardioMetric = "DISTANCE" | "DURATION" | "PACE" | "GRADE" | "ELEVATION" | "CADENCE";
+
 export interface ExerciseDto {
   id: string;
   name: string;
@@ -19,6 +21,8 @@ export interface ExerciseDto {
   equipment: Equipment | null;
   category: string;
   defaultUnit: string;
+  restSeconds: number | null;            // exercise-specific rest target; null ⇒ global default
+  cardioMetrics: CardioMetric[] | null;  // CARDIO only; null ⇒ default set
 }
 
 export interface SetDto {

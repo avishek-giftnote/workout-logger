@@ -7,7 +7,8 @@ import { useSettings } from "../settings";
 /** Slide-out settings panel; closes when the backdrop (anywhere outside) is clicked. */
 export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signOut } = useAuth();
-  const { prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget } = useSettings();
+  const { prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget,
+    restTimerEnabled, setRestTimerEnabled } = useSettings();
   const REST_PRESETS: { v: number; label: string }[] = [
     { v: 0, label: "Off" }, { v: 60, label: "1:00" }, { v: 90, label: "1:30" },
     { v: 120, label: "2:00" }, { v: 180, label: "3:00" },
@@ -73,16 +74,26 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
         </div>
 
         <div className="field" style={{ marginTop: 22 }}>
-          <label>Rest timer target</label>
+          <label>Rest timer</label>
           <div className="seg" style={{ width: "100%", marginTop: 4 }}>
-            {REST_PRESETS.map((p) => (
-              <button key={p.v} className={restTarget === p.v ? "on" : ""} style={{ flex: 1, fontSize: 11 }}
-                onClick={() => setRestTarget(p.v)}>{p.label}</button>
-            ))}
+            <button className={restTimerEnabled ? "on" : ""} style={{ flex: 1 }} onClick={() => setRestTimerEnabled(true)}>On</button>
+            <button className={!restTimerEnabled ? "on" : ""} style={{ flex: 1 }} onClick={() => setRestTimerEnabled(false)}>Off</button>
           </div>
-          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-            A rest timer starts when you tick a set ✓; it highlights once the target is reached.
-          </p>
+          {restTimerEnabled && (
+            <>
+              <label style={{ display: "block", marginTop: 12 }}>Default target</label>
+              <div className="seg" style={{ width: "100%", marginTop: 4 }}>
+                {REST_PRESETS.map((p) => (
+                  <button key={p.v} className={restTarget === p.v ? "on" : ""} style={{ flex: 1, fontSize: 11 }}
+                    onClick={() => setRestTarget(p.v)}>{p.label}</button>
+                ))}
+              </div>
+              <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                Starts when you tick a set ✓ and highlights at the target. Exercises can override this default
+                from their page; un-ticking a set clears the timer.
+              </p>
+            </>
+          )}
         </div>
 
         <div className="grow" />

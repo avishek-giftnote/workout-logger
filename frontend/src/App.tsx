@@ -9,6 +9,7 @@ import EditWorkoutPage from "./pages/EditWorkoutPage";
 import ExerciseListPage from "./pages/ExerciseListPage";
 import ExerciseDetailPage from "./pages/ExerciseDetailPage";
 import LogWorkoutPage from "./pages/LogWorkoutPage";
+import TemplateDetailPage from "./pages/TemplateDetailPage";
 
 function Brand() {
   const nav = useNavigate();
@@ -39,6 +40,7 @@ function Shell() {
         <Route path="/previous-workouts/:id/edit" element={<EditWorkoutPage />} />
         <Route path="/exercise-list" element={<ExerciseListPage />} />
         <Route path="/exercise-list/:id" element={<ExerciseDetailPage />} />
+        <Route path="/templates/:id" element={<TemplateDetailPage />} />
         <Route path="/start" element={<LogWorkoutPage />} />
         <Route path="*" element={<Navigate to="/start" replace />} />
       </Routes>
