@@ -28,6 +28,7 @@ public class Workout {
     private Integer durationSeconds;    // parsed, authoritative for display
     private String rawDurationText;     // original "1h 24m" text (lossless)
     private String templateId;          // optional link to the template this session came from
+    private CyclePhase cyclePhase;      // ACCUMULATION/DELOAD; DELOAD is excluded from progression trends
 
     private List<ExerciseBlock> exercises;
 
@@ -56,6 +57,8 @@ public class Workout {
     public void setRawDurationText(String rawDurationText) { this.rawDurationText = rawDurationText; }
     public String getTemplateId() { return templateId; }
     public void setTemplateId(String templateId) { this.templateId = templateId; }
+    public CyclePhase getCyclePhase() { return cyclePhase; }
+    public void setCyclePhase(CyclePhase cyclePhase) { this.cyclePhase = cyclePhase; }
     public List<ExerciseBlock> getExercises() { return exercises; }
     public void setExercises(List<ExerciseBlock> exercises) { this.exercises = exercises; }
     public int getSchemaVersion() { return schemaVersion; }

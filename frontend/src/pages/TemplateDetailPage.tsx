@@ -26,7 +26,7 @@ export default function TemplateDetailPage() {
     () => (workouts.data ?? []).filter((w) => w.templateId === id),   // newest-first
     [workouts.data, id]);
   const points = useMemo(
-    () => [...sessions].reverse().map((w) => ({ label: w.startedAt, value: workingVolume(w) })),
+    () => [...sessions].reverse().filter((w) => w.cyclePhase !== "DELOAD").map((w) => ({ label: w.startedAt, value: workingVolume(w) })),
     [sessions]);
 
   if (templates.isLoading) return <main className="screen"><div className="spinner" /></main>;

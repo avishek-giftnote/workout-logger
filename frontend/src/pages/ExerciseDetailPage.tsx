@@ -6,6 +6,7 @@ import { CARDIO_METRICS, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx
 import { ChartCard, type Point } from "../components/Chart";
 import { EXERCISE_CHARTS } from "../charts";
 import { MUSCLES } from "../muscles";
+import { isDeload } from "../periodization";
 import { useSettings } from "../settings";
 import type { CardioMetric, Muscle, MuscleContributionDto, SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
@@ -78,9 +79,9 @@ export default function ExerciseDetailPage() {
     .filter((x): x is { w: WorkoutDto; block: NonNullable<typeof x.block> } => !!x.block)
     .sort((a, b) => b.w.startedAt.localeCompare(a.w.startedAt)), [workouts.data, id]);
 
-  // chronological (oldest → newest) for trend charts
+  // chronological (oldest → newest) for trend charts — deload sessions excluded from the trajectory
   const stats = useMemo(() => {
-    const asc = [...history].reverse();
+    const asc = [...history].reverse().filter((x) => !isDeload(x.w));
     const oneRm: Point[] = [], vol: Point[] = [], dist: Point[] = [];
     let topW = 0, topWReps = 0, bestRm = 0, bestVol = 0, longDist = 0, fastPace = Infinity, longTime = 0;
     for (const { w, block } of asc) {
@@ -178,9 +179,9 @@ export default function ExerciseDetailPage() {
         )}
       </div>
 
-      {/* trends — driven by the chart catalog + Settings → Graphs */}
+      {/* trends — driven by the chart catalog + Settings → Graphs (deload sessions excluded) */}
       {(() => {
-        const asc = [...history].reverse();
+        const asc = [...history].reverse().filter((x) => !isDeload(x.w));
         const mine = EXERCISE_CHARTS.filter((c) => c.cardio === cardio && charts.includes(c.key));
         if (mine.length === 0) return <p className="muted" style={{ fontSize: 13, margin: "0 4px 12px" }}>No graphs selected — turn some on in Settings → Graphs.</p>;
         return mine.map((c, i) => {
@@ -202,7 +203,7 @@ export default function ExerciseDetailPage() {
               <button className="ex-head" style={{ width: "100%", background: "none", border: "none", cursor: "pointer" }}
                 onClick={() => nav(`/previous-workouts/${w.id}`)}>
                 <div>
-                  <h3 style={{ fontSize: 16 }}>{fmtDate(w.startedAt)}</h3>
+                  <h3 style={{ fontSize: 16 }}>{fmtDate(w.startedAt)} {isDeload(w) && <span className="tag" style={{ fontSize: 9 }}>DELOAD</span>}</h3>
                   <div className="lasttime">{(tName(w) as string).replace(/\s*focus/i, "")}</div>
                 </div>
                 <span className="readout" style={{ color: "var(--volt)" }}>›</span>

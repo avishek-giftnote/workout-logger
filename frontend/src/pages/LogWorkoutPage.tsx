@@ -8,6 +8,7 @@ import {
   templateExercisesFromBlocks, toCreateSet, uid,
 } from "../logging/engine";
 import { useSettings } from "../settings";
+import { currentMicro } from "../periodization";
 import RestTimer from "../components/RestTimer";
 import StartChooser from "./StartChooser";
 
@@ -24,8 +25,11 @@ export default function LogWorkoutPage() {
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const splits = useQuery({ queryKey: ["splits"], queryFn: Api.listSplits });
+  const plan = useQuery({ queryKey: ["plan"], queryFn: Api.getPlan });
+  const planDeload = plan.data ? !!currentMicro(plan.data)?.isDeload : false;
 
   const [started, setStarted] = useState(false);
+  const [deload, setDeload] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<DraftBlock[]>([]);
   const [picking, setPicking] = useState(false);
@@ -66,10 +70,11 @@ export default function LogWorkoutPage() {
     setBlocks((bs) => bs.some((b) => b.exercise.id === ex.id) ? bs : [...bs, { key: uid(), exercise: ex, sets: [] }]);
     setPicking(false);
   };
-  const startEmpty = () => { setTemplateId(null); setBlocks([]); setStarted(true); };
+  const startEmpty = () => { setTemplateId(null); setBlocks([]); setDeload(planDeload); setStarted(true); };
   const startFromTemplate = (t: TemplateDto) => {
     setBlocks(blocksFromTemplate(t, exercises.data ?? []));
     setTemplateId(t.id);
+    setDeload(planDeload);
     setStarted(true);
   };
 
@@ -86,6 +91,7 @@ export default function LogWorkoutPage() {
       const body: CreateWorkoutRequest = {
         startedAt: startedAt.toISOString(),
         templateId: templateId ?? undefined,
+        cyclePhase: deload ? "DELOAD" : undefined,
         exercises: fin.map((b, i) => ({
           exerciseId: b.exercise.id,
           name: b.exercise.name,
@@ -141,6 +147,11 @@ export default function LogWorkoutPage() {
         />
       ) : (
         <>
+          <button className={`chip-toggle${deload ? " on" : ""}`} style={{ marginBottom: 14 }}
+            onClick={() => setDeload((d) => !d)}>
+            {deload ? "✓ Deload session" : "Mark as deload session"}
+          </button>
+          {deload && <p className="muted" style={{ fontSize: 12, margin: "-6px 0 14px" }}>Excluded from your progression charts & strength trajectory.</p>}
           <div className="stagger">
             {blocks.map((b, i) => (
               <ExerciseBlockEditor

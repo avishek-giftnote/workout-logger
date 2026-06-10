@@ -2,6 +2,7 @@ package com.workoutlogger.web.dto;
 
 import com.workoutlogger.domain.ActivityLevel;
 import com.workoutlogger.domain.CardioMetric;
+import com.workoutlogger.domain.CyclePhase;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.ExerciseCategory;
 import com.workoutlogger.domain.Goal;
@@ -47,7 +48,7 @@ public final class ApiDtos {
                                    List<SetDto> sets) {}
 
     public record WorkoutDto(String id, Instant startedAt, Integer durationSeconds, String rawDurationText,
-                             String templateId, List<ExerciseBlockDto> exercises,
+                             String templateId, CyclePhase cyclePhase, List<ExerciseBlockDto> exercises,
                              Instant createdAt, Instant updatedAt) {}
 
     public record CreateSetRequest(int orderIndex, @NotNull SetType setType, String weight,
@@ -59,7 +60,7 @@ public final class ApiDtos {
                                      @NotNull List<CreateSetRequest> sets) {}
 
     public record CreateWorkoutRequest(@NotNull Instant startedAt, Integer durationSeconds, String templateId,
-                                       @NotNull List<CreateBlockRequest> exercises) {}
+                                       CyclePhase cyclePhase, @NotNull List<CreateBlockRequest> exercises) {}
 
     public record UpdateSetRequest(String weight, Integer reps, Integer rpe, String note,
                                    SetType setType, String loadDelta) {}
@@ -102,4 +103,14 @@ public final class ApiDtos {
                             String ratePerWeekKg, Integer maintenanceKcalLow, Integer maintenanceKcalHigh,
                             Integer surplusDeficitKcalLow, Integer surplusDeficitKcalHigh,
                             List<String> missingProfile) {}
+
+    // ---- plan (macro/meso/microcycle) ----
+    public record MesocycleDto(String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles) {}
+
+    public record MacrocycleDto(String id, String name, Instant startedAt, String status,
+                                int mesoIndex, int week, List<MesocycleDto> mesocycles) {}
+
+    public record MesoInput(@NotNull String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles) {}
+
+    public record CreatePlanRequest(@NotNull String name, @NotNull List<MesoInput> mesocycles) {}
 }

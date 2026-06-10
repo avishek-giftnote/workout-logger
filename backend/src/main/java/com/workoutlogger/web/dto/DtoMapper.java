@@ -41,8 +41,16 @@ public final class DtoMapper {
 
     public static WorkoutDto toDto(Workout w) {
         return new WorkoutDto(w.getId(), w.getStartedAt(), w.getDurationSeconds(), w.getRawDurationText(),
-                w.getTemplateId(), w.getExercises().stream().map(DtoMapper::toDto).toList(),
+                w.getTemplateId(), w.getCyclePhase(), w.getExercises().stream().map(DtoMapper::toDto).toList(),
                 w.getCreatedAt(), w.getUpdatedAt());
+    }
+
+    public static ApiDtos.MacrocycleDto toDto(Macrocycle m) {
+        var mesos = m.getMesocycles().stream()
+                .map(x -> new ApiDtos.MesocycleDto(x.name(), x.accumulationWeeks(), x.phase(), x.focusMuscles()))
+                .toList();
+        return new ApiDtos.MacrocycleDto(m.getId(), m.getName(), m.getStartedAt(), m.getStatus(),
+                m.getMesoIndex(), m.getWeek(), mesos);
     }
 
     public static LastWorkingSetDto toDto(LastWorkingSetView v) {
@@ -94,6 +102,7 @@ public final class DtoMapper {
         w.setStartedAt(req.startedAt());
         w.setDurationSeconds(req.durationSeconds());
         w.setTemplateId(req.templateId());
+        w.setCyclePhase(req.cyclePhase());
         w.setExercises(toBlocks(req));
         return w;
     }

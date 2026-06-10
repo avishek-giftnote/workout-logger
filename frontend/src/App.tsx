@@ -11,6 +11,7 @@ import ExerciseDetailPage from "./pages/ExerciseDetailPage";
 import LogWorkoutPage from "./pages/LogWorkoutPage";
 import TemplateDetailPage from "./pages/TemplateDetailPage";
 import MuscleVolumePage from "./pages/MuscleVolumePage";
+import PlanPage from "./pages/PlanPage";
 
 function Brand() {
   const nav = useNavigate();
@@ -33,6 +34,7 @@ function Shell() {
           <button className="btn btn-ghost" onClick={() => nav("/previous-workouts")}>History</button>
           <button className="btn btn-ghost" onClick={() => nav("/exercise-list")}>Exercises</button>
           <button className="btn btn-ghost" onClick={() => nav("/muscles")}>Volume</button>
+          <button className="btn btn-ghost" onClick={() => nav("/plan")}>Plan</button>
           <button className="btn btn-ghost" title="Settings" onClick={() => setSettingsOpen(true)}>⚙</button>
         </div>
       </header>
@@ -44,6 +46,7 @@ function Shell() {
         <Route path="/exercise-list/:id" element={<ExerciseDetailPage />} />
         <Route path="/templates/:id" element={<TemplateDetailPage />} />
         <Route path="/muscles" element={<MuscleVolumePage />} />
+        <Route path="/plan" element={<PlanPage />} />
         <Route path="/start" element={<LogWorkoutPage />} />
         <Route path="*" element={<Navigate to="/start" replace />} />
       </Routes>

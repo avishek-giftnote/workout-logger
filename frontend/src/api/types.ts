@@ -60,12 +60,15 @@ export interface ExerciseBlockDto {
   sets: SetDto[];
 }
 
+export type CyclePhase = "ACCUMULATION" | "DELOAD";
+
 export interface WorkoutDto {
   id: string;
   startedAt: string;
   durationSeconds: number | null;
   rawDurationText: string | null;
   templateId: string | null;
+  cyclePhase: CyclePhase | null;
   exercises: ExerciseBlockDto[];
   createdAt: string;
   updatedAt: string;
@@ -100,8 +103,17 @@ export interface CreateWorkoutRequest {
   startedAt: string;
   durationSeconds?: number | null;
   templateId?: string | null;
+  cyclePhase?: CyclePhase | null;
   exercises: CreateBlockRequest[];
 }
+
+export interface MesocycleDto { name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[]; }
+export interface MacrocycleDto {
+  id: string; name: string; startedAt: string; status: string;
+  mesoIndex: number; week: number; mesocycles: MesocycleDto[];
+}
+export interface MesoInput { name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[]; }
+export interface CreatePlanRequest { name: string; mesocycles: MesoInput[]; }
 
 export interface LastWorkingSetDto {
   exerciseName: string;

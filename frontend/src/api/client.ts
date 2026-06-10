@@ -1,7 +1,7 @@
 import type {
-  AuthResponse, CardioMetric, CreateWorkoutRequest, EnergyDto, Equipment, ExerciseDto, LastWorkingSetDto,
-  MeDto, MuscleContributionDto, SaveSplitRequest, SaveTemplateRequest, SplitDto, TemplateDto,
-  UpdateProfileRequest, WorkoutDto,
+  AuthResponse, CardioMetric, CreatePlanRequest, CreateWorkoutRequest, EnergyDto, Equipment, ExerciseDto,
+  LastWorkingSetDto, MacrocycleDto, MeDto, MesoInput, MuscleContributionDto, SaveSplitRequest,
+  SaveTemplateRequest, SplitDto, TemplateDto, UpdateProfileRequest, WorkoutDto,
 } from "./types";
 
 const TOKEN_KEY = "wl.token";
@@ -60,6 +60,15 @@ export const Api = {
   updateProfile: (patch: UpdateProfileRequest) =>
     api<MeDto>("/me/profile", { method: "PUT", body: JSON.stringify(patch) }),
   energy: () => api<EnergyDto>("/me/energy"),
+
+  // plan (macro/meso/microcycle)
+  getPlan: () => api<MacrocycleDto | null>("/plan").then((r) => r ?? null),
+  createPlan: (body: CreatePlanRequest) =>
+    api<MacrocycleDto>("/plan", { method: "POST", body: JSON.stringify(body) }),
+  advancePlan: () => api<MacrocycleDto>("/plan/advance", { method: "POST" }),
+  addMesocycle: (m: MesoInput) =>
+    api<MacrocycleDto>("/plan/mesocycle", { method: "POST", body: JSON.stringify(m) }),
+  endPlan: () => api<void>("/plan", { method: "DELETE" }),
 
   // exercises
   listExercises: () => api<ExerciseDto[]>("/exercises"),
