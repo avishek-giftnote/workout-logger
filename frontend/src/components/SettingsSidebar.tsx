@@ -24,10 +24,12 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
   ];
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ["me"], queryFn: Api.me, enabled: open });
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [bw, setBw] = useState("");
+  const [bwDate, setBwDate] = useState(todayIso);
   const saveBw = useMutation({
-    mutationFn: () => Api.setBodyweight(bw.trim()),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["me"] }); setBw(""); },
+    mutationFn: () => Api.setBodyweight(bw.trim(), bwDate && bwDate !== todayIso ? bwDate : undefined),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["me"] }); setBw(""); setBwDate(todayIso); },
   });
 
   const p = me.data?.profile;
@@ -71,6 +73,13 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
             <button className="btn btn-volt" disabled={!bw.trim() || saveBw.isPending}
               onClick={() => saveBw.mutate()}>{saveBw.isPending ? "…" : "Save"}</button>
           </div>
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <input className="input mono grow" type="date" max={todayIso}
+              value={bwDate} onChange={(e) => setBwDate(e.target.value)} />
+          </div>
+          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            {bwDate === todayIso ? "Logs today; pick an earlier date to backdate a weigh-in." : `Backdating to ${bwDate}.`}
+          </p>
         </div>
 
         {realWeights.length >= 2 && (

@@ -479,8 +479,10 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
   border-left: 1px solid var(--line-2); box-shadow: var(--shadow-lg);
   padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column;
+  overflow-y: auto; overscroll-behavior: contain;
   animation: slideIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+.sidebar .grow { flex: 1 0 18px; }   /* keep a gap above Sign out without forcing the panel taller than content */
 @keyframes slideIn { from { transform: translateX(100%); } to { transform: none; } }
 
 /* ============================ Collapsible splits ============================ */

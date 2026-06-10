@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 @RestController
 @RequestMapping("/api/me")
@@ -48,16 +49,27 @@ public class MeController {
         return DtoMapper.toDto(current());
     }
 
-    /** Records a new bodyweight measurement; the latest entry is the effective-load baseline. */
+    /** Records a bodyweight measurement (optionally backdated). currentBodyweightKg tracks the LATEST entry. */
     @PutMapping("/bodyweight")
     public MeDto setBodyweight(@Valid @RequestBody SetBodyweightRequest req) {
         User u = current();
         var weight = DtoMapper.dec(req.weightKg());
-        u.getBodyweightLog().add(new BodyweightEntry(Instant.now(), weight, false));
-        u.setCurrentBodyweightKg(weight);
+        u.getBodyweightLog().add(new BodyweightEntry(parseWhen(req.recordedAt()), weight, false));
+        u.getBodyweightLog().stream()
+                .filter(e -> !e.estimated()).max(java.util.Comparator.comparing(BodyweightEntry::recordedAt))
+                .ifPresent(latest -> u.setCurrentBodyweightKg(latest.weightKg()));
         u.setUpdatedAt(Instant.now());
         users.save(u);
         return DtoMapper.toDto(u);
+    }
+
+    /** Blank → now; a yyyy-MM-dd date → that day at 12:00 UTC; otherwise a parsed instant. */
+    private static Instant parseWhen(String s) {
+        if (s == null || s.isBlank()) return Instant.now();
+        try { return Instant.parse(s.trim()); }
+        catch (Exception ignored) {
+            return LocalDate.parse(s.trim()).atTime(12, 0).toInstant(ZoneOffset.UTC);
+        }
     }
 
     /** Partial update of the optional fitness profile (only non-null fields are applied). */

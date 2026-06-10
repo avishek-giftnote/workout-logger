@@ -91,7 +91,8 @@ public final class ApiDtos {
     public record MeDto(String id, String email, String currentBodyweightKg,
                         List<BodyweightEntryDto> bodyweightLog, ProfileDto profile) {}
 
-    public record SetBodyweightRequest(@NotNull String weightKg) {}
+    /** recordedAt: optional ISO date (yyyy-MM-dd) or instant; defaults to now. Lets the user backdate weigh-ins. */
+    public record SetBodyweightRequest(@NotNull String weightKg, String recordedAt) {}
 
     /** Partial profile update — only non-null fields are applied. dateOfBirth is ISO yyyy-MM-dd. */
     public record UpdateProfileRequest(String dateOfBirth, String heightCm, Sex sex, Goal goal,

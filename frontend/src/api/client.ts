@@ -55,8 +55,8 @@ export const Api = {
 
   // me
   me: () => api<MeDto>("/me"),
-  setBodyweight: (weightKg: string) =>
-    api<MeDto>("/me/bodyweight", { method: "PUT", body: JSON.stringify({ weightKg }) }),
+  setBodyweight: (weightKg: string, recordedAt?: string) =>
+    api<MeDto>("/me/bodyweight", { method: "PUT", body: JSON.stringify({ weightKg, recordedAt }) }),
   updateProfile: (patch: UpdateProfileRequest) =>
     api<MeDto>("/me/profile", { method: "PUT", body: JSON.stringify(patch) }),
   energy: () => api<EnergyDto>("/me/energy"),
