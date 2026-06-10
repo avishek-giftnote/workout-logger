@@ -253,6 +253,25 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
 .set-copy:hover { background: var(--volt); color: #0a0b0c; box-shadow: 0 6px 18px -8px var(--volt); }
 .set-copy:active { transform: scale(0.92); }
 
+/* complete-set check */
+.set-done {
+  width: 34px; height: 34px; border-radius: 50%; cursor: pointer; justify-self: center;
+  background: transparent; border: 1.5px solid var(--line-2); color: var(--faint);
+  font-size: 15px; font-weight: 700; display: grid; place-items: center;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.08s;
+}
+.set-done:hover { border-color: var(--volt); color: var(--volt); }
+.set-done:active { transform: scale(0.9); }
+.set-done.on { background: var(--volt); border-color: var(--volt); color: #0a0b0c; box-shadow: 0 0 14px -3px var(--volt); animation: loggedPulse 0.5s ease-out; }
+.set-row.is-done { background: rgba(205,241,56,0.05); }
+.set-row.is-done .cell-input { opacity: 0.6; }
+.set-row.no-rpe { grid-template-columns: 36px 1fr 58px 40px; }
+
+/* compact equipment picker (2-col grid, smaller buttons) */
+.equip-pop { max-width: 300px; }
+.equip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.equip-pop .popup-opt { padding: 10px 8px; font-size: 12.5px; text-align: center; }
+
 /* set-options popup */
 .popup-backdrop {
   position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;

@@ -6,6 +6,7 @@ import type { CreateWorkoutRequest, ExerciseDto, WorkoutDto } from "../api/types
 import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, filledSet, findEx, toCreateSet, uid,
 } from "../logging/engine";
+import { useSettings } from "../settings";
 
 function workoutToBlocks(w: WorkoutDto, catalog: ExerciseDto[]): DraftBlock[] {
   return w.exercises.map((b) => {
@@ -27,6 +28,7 @@ export default function EditWorkoutPage() {
   const [blocks, setBlocks] = useState<DraftBlock[] | null>(null);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { showRpe } = useSettings();
   const bodyweight = me.data?.currentBodyweightKg ?? "";
 
   // Populate the editor once the workout + catalog have loaded.
@@ -54,7 +56,7 @@ export default function EditWorkoutPage() {
         templateId: w.templateId ?? undefined,
         exercises: (blocks ?? []).map((b, i) => ({
           exerciseId: b.exercise.id, name: b.exercise.name, position: i,
-          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight)),
+          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe)),
         })),
       };
       return Api.updateWorkout(id, body);

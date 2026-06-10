@@ -35,7 +35,7 @@ export default function LogWorkoutPage() {
   const bodyweight = me.data?.currentBodyweightKg ?? "";
   const sourceTemplate = templates.data?.find((t) => t.id === templateId) ?? null;
   const done = () => nav("/previous-workouts");
-  const { prevSource } = useSettings();
+  const { prevSource, showRpe } = useSettings();
 
   const prevSetsFor = (exerciseId: string) => {
     for (const w of workouts.data ?? []) {
@@ -74,7 +74,7 @@ export default function LogWorkoutPage() {
           exerciseId: b.exercise.id,
           name: b.exercise.name,
           position: i,
-          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight)),
+          sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe)),
         })),
       };
       return Api.createWorkout(body);
@@ -105,11 +105,7 @@ export default function LogWorkoutPage() {
       <div className="screen-head fade-up">
         <div>
           <h1>{started ? "Log Session" : "Start Workout"}</h1>
-          <p>
-            {bodyweight
-              ? <>Bodyweight <b className="mono" style={{ color: "var(--ice)" }}>{bodyweight} kg</b> · used for calisthenics</>
-              : "Set your bodyweight in Settings (⚙) to log calisthenics"}
-          </p>
+          <p>{started ? "Tick ✓ each set as you complete it" : "Start fresh or repeat a template"}</p>
         </div>
         <button className="btn btn-ghost" onClick={() => nav("/previous-workouts")}>Cancel</button>
       </div>

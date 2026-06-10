@@ -7,7 +7,7 @@ import { useSettings } from "../settings";
 /** Slide-out settings panel; closes when the backdrop (anywhere outside) is clicked. */
 export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signOut } = useAuth();
-  const { prevSource, setPrevSource } = useSettings();
+  const { prevSource, setPrevSource, showRpe, setShowRpe } = useSettings();
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ["me"], queryFn: Api.me, enabled: open });
   const [bw, setBw] = useState("");
@@ -54,6 +54,17 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
             {prevSource === "any"
               ? "Placeholders use the most recent time you did the exercise, in any workout."
               : "Placeholders only use sessions started from the same template."}
+          </p>
+        </div>
+
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>RPE field</label>
+          <div className="seg" style={{ width: "100%", marginTop: 4 }}>
+            <button className={showRpe ? "on" : ""} style={{ flex: 1 }} onClick={() => setShowRpe(true)}>Show</button>
+            <button className={!showRpe ? "on" : ""} style={{ flex: 1 }} onClick={() => setShowRpe(false)}>Hide</button>
+          </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            Hiding removes the RPE input while off; previously logged RPE is kept and returns when you show it again.
           </p>
         </div>
 

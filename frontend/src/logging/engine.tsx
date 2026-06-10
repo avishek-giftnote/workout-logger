@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import { useSettings } from "../settings";
 import type { Equipment, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput } from "../api/types";
 
 export const uid = () =>
@@ -28,6 +29,7 @@ export interface DraftSet {
   mode: "ADDED" | "ASSISTED";
   reps: string;
   rpe: string;
+  done?: boolean;          // marked complete this session (UI only, not persisted)
   pWeight?: string;
   pDelta?: string;
   pReps?: string;
@@ -81,9 +83,9 @@ export const structureChanged = (t: TemplateDto, blocks: DraftBlock[]): boolean 
 
 const orPrev = (entry: string, prev?: string) => (entry.trim() || prev || "");
 
-export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, bodyweight: string) {
+export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, bodyweight: string, includeRpe = true) {
   const reps = orPrev(s.reps, s.pReps);
-  const rpe = orPrev(s.rpe, s.pRpe);
+  const rpe = includeRpe ? orPrev(s.rpe, s.pRpe) : "";
   let weight: string, loadMode: LoadMode | null, loadDelta: string | null;
   if (isBw) {
     const bw = parseFloat(bodyweight || "0");
@@ -110,6 +112,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
   onExerciseChange?: (ex: ExerciseDto) => void;
 }) {
   const qc = useQueryClient();
+  const { showRpe } = useSettings();
   const isBw = block.exercise.isBodyweight;
   const seeded = useRef(false);
   const [popupKey, setPopupKey] = useState<string | null>(null);
@@ -173,7 +176,7 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
           ? parseFloat(bodyweight || "0") + (s.mode === "ASSISTED" ? -1 : 1) * parseFloat(orPrev(s.delta, s.pDelta) || "0")
           : null;
         return (
-          <div key={s.key} className={`set-row${warm ? " is-warmup" : ""}`}>
+          <div key={s.key} className={`set-row${warm ? " is-warmup" : ""}${s.done ? " is-done" : ""}${showRpe ? "" : " no-rpe"}`}>
             <button className={`set-idx${warm ? " warm" : ""}`} title="Set options"
               onClick={() => setPopupKey(s.key)}>{idx}<i className="set-idx-caret" /></button>
 
@@ -204,13 +207,17 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
               <input className="cell-input" inputMode="numeric" value={s.reps}
                 placeholder={s.pReps ?? "—"} onChange={(e) => update(s.key, { reps: e.target.value })} />
             </div>
-            <div className="cell">
-              <span className="micro">rpe</span>
-              <input className="cell-input" inputMode="numeric" value={s.rpe}
-                placeholder={s.pRpe ?? "—"} onChange={(e) => update(s.key, { rpe: e.target.value })} />
-            </div>
+            {showRpe && (
+              <div className="cell">
+                <span className="micro">rpe</span>
+                <input className="cell-input" inputMode="numeric" value={s.rpe}
+                  placeholder={s.pRpe ?? "—"} onChange={(e) => update(s.key, { rpe: e.target.value })} />
+              </div>
+            )}
 
-            <button className="set-copy" title="Copy this set" onClick={() => copySet(s.key)}>+</button>
+            <button className={`set-done${s.done ? " on" : ""}`}
+              title={s.done ? "Completed — tap to undo" : "Complete set"}
+              onClick={() => update(s.key, { done: !s.done })}>✓</button>
           </div>
         );
       })}
@@ -227,6 +234,8 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
               onClick={() => { update(popupSet.key, { setType: "WORKING" }); setPopupKey(null); }}>Working set</button>
             <button className={`popup-opt${popupSet.setType === "WARMUP" ? " on" : ""}`}
               onClick={() => { update(popupSet.key, { setType: "WARMUP" }); setPopupKey(null); }}>Warm-up set</button>
+            <button className="popup-opt"
+              onClick={() => { copySet(popupSet.key); setPopupKey(null); }}>Duplicate set</button>
             <button className="popup-opt danger"
               onClick={() => { removeSet(popupSet.key); setPopupKey(null); }}>Delete set</button>
           </div>
@@ -235,12 +244,14 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
 
       {equipOpen && (
         <div className="popup-backdrop" onClick={() => setEquipOpen(false)}>
-          <div className="popup-card" onClick={(e) => e.stopPropagation()}>
-            <span className="micro">Equipment · strength</span>
-            {EQUIPMENT.map((eq) => (
-              <button key={eq.value} className={`popup-opt${block.exercise.equipment === eq.value ? " on" : ""}`}
-                disabled={setEquip.isPending} onClick={() => setEquip.mutate(eq.value)}>{eq.label}</button>
-            ))}
+          <div className="popup-card equip-pop" onClick={(e) => e.stopPropagation()}>
+            <span className="micro">Equipment</span>
+            <div className="equip-grid">
+              {EQUIPMENT.map((eq) => (
+                <button key={eq.value} className={`popup-opt${block.exercise.equipment === eq.value ? " on" : ""}`}
+                  disabled={setEquip.isPending} onClick={() => setEquip.mutate(eq.value)}>{eq.label}</button>
+              ))}
+            </div>
           </div>
         </div>
       )}
