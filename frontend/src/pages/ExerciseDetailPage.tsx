@@ -5,8 +5,9 @@ import { Api } from "../api/client";
 import { CARDIO_METRICS, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
 import { ChartCard, type Point } from "../components/Chart";
 import { EXERCISE_CHARTS } from "../charts";
+import { MUSCLES } from "../muscles";
 import { useSettings } from "../settings";
-import type { CardioMetric, SetDto, TemplateDto, WorkoutDto } from "../api/types";
+import type { CardioMetric, Muscle, MuscleContributionDto, SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
@@ -48,7 +49,7 @@ export default function ExerciseDetailPage() {
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
   const save = useMutation({
-    mutationFn: (patch: { restSeconds?: number | null; cardioMetrics?: CardioMetric[] }) => Api.updateExercise(id, patch),
+    mutationFn: (patch: { restSeconds?: number | null; cardioMetrics?: CardioMetric[]; muscleContributions?: MuscleContributionDto[] }) => Api.updateExercise(id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["exercises"] }),
   });
 
@@ -57,6 +58,16 @@ export default function ExerciseDetailPage() {
   const curMetrics = ex ? cardioMetricsOf(ex) : [];
   const toggleMetric = (m: CardioMetric) =>
     save.mutate({ cardioMetrics: curMetrics.includes(m) ? (curMetrics.length > 1 ? curMetrics.filter((x) => x !== m) : curMetrics) : [...curMetrics, m] });
+  const fracOf = new Map((ex?.muscleContributions ?? []).map((c) => [c.muscle, c.fraction]));
+  const cycleMuscle = (m: Muscle) => {
+    const cur = ex?.muscleContributions ?? [];
+    const f = fracOf.get(m);
+    const next: MuscleContributionDto[] =
+      !f ? [...cur, { muscle: m, fraction: "1.0" }]
+        : f === "1.0" ? cur.map((c) => (c.muscle === m ? { muscle: m, fraction: "0.5" } : c))
+          : cur.filter((c) => c.muscle !== m);
+    save.mutate({ muscleContributions: next });
+  };
   const tName = useMemo(() => {
     const m = new Map((templates.data ?? []).map((t: TemplateDto) => [t.id, t.name]));
     return (w: WorkoutDto) => (w.templateId && m.get(w.templateId)) || "Workout";
@@ -120,7 +131,7 @@ export default function ExerciseDetailPage() {
         <div style={{ marginTop: 6 }}>
           <RestPicker initial={ex.restSeconds} onChange={(v) => save.mutate({ restSeconds: v == null ? -1 : v })} />
         </div>
-        {cardio && (
+        {cardio ? (
           <>
             <span className="micro" style={{ display: "block", marginTop: 14 }}>Metrics to log</span>
             <div className="chip-wrap" style={{ marginTop: 6 }}>
@@ -128,6 +139,24 @@ export default function ExerciseDetailPage() {
                 <button key={m.value} className={`chip-toggle${curMetrics.includes(m.value) ? " on" : ""}`}
                   disabled={save.isPending} onClick={() => toggleMetric(m.value)}>{m.label}</button>
               ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="micro" style={{ display: "block", marginTop: 14 }}>
+              Muscles worked {ex.muscleContributions.length === 0 && <b style={{ color: "var(--ember)" }}>· unmapped</b>}
+            </span>
+            <p className="muted" style={{ fontSize: 11, margin: "2px 0 6px" }}>Tap to cycle: off → primary → secondary. Credits per-muscle weekly volume.</p>
+            <div className="chip-wrap">
+              {MUSCLES.map((m) => {
+                const f = fracOf.get(m.key);
+                const cls = f === "1.0" ? " on" : f ? " half" : "";
+                return (
+                  <button key={m.key} className={`chip-toggle${cls}`} disabled={save.isPending}
+                    title={f === "1.0" ? "primary" : f ? "secondary" : "off"}
+                    onClick={() => cycleMuscle(m.key)}>{m.label}</button>
+                );
+              })}
             </div>
           </>
         )}

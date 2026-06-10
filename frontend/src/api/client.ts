@@ -1,6 +1,7 @@
 import type {
   AuthResponse, CardioMetric, CreateWorkoutRequest, Equipment, ExerciseDto, LastWorkingSetDto,
-  MeDto, SaveSplitRequest, SaveTemplateRequest, SplitDto, TemplateDto, UpdateProfileRequest, WorkoutDto,
+  MeDto, MuscleContributionDto, SaveSplitRequest, SaveTemplateRequest, SplitDto, TemplateDto,
+  UpdateProfileRequest, WorkoutDto,
 } from "./types";
 
 const TOKEN_KEY = "wl.token";
@@ -66,7 +67,7 @@ export const Api = {
     api<ExerciseDto>("/exercises", { method: "POST", body: JSON.stringify({ name, isBodyweight, category, restSeconds, cardioMetrics }) }),
   setExerciseEquipment: (id: string, equipment: Equipment) =>
     api<ExerciseDto>(`/exercises/${id}`, { method: "PATCH", body: JSON.stringify({ equipment }) }),
-  updateExercise: (id: string, patch: { equipment?: Equipment; restSeconds?: number | null; cardioMetrics?: CardioMetric[] | null }) =>
+  updateExercise: (id: string, patch: { equipment?: Equipment; restSeconds?: number | null; cardioMetrics?: CardioMetric[] | null; muscleContributions?: MuscleContributionDto[] }) =>
     api<ExerciseDto>(`/exercises/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   lastWorkingSet: (exerciseId: string) =>
     api<LastWorkingSetDto | null>(`/exercises/${exerciseId}/last-working-set`).catch((e) => {

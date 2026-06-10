@@ -14,6 +14,11 @@ export type SetKind = "STRENGTH" | "CARDIO";
 
 export type CardioMetric = "DISTANCE" | "DURATION" | "PACE" | "GRADE" | "ELEVATION" | "CADENCE";
 
+export type Muscle =
+  | "CHEST" | "FRONT_DELT" | "SIDE_DELT" | "REAR_DELT" | "LAT" | "UPPER_BACK" | "TRAP"
+  | "BICEP" | "TRICEP" | "FOREARM" | "QUAD" | "HAMSTRING" | "GLUTE" | "CALF" | "ABS";
+export interface MuscleContributionDto { muscle: Muscle; fraction: string; }
+
 export interface ExerciseDto {
   id: string;
   name: string;
@@ -23,6 +28,7 @@ export interface ExerciseDto {
   defaultUnit: string;
   restSeconds: number | null;            // exercise-specific rest target; null ⇒ global default
   cardioMetrics: CardioMetric[] | null;  // CARDIO only; null ⇒ default set
+  muscleContributions: MuscleContributionDto[];  // seeded from name when the user hasn't set them
 }
 
 export interface SetDto {

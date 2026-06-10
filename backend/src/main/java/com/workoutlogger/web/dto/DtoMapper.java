@@ -18,8 +18,13 @@ public final class DtoMapper {
     public static BigDecimal dec(String v) { return (v == null || v.isBlank()) ? null : new BigDecimal(v.trim()); }
 
     public static ExerciseDto toDto(Exercise e) {
+        var contribs = e.getMuscleContributions() != null
+                ? e.getMuscleContributions()
+                : com.workoutlogger.importer.MuscleSeed.infer(e.getName());   // inferred when the user hasn't set them
+        var contribDtos = contribs.stream()
+                .map(c -> new MuscleContributionDto(c.muscle(), str(c.fraction()))).toList();
         return new ExerciseDto(e.getId(), e.getName(), e.isBodyweight(), e.getEquipment(),
-                e.getCategory(), e.getDefaultUnit(), e.getRestSeconds(), e.getCardioMetrics());
+                e.getCategory(), e.getDefaultUnit(), e.getRestSeconds(), e.getCardioMetrics(), contribDtos);
     }
 
     public static SetDto toDto(WorkoutSet s) {

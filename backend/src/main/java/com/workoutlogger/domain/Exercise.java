@@ -25,6 +25,7 @@ public class Exercise {
     private String defaultUnit;     // "kg"
     private Integer restSeconds;                        // exercise-specific rest timer; null ⇒ use the global default
     private List<CardioMetric> cardioMetrics;          // CARDIO only: which inputs to log; null ⇒ client default
+    private List<MuscleContribution> muscleContributions; // null ⇒ inferred from name on read (see docs/coach.md)
     private int schemaVersion = 1;
     private Instant createdAt;
     private Instant updatedAt;
@@ -52,6 +53,8 @@ public class Exercise {
     public void setRestSeconds(Integer restSeconds) { this.restSeconds = restSeconds; }
     public List<CardioMetric> getCardioMetrics() { return cardioMetrics; }
     public void setCardioMetrics(List<CardioMetric> cardioMetrics) { this.cardioMetrics = cardioMetrics; }
+    public List<MuscleContribution> getMuscleContributions() { return muscleContributions; }
+    public void setMuscleContributions(List<MuscleContribution> v) { this.muscleContributions = v; }
     public int getSchemaVersion() { return schemaVersion; }
     public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
     public Instant getCreatedAt() { return createdAt; }

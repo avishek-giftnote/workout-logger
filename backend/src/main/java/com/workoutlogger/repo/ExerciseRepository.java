@@ -4,6 +4,7 @@ import com.workoutlogger.domain.CardioMetric;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.Exercise;
 import com.workoutlogger.domain.ExerciseCategory;
+import com.workoutlogger.domain.MuscleContribution;
 import com.workoutlogger.importer.StrongParsers;
 import com.workoutlogger.security.Tenant;
 import com.workoutlogger.web.error.ApiExceptions.ConflictException;
@@ -77,7 +78,7 @@ public class ExerciseRepository {
 
     /** Partial update — applies only the non-null fields. BODYWEIGHT keeps isBodyweight in sync. */
     public Optional<Exercise> update(String id, Equipment equipment, Integer restSeconds,
-                                     List<CardioMetric> cardioMetrics) {
+                                     List<CardioMetric> cardioMetrics, List<MuscleContribution> muscleContributions) {
         return findOne(id).map(e -> {
             if (equipment != null) {
                 e.setEquipment(equipment);
@@ -85,6 +86,7 @@ public class ExerciseRepository {
             }
             if (restSeconds != null) e.setRestSeconds(restSeconds < 0 ? null : restSeconds);
             if (cardioMetrics != null) e.setCardioMetrics(cardioMetrics);
+            if (muscleContributions != null) e.setMuscleContributions(muscleContributions);
             e.setUpdatedAt(Instant.now());
             return mongo.save(e);
         });

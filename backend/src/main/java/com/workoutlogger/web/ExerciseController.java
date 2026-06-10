@@ -35,10 +35,12 @@ public class ExerciseController {
                 req.restSeconds(), req.cardioMetrics()));
     }
 
-    /** Partial update: equipment, exercise-specific rest seconds, and/or cardio metrics. */
+    /** Partial update: equipment, exercise-specific rest seconds, cardio metrics, and/or muscle map. */
     @PatchMapping("/{id}")
     public ExerciseDto update(@PathVariable String id, @Valid @RequestBody UpdateExerciseRequest req) {
-        return exercises.update(id, req.equipment(), req.restSeconds(), req.cardioMetrics()).map(DtoMapper::toDto)
+        var muscles = req.muscleContributions() == null ? null : req.muscleContributions().stream()
+                .map(d -> new com.workoutlogger.domain.MuscleContribution(d.muscle(), DtoMapper.dec(d.fraction()))).toList();
+        return exercises.update(id, req.equipment(), req.restSeconds(), req.cardioMetrics(), muscles).map(DtoMapper::toDto)
                 .orElseThrow(() -> new NotFoundException("Exercise " + id + " not found"));
     }
 
