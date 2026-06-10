@@ -1,6 +1,7 @@
 package com.workoutlogger.web.auth;
 
 import com.workoutlogger.domain.User;
+import com.workoutlogger.importer.DefaultExerciseSeeder;
 import com.workoutlogger.repo.UserRepository;
 import com.workoutlogger.security.JwtService;
 import com.workoutlogger.web.auth.AuthDtos.*;
@@ -22,11 +23,13 @@ public class AuthController {
     private final UserRepository users;
     private final PasswordEncoder encoder;
     private final JwtService jwt;
+    private final DefaultExerciseSeeder seeder;
 
-    public AuthController(UserRepository users, PasswordEncoder encoder, JwtService jwt) {
+    public AuthController(UserRepository users, PasswordEncoder encoder, JwtService jwt, DefaultExerciseSeeder seeder) {
         this.users = users;
         this.encoder = encoder;
         this.jwt = jwt;
+        this.seeder = seeder;
     }
 
     @PostMapping("/register")
@@ -44,6 +47,7 @@ public class AuthController {
         u.setCreatedAt(now);
         u.setUpdatedAt(now);
         users.save(u);
+        seeder.seed(u.getId());   // populate the default exercise catalog
         return new AuthResponse(jwt.issue(u.getId()), u.getId(), u.getEmail());
     }
 

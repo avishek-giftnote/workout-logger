@@ -24,7 +24,8 @@ public final class DtoMapper {
         var contribDtos = contribs.stream()
                 .map(c -> new MuscleContributionDto(c.muscle(), str(c.fraction()))).toList();
         return new ExerciseDto(e.getId(), e.getName(), e.isBodyweight(), e.getEquipment(),
-                e.getCategory(), e.getDefaultUnit(), e.getRestSeconds(), e.getCardioMetrics(), contribDtos);
+                e.getCategory(), e.getDefaultUnit(), e.getRestSeconds(), e.getCardioMetrics(), contribDtos,
+                e.getLaterality(), e.getMechanic(), e.getLoadable());
     }
 
     public static SetDto toDto(WorkoutSet s) {

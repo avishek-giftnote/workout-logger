@@ -26,6 +26,9 @@ public class Exercise {
     private Integer restSeconds;                        // exercise-specific rest timer; null ⇒ use the global default
     private List<CardioMetric> cardioMetrics;          // CARDIO only: which inputs to log; null ⇒ client default
     private List<MuscleContribution> muscleContributions; // null ⇒ inferred from name on read (see docs/coach.md)
+    private Laterality laterality;                      // BILATERAL/ISOLATERAL/UNILATERAL (nullable)
+    private Mechanic mechanic;                          // COMPOUND/ISOLATION (nullable)
+    private Boolean loadable;                           // can add/reduce resistance (esp. for bodyweight); nullable
     private int schemaVersion = 1;
     private Instant createdAt;
     private Instant updatedAt;
@@ -55,6 +58,12 @@ public class Exercise {
     public void setCardioMetrics(List<CardioMetric> cardioMetrics) { this.cardioMetrics = cardioMetrics; }
     public List<MuscleContribution> getMuscleContributions() { return muscleContributions; }
     public void setMuscleContributions(List<MuscleContribution> v) { this.muscleContributions = v; }
+    public Laterality getLaterality() { return laterality; }
+    public void setLaterality(Laterality laterality) { this.laterality = laterality; }
+    public Mechanic getMechanic() { return mechanic; }
+    public void setMechanic(Mechanic mechanic) { this.mechanic = mechanic; }
+    public Boolean getLoadable() { return loadable; }
+    public void setLoadable(Boolean loadable) { this.loadable = loadable; }
     public int getSchemaVersion() { return schemaVersion; }
     public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
     public Instant getCreatedAt() { return createdAt; }

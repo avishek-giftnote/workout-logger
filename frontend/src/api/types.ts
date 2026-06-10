@@ -18,6 +18,8 @@ export type Muscle =
   | "CHEST" | "FRONT_DELT" | "SIDE_DELT" | "REAR_DELT" | "LAT" | "UPPER_BACK" | "TRAP"
   | "BICEP" | "TRICEP" | "FOREARM" | "QUAD" | "HAMSTRING" | "GLUTE" | "CALF" | "ABS";
 export interface MuscleContributionDto { muscle: Muscle; fraction: string; }
+export type Laterality = "BILATERAL" | "ISOLATERAL" | "UNILATERAL";
+export type Mechanic = "COMPOUND" | "ISOLATION";
 
 export interface ExerciseDto {
   id: string;
@@ -29,6 +31,9 @@ export interface ExerciseDto {
   restSeconds: number | null;            // exercise-specific rest target; null ⇒ global default
   cardioMetrics: CardioMetric[] | null;  // CARDIO only; null ⇒ default set
   muscleContributions: MuscleContributionDto[];  // seeded from name when the user hasn't set them
+  laterality: Laterality | null;
+  mechanic: Mechanic | null;
+  loadable: boolean | null;              // can add/reduce resistance (esp. for bodyweight)
 }
 
 export interface SetDto {

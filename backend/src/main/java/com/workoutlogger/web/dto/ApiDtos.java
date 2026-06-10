@@ -7,7 +7,9 @@ import com.workoutlogger.domain.CyclePhase;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.ExerciseCategory;
 import com.workoutlogger.domain.Goal;
+import com.workoutlogger.domain.Laterality;
 import com.workoutlogger.domain.LoadMode;
+import com.workoutlogger.domain.Mechanic;
 import com.workoutlogger.domain.Muscle;
 import com.workoutlogger.domain.Sex;
 import com.workoutlogger.domain.SetKind;
@@ -30,7 +32,8 @@ public final class ApiDtos {
 
     public record ExerciseDto(String id, String name, boolean isBodyweight, Equipment equipment,
                               ExerciseCategory category, String defaultUnit, Integer restSeconds,
-                              List<CardioMetric> cardioMetrics, List<MuscleContributionDto> muscleContributions) {}
+                              List<CardioMetric> cardioMetrics, List<MuscleContributionDto> muscleContributions,
+                              Laterality laterality, Mechanic mechanic, Boolean loadable) {}
 
     public record CreateExerciseRequest(@NotNull String name, boolean isBodyweight, ExerciseCategory category,
                                         Integer restSeconds, List<CardioMetric> cardioMetrics) {}

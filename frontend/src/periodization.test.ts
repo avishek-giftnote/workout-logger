@@ -8,6 +8,7 @@ const meso = (over: Partial<MesoInput> = {}): MesoInput =>
 const ex = (id: string, name: string, muscle: Muscle): ExerciseDto => ({
   id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg",
   restSeconds: null, cardioMetrics: null, muscleContributions: [{ muscle, fraction: "1.0" }],
+  laterality: null, mechanic: null, loadable: null,
 });
 
 describe("isDeload", () => {

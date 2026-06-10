@@ -122,7 +122,12 @@ export default function ExerciseDetailPage() {
           <button className="micro" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 10 }}
             onClick={() => nav("/exercise-list")}>← Exercises</button>
           <h1>{ex.name}</h1>
-          <p><span className="tag">{cardio ? "Cardio" : equipmentLabel(ex.equipment)}</span> · {cardio ? "cardiovascular" : "strength"}</p>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+            <span className="tag">{cardio ? "Cardio" : equipmentLabel(ex.equipment)}</span>
+            {ex.mechanic && <span className="tag">{ex.mechanic === "COMPOUND" ? "Compound" : "Isolation"}</span>}
+            {ex.laterality && <span className="tag">{ex.laterality === "BILATERAL" ? "Bilateral" : ex.laterality === "ISOLATERAL" ? "Isolateral" : "Unilateral"}</span>}
+            {ex.isBodyweight && <span className="tag tag-bw">Bodyweight{ex.loadable ? " · loadable" : ""}</span>}
+          </div>
         </div>
       </div>
 

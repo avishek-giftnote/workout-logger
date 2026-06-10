@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -241,16 +242,42 @@ class ApiIntegrationTest {
     }
 
     @Test
-    void exerciseMuscleMapSeedsFromNameAndPersists() throws Exception {
+    void exerciseMuscleMapInferredFromNameAndPersists() throws Exception {
         String t = register("mm@example.com");
-        String ex = createExercise(t, "Barbell Bench Press", false);
-        mvc.perform(get("/api/exercises").header("Authorization", bearer(t)))
-                .andExpect(jsonPath("$[0].muscleContributions[?(@.muscle=='CHEST')]").exists());   // seeded on read
+        String ex = createExercise(t, "Brand New Lat Pulldown", false);   // not in the seed catalog
+        mvc.perform(get("/api/exercises/" + ex + "/last-working-set").header("Authorization", bearer(t)))
+                .andExpect(status().isNotFound());                          // no history yet (just a sanity call)
         mvc.perform(patch("/api/exercises/" + ex).header("Authorization", bearer(t))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"muscleContributions\":[{\"muscle\":\"LAT\",\"fraction\":\"1.0\"}]}"))
                 .andExpect(jsonPath("$.muscleContributions.length()").value(1))
                 .andExpect(jsonPath("$.muscleContributions[0].muscle").value("LAT"));
+    }
+
+    @Test
+    void newUserGetsTheSeededDefaultCatalog() throws Exception {
+        String t = register("seed@example.com");
+        String body = mvc.perform(get("/api/exercises").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.length()").value(org.hamcrest.Matchers.greaterThanOrEqualTo(80)))
+                .andReturn().getResponse().getContentAsString();
+        var arr = json.readTree(body);
+        boolean bench = false, pullup = false;
+        for (var e : arr) {
+            if ("Barbell Bench Press".equals(e.get("name").asText())) {
+                bench = true;
+                assertThat(e.get("laterality").asText()).isEqualTo("BILATERAL");
+                assertThat(e.get("mechanic").asText()).isEqualTo("COMPOUND");
+                assertThat(e.get("isBodyweight").asBoolean()).isFalse();
+                assertThat(e.get("muscleContributions").toString()).contains("CHEST");
+            }
+            if ("Pull Up".equals(e.get("name").asText())) {
+                pullup = true;
+                assertThat(e.get("isBodyweight").asBoolean()).isTrue();
+                assertThat(e.get("loadable").asBoolean()).isTrue();      // weighted / assisted possible
+            }
+        }
+        assertThat(bench).isTrue();
+        assertThat(pullup).isTrue();
     }
 
     @Test

@@ -161,7 +161,7 @@ export function filledSet(prev: SetDto, isBw: boolean): DraftSet {
 }
 
 export const findEx = (catalog: ExerciseDto[], id: string, name: string): ExerciseDto =>
-  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg", restSeconds: null, cardioMetrics: null, muscleContributions: [] };
+  catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg", restSeconds: null, cardioMetrics: null, muscleContributions: [], laterality: null, mechanic: null, loadable: null };
 
 export const templateExercisesFromBlocks = (blocks: DraftBlock[]): TemplateExerciseInput[] =>
   blocks.map((b, i) => ({ exerciseId: b.exercise.id, name: b.exercise.name, position: i, sets: b.sets.length }));
