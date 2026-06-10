@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
+import { ALL_CHART_KEYS } from "./charts";
 
 /** Where the logging screen pulls "last time" values from when seeding sets. */
 export type PrevSource = "any" | "template";
@@ -12,12 +13,15 @@ interface SettingsCtx {
   setRestTarget: (v: number) => void;
   restTimerEnabled: boolean;           // master on/off for the rest timer
   setRestTimerEnabled: (v: boolean) => void;
+  charts: string[];                    // which graphs to show on exercise/template pages
+  toggleChart: (key: string) => void;
 }
 
 const KEY = "wl.settings.prevSource";
 const RPE_KEY = "wl.settings.showRpe";
 const REST_KEY = "wl.settings.restTarget";
 const REST_ON_KEY = "wl.settings.restTimerEnabled";
+const CHARTS_KEY = "wl.settings.charts";
 const Ctx = createContext<SettingsCtx | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -37,7 +41,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(REST_ON_KEY) !== "false");   // default on
   const setRestTimerEnabled = (v: boolean) => { localStorage.setItem(REST_ON_KEY, String(v)); setRestOnState(v); };
 
-  return <Ctx.Provider value={{ prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget, restTimerEnabled, setRestTimerEnabled }}>{children}</Ctx.Provider>;
+  const [charts, setCharts] = useState<string[]>(() => {
+    try { const v = localStorage.getItem(CHARTS_KEY); return v ? JSON.parse(v) : ALL_CHART_KEYS; } catch { return ALL_CHART_KEYS; }
+  });
+  const toggleChart = (key: string) => setCharts((cur) => {
+    const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
+    localStorage.setItem(CHARTS_KEY, JSON.stringify(next));
+    return next;
+  });
+
+  return <Ctx.Provider value={{ prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget, restTimerEnabled, setRestTimerEnabled, charts, toggleChart }}>{children}</Ctx.Provider>;
 }
 
 export function useSettings(): SettingsCtx {

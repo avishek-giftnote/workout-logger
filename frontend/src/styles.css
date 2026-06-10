@@ -216,8 +216,10 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .cal-head b { font-size: 16px; letter-spacing: -0.2px; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.cal-dow { margin-bottom: 8px; }
-.cal-wd { text-align: center; font-size: 10px; letter-spacing: 0.1em; color: var(--muted); padding: 0; }
+.cal-wd {
+  display: flex; align-items: center; justify-content: center; height: 24px; margin-bottom: 2px;
+  font-size: 10px; letter-spacing: 0.1em; color: var(--muted);
+}
 .cal-cell {
   aspect-ratio: 1; border: 1px solid transparent; background: transparent; border-radius: 10px; position: relative;
   display: flex; align-items: center; justify-content: center; padding: 0;

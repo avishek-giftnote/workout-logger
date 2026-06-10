@@ -105,10 +105,8 @@ export default function WorkoutsPage() {
             <b>{MONTHS[cur.m]} {cur.y}</b>
             <button className="icon-btn" onClick={() => moveMonth(1)} title="Next month">›</button>
           </div>
-          <div className="cal-grid cal-dow">
-            {DOW.map((d, i) => <span key={i} className="cal-wd">{d}</span>)}
-          </div>
           <div className="cal-grid">
+            {DOW.map((d, i) => <span key={`wd${i}`} className="cal-wd">{d}</span>)}
             {cells.map((day, i) => {
               if (!day) return <span key={i} className="cal-cell empty" />;
               const list = byDay.get(`${cur.y}-${cur.m}-${day}`);

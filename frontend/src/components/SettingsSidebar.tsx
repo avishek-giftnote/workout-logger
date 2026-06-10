@@ -3,12 +3,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { useAuth } from "../auth/auth";
 import { useSettings } from "../settings";
+import { EXERCISE_CHARTS, TEMPLATE_CHARTS } from "../charts";
 
 /** Slide-out settings panel; closes when the backdrop (anywhere outside) is clicked. */
 export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signOut } = useAuth();
   const { prevSource, setPrevSource, showRpe, setShowRpe, restTarget, setRestTarget,
-    restTimerEnabled, setRestTimerEnabled } = useSettings();
+    restTimerEnabled, setRestTimerEnabled, charts, toggleChart } = useSettings();
+  const strengthCharts = EXERCISE_CHARTS.filter((c) => !c.cardio);
+  const cardioCharts = EXERCISE_CHARTS.filter((c) => c.cardio);
   const REST_PRESETS: { v: number; label: string }[] = [
     { v: 0, label: "Off" }, { v: 60, label: "1:00" }, { v: 90, label: "1:30" },
     { v: 120, label: "2:00" }, { v: 180, label: "3:00" },
@@ -94,6 +97,29 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
               </p>
             </>
           )}
+        </div>
+
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>Graphs</label>
+          <p className="muted" style={{ fontSize: 12, margin: "2px 0 8px" }}>Pick which charts appear on exercise & template pages.</p>
+          <span className="micro">Strength exercises</span>
+          <div className="chip-wrap" style={{ margin: "6px 0 10px" }}>
+            {strengthCharts.map((c) => (
+              <button key={c.key} className={`chip-toggle${charts.includes(c.key) ? " on" : ""}`} onClick={() => toggleChart(c.key)}>{c.label}</button>
+            ))}
+          </div>
+          <span className="micro">Cardio exercises</span>
+          <div className="chip-wrap" style={{ margin: "6px 0 10px" }}>
+            {cardioCharts.map((c) => (
+              <button key={c.key} className={`chip-toggle${charts.includes(c.key) ? " on" : ""}`} onClick={() => toggleChart(c.key)}>{c.label}</button>
+            ))}
+          </div>
+          <span className="micro">Templates</span>
+          <div className="chip-wrap" style={{ marginTop: 6 }}>
+            {TEMPLATE_CHARTS.map((c) => (
+              <button key={c.key} className={`chip-toggle${charts.includes(c.key) ? " on" : ""}`} onClick={() => toggleChart(c.key)}>{c.label}</button>
+            ))}
+          </div>
         </div>
 
         <div className="grow" />

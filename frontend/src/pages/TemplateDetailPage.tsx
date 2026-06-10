@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { ChartCard } from "../components/Chart";
+import { useSettings } from "../settings";
 import type { WorkoutDto } from "../api/types";
 
 const workingVolume = (w: WorkoutDto) => {
@@ -16,6 +17,7 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { m
 export default function TemplateDetailPage() {
   const { id = "" } = useParams();
   const nav = useNavigate();
+  const { charts } = useSettings();
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
 
@@ -47,7 +49,9 @@ export default function TemplateDetailPage() {
         </div>
       </div>
 
-      <ChartCard title="Total volume per workout" yLabel="Volume (kg)" points={points} color="var(--volt)" />
+      {charts.includes("TEMPLATE_VOLUME")
+        ? <ChartCard title="Total volume per workout" yLabel="Volume (kg)" points={points} color="var(--volt)" />
+        : <p className="muted" style={{ fontSize: 13, margin: "0 4px 12px" }}>Template graph is off — enable it in Settings → Graphs.</p>}
 
       <p className="micro" style={{ margin: "18px 4px 10px" }}>Exercises</p>
       <div className="card">

@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { CARDIO_METRICS, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
 import { ChartCard, type Point } from "../components/Chart";
+import { EXERCISE_CHARTS } from "../charts";
+import { useSettings } from "../settings";
 import type { CardioMetric, SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
 const fmtDate = (iso: string) =>
@@ -41,6 +43,7 @@ export default function ExerciseDetailPage() {
   const { id = "" } = useParams();
   const nav = useNavigate();
   const qc = useQueryClient();
+  const { charts } = useSettings();
   const exercises = useQuery({ queryKey: ["exercises"], queryFn: Api.listExercises });
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
@@ -146,13 +149,18 @@ export default function ExerciseDetailPage() {
         )}
       </div>
 
-      {/* trends */}
-      {cardio
-        ? <ChartCard title="Distance per session" yLabel="Distance (km)" points={stats.dist} color="var(--volt)" />
-        : <>
-            <ChartCard title="Estimated 1RM" yLabel="Est. 1RM (kg)" points={stats.oneRm} color="var(--volt)" />
-            <ChartCard title="Volume per session" yLabel="Volume (kg)" points={stats.vol} color="var(--ice)" />
-          </>}
+      {/* trends — driven by the chart catalog + Settings → Graphs */}
+      {(() => {
+        const asc = [...history].reverse();
+        const mine = EXERCISE_CHARTS.filter((c) => c.cardio === cardio && charts.includes(c.key));
+        if (mine.length === 0) return <p className="muted" style={{ fontSize: 13, margin: "0 4px 12px" }}>No graphs selected — turn some on in Settings → Graphs.</p>;
+        return mine.map((c, i) => {
+          const pts = asc.map(({ w, block }) => ({ label: w.startedAt, value: c.value(block) }))
+            .filter((p): p is Point => p.value != null);
+          return pts.length ? <ChartCard key={c.key} title={c.label} yLabel={c.yLabel} points={pts}
+            format={c.format} color={i % 2 ? "var(--ice)" : "var(--volt)"} /> : null;
+        });
+      })()}
 
       <p className="micro" style={{ margin: "18px 4px 10px" }}>History</p>
       {history.length === 0 && <div className="empty"><div className="big">No records yet</div><p>Log this exercise to see its history.</p></div>}
