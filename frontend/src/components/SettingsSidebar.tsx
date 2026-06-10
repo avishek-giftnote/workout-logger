@@ -1,9 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { useAuth } from "../auth/auth";
 import { useSettings } from "../settings";
 import { EXERCISE_CHARTS, TEMPLATE_CHARTS } from "../charts";
+import { TrendChart } from "./Chart";
+import type { ActivityLevel, Goal, Sex } from "../api/types";
+
+const SEX_OPTS: { v: Sex; label: string }[] = [{ v: "MALE", label: "Male" }, { v: "FEMALE", label: "Female" }, { v: "UNSPECIFIED", label: "—" }];
+const GOAL_OPTS: { v: Goal; label: string }[] = [{ v: "GAIN_MUSCLE", label: "Gain muscle" }, { v: "LOSE_FAT", label: "Lose fat" }, { v: "MAINTAIN", label: "Maintain" }, { v: "GAIN_STRENGTH", label: "Strength" }];
+const ACTIVITY_OPTS: { v: ActivityLevel; label: string }[] = [{ v: "SEDENTARY", label: "Sedentary" }, { v: "LIGHT", label: "Light" }, { v: "MODERATE", label: "Moderate" }, { v: "ACTIVE", label: "Active" }, { v: "VERY_ACTIVE", label: "Very active" }];
 
 /** Slide-out settings panel; closes when the backdrop (anywhere outside) is clicked. */
 export default function SettingsSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -23,6 +29,23 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
     mutationFn: () => Api.setBodyweight(bw.trim()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["me"] }); setBw(""); },
   });
+
+  const p = me.data?.profile;
+  const saveProfile = useMutation({
+    mutationFn: Api.updateProfile,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
+  });
+  const [dob, setDob] = useState("");
+  const [height, setHeight] = useState("");
+  const [kcal, setKcal] = useState("");
+  useEffect(() => {
+    setDob(p?.dateOfBirth ?? "");
+    setHeight(p?.heightCm ?? "");
+    setKcal(p?.initialIntakeKcal != null ? String(p.initialIntakeKcal) : "");
+  }, [p?.dateOfBirth, p?.heightCm, p?.initialIntakeKcal]);
+  const realWeights = (me.data?.bodyweightLog ?? [])
+    .filter((e) => !e.estimated && e.weightKg)
+    .map((e) => ({ label: e.recordedAt, value: parseFloat(e.weightKg!) }));
 
   if (!open) return null;
 
@@ -48,6 +71,65 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
             <button className="btn btn-volt" disabled={!bw.trim() || saveBw.isPending}
               onClick={() => saveBw.mutate()}>{saveBw.isPending ? "…" : "Save"}</button>
           </div>
+        </div>
+
+        {realWeights.length >= 2 && (
+          <div style={{ marginTop: 14 }}>
+            <span className="micro">Weight trend · {realWeights.length} weigh-ins</span>
+            <div className="mt"><TrendChart points={realWeights} color="var(--ice)" height={78} /></div>
+          </div>
+        )}
+
+        <div className="field" style={{ marginTop: 22 }}>
+          <label>About you & goals</label>
+          <p className="muted" style={{ fontSize: 12, margin: "2px 0 10px" }}>
+            Used to estimate your energy balance over time (see the Coach design). Not medical advice.
+          </p>
+          <div className="row" style={{ gap: 8 }}>
+            <div className="grow">
+              <span className="micro">Date of birth</span>
+              <input type="date" className="input mono" style={{ marginTop: 4 }} value={dob}
+                onChange={(e) => { setDob(e.target.value); saveProfile.mutate({ dateOfBirth: e.target.value || null }); }} />
+            </div>
+            <div style={{ width: 96 }}>
+              <span className="micro">Height cm</span>
+              <input className="input mono" style={{ marginTop: 4, width: "100%" }} inputMode="decimal" placeholder="164"
+                value={height} onChange={(e) => setHeight(e.target.value)}
+                onBlur={() => saveProfile.mutate({ heightCm: height.trim() || null })} />
+            </div>
+          </div>
+
+          <span className="micro" style={{ display: "block", marginTop: 14 }}>Sex</span>
+          <div className="seg" style={{ width: "100%", marginTop: 4 }}>
+            {SEX_OPTS.map((o) => (
+              <button key={o.v} className={p?.sex === o.v ? "on" : ""} style={{ flex: 1 }}
+                onClick={() => saveProfile.mutate({ sex: o.v })}>{o.label}</button>
+            ))}
+          </div>
+
+          <span className="micro" style={{ display: "block", marginTop: 14 }}>Training goal</span>
+          <div className="chip-wrap" style={{ marginTop: 6 }}>
+            {GOAL_OPTS.map((o) => (
+              <button key={o.v} className={`chip-toggle${p?.goal === o.v ? " on" : ""}`}
+                onClick={() => saveProfile.mutate({ goal: o.v })}>{o.label}</button>
+            ))}
+          </div>
+
+          <span className="micro" style={{ display: "block", marginTop: 14 }}>Activity outside workouts</span>
+          <div className="chip-wrap" style={{ marginTop: 6 }}>
+            {ACTIVITY_OPTS.map((o) => (
+              <button key={o.v} className={`chip-toggle${p?.activityLevel === o.v ? " on" : ""}`}
+                onClick={() => saveProfile.mutate({ activityLevel: o.v })}>{o.label}</button>
+            ))}
+          </div>
+
+          <span className="micro" style={{ display: "block", marginTop: 14 }}>Daily calories (enter once)</span>
+          <input className="input mono" style={{ marginTop: 4 }} inputMode="numeric" placeholder="e.g. 2400"
+            value={kcal} onChange={(e) => setKcal(e.target.value)}
+            onBlur={() => { const n = parseInt(kcal, 10); saveProfile.mutate({ initialIntakeKcal: isNaN(n) ? null : n }); }} />
+          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            A rough current intake — a one-time starting point. The app infers the rest from your weight trend.
+          </p>
         </div>
 
         <div className="field" style={{ marginTop: 22 }}>

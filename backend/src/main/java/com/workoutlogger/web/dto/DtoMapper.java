@@ -60,7 +60,11 @@ public final class DtoMapper {
     public static MeDto toDto(User u) {
         List<BodyweightEntryDto> log = u.getBodyweightLog().stream()
                 .map(e -> new BodyweightEntryDto(e.recordedAt(), str(e.weightKg()), e.estimated())).toList();
-        return new MeDto(u.getId(), u.getEmail(), str(u.getCurrentBodyweightKg()), log);
+        Profile p = u.getProfile();
+        ProfileDto profile = p == null ? null : new ProfileDto(
+                p.getDateOfBirth() == null ? null : p.getDateOfBirth().toString(),
+                str(p.getHeightCm()), p.getSex(), p.getGoal(), p.getActivityLevel(), p.getInitialIntakeKcal());
+        return new MeDto(u.getId(), u.getEmail(), str(u.getCurrentBodyweightKg()), log, profile);
     }
 
     /** Exercise blocks from a request — server mints set ids and loggedAt. Used by create + edit. */

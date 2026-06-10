@@ -118,9 +118,30 @@ export interface SplitDto { id: string; name: string; templateIds: string[]; }
 export interface SaveSplitRequest { name: string; templateIds: string[]; }
 
 export interface BodyweightEntryDto { recordedAt: string; weightKg: string | null; estimated: boolean; }
+
+export type Sex = "MALE" | "FEMALE" | "UNSPECIFIED";
+export type Goal = "GAIN_MUSCLE" | "LOSE_FAT" | "MAINTAIN" | "GAIN_STRENGTH";
+export type ActivityLevel = "SEDENTARY" | "LIGHT" | "MODERATE" | "ACTIVE" | "VERY_ACTIVE";
+export interface ProfileDto {
+  dateOfBirth: string | null;   // ISO yyyy-MM-dd
+  heightCm: string | null;
+  sex: Sex | null;
+  goal: Goal | null;
+  activityLevel: ActivityLevel | null;
+  initialIntakeKcal: number | null;
+}
+export interface UpdateProfileRequest {
+  dateOfBirth?: string | null;
+  heightCm?: string | null;
+  sex?: Sex | null;
+  goal?: Goal | null;
+  activityLevel?: ActivityLevel | null;
+  initialIntakeKcal?: number | null;
+}
 export interface MeDto {
   id: string;
   email: string;
   currentBodyweightKg: string | null;
   bodyweightLog: BodyweightEntryDto[];
+  profile: ProfileDto | null;
 }

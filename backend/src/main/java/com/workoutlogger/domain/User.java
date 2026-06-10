@@ -21,11 +21,15 @@ public class User {
     private String passwordHash;                     // BCrypt hash (never serialized to the API)
     private BigDecimal currentBodyweightKg;          // convenience mirror of latest log entry
     private List<BodyweightEntry> bodyweightLog = new ArrayList<>();
+    private Profile profile;                          // nullable fitness profile (see docs/coach.md)
     private int schemaVersion = 1;
     private Instant createdAt;
     private Instant updatedAt;
 
     public User() {}
+
+    public Profile getProfile() { return profile; }
+    public void setProfile(Profile profile) { this.profile = profile; }
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }

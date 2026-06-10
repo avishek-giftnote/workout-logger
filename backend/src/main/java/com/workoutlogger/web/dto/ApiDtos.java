@@ -1,9 +1,12 @@
 package com.workoutlogger.web.dto;
 
+import com.workoutlogger.domain.ActivityLevel;
 import com.workoutlogger.domain.CardioMetric;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.ExerciseCategory;
+import com.workoutlogger.domain.Goal;
 import com.workoutlogger.domain.LoadMode;
+import com.workoutlogger.domain.Sex;
 import com.workoutlogger.domain.SetKind;
 import com.workoutlogger.domain.SetType;
 import jakarta.validation.constraints.NotNull;
@@ -77,7 +80,15 @@ public final class ApiDtos {
     // ---- me / bodyweight ----
     public record BodyweightEntryDto(Instant recordedAt, String weightKg, boolean estimated) {}
 
-    public record MeDto(String id, String email, String currentBodyweightKg, List<BodyweightEntryDto> bodyweightLog) {}
+    public record ProfileDto(String dateOfBirth, String heightCm, Sex sex, Goal goal,
+                             ActivityLevel activityLevel, Integer initialIntakeKcal) {}
+
+    public record MeDto(String id, String email, String currentBodyweightKg,
+                        List<BodyweightEntryDto> bodyweightLog, ProfileDto profile) {}
 
     public record SetBodyweightRequest(@NotNull String weightKg) {}
+
+    /** Partial profile update — only non-null fields are applied. dateOfBirth is ISO yyyy-MM-dd. */
+    public record UpdateProfileRequest(String dateOfBirth, String heightCm, Sex sex, Goal goal,
+                                       ActivityLevel activityLevel, Integer initialIntakeKcal) {}
 }
