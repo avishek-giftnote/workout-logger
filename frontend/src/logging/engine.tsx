@@ -70,6 +70,36 @@ export const REST_PRESETS: { v: number | null; label: string }[] = [
 ];
 export const fmtRest = (s: number | null | undefined) =>
   s == null ? "Default" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+/** Parse a rest entry: "m:ss" → seconds, or a bare number → seconds. Blank → null (use default). */
+export function parseRest(str: string): number | null {
+  const v = (str ?? "").trim();
+  if (!v) return null;
+  if (v.includes(":")) {
+    const [m, s] = v.split(":");
+    return (parseInt(m || "0", 10) || 0) * 60 + (parseInt(s || "0", 10) || 0);
+  }
+  const n = parseInt(v, 10);
+  return isNaN(n) ? null : n;
+}
+
+/** Custom rest input + quick-option chips. Internal text state; `sec` drives the chip highlight. */
+export function RestPicker({ initial, onChange }: { initial: number | null; onChange: (v: number | null) => void }) {
+  const [text, setText] = useState(initial == null ? "" : fmtRest(initial));
+  const sec = parseRest(text);
+  const set = (v: number | null) => { setText(v == null ? "" : fmtRest(v)); onChange(v); };
+  return (
+    <div>
+      <input className="input mono" placeholder="Custom — m:ss or seconds (e.g. 1:30 or 90)"
+        value={text} onChange={(e) => { setText(e.target.value); onChange(parseRest(e.target.value)); }} />
+      <div className="chip-wrap" style={{ marginTop: 8 }}>
+        {REST_PRESETS.map((p) => (
+          <button key={String(p.v)} className={`chip-toggle${sec === p.v ? " on" : ""}`}
+            onClick={() => set(p.v)}>{p.label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
 const secToMmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 export function mmssToSec(t: string): number | null {
   const v = (t ?? "").trim();
@@ -477,11 +507,8 @@ export function ExercisePicker({ exercises, disabledIds, onPick, onClose }: {
           )}
 
           <span className="micro">Rest timer</span>
-          <div className="chip-wrap" style={{ margin: "6px 0 12px" }}>
-            {REST_PRESETS.map((p) => (
-              <button key={String(p.v)} className={`chip-toggle${restSec === p.v ? " on" : ""}`}
-                onClick={() => setRestSec(p.v)}>{p.label}</button>
-            ))}
+          <div style={{ margin: "6px 0 12px" }}>
+            <RestPicker initial={restSec} onChange={setRestSec} />
           </div>
 
           <button className="btn btn-volt btn-block" disabled={create.isPending} onClick={() => create.mutate()}>

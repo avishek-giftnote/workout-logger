@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
-import { CARDIO_METRICS, REST_PRESETS, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
+import { CARDIO_METRICS, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
 import { ChartCard, type Point } from "../components/Chart";
 import type { CardioMetric, SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
@@ -114,11 +114,8 @@ export default function ExerciseDetailPage() {
       {/* per-exercise settings */}
       <div className="card card-pad fade-up" style={{ marginBottom: 14 }}>
         <span className="micro">Rest timer</span>
-        <div className="chip-wrap" style={{ marginTop: 6 }}>
-          {REST_PRESETS.map((p) => (
-            <button key={String(p.v)} className={`chip-toggle${(ex.restSeconds ?? null) === p.v ? " on" : ""}`}
-              disabled={save.isPending} onClick={() => save.mutate({ restSeconds: p.v == null ? -1 : p.v })}>{p.label}</button>
-          ))}
+        <div style={{ marginTop: 6 }}>
+          <RestPicker initial={ex.restSeconds} onChange={(v) => save.mutate({ restSeconds: v == null ? -1 : v })} />
         </div>
         {cardio && (
           <>
