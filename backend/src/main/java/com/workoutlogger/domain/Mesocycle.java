@@ -6,6 +6,8 @@ import java.util.List;
 public record Mesocycle(
         String name,
         int accumulationWeeks,
-        String phase,                 // SURPLUS | DEFICIT | MAINTENANCE (energy phase at creation)
-        List<Muscle> focusMuscles
+        String phase,                 // SURPLUS | DEFICIT | MAINTENANCE (energy phase — drives the deficit trim)
+        List<Muscle> focusMuscles,
+        BlockType blockType,          // adaptation — drives volume band + reps (null ⇒ HYPERTROPHY)
+        IntensityBand intensityBand   // rep/RIR prescription (nullable)
 ) {}

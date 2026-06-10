@@ -4,6 +4,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,6 +25,9 @@ public class Macrocycle {
     private int mesoIndex = 0;               // current mesocycle (0-based)
     private int week = 1;                    // current week within that mesocycle (1-based)
     private List<Mesocycle> mesocycles = new ArrayList<>();
+    private String goal;                     // GENERAL_HYPERTROPHY | MUSCLE_FOCUS | STRENGTH | CONTEST_PREP (null ⇒ general)
+    private LocalDate targetDate;            // plan built backward from here when present (nullable)
+    private List<Muscle> focusMuscles;       // macro-level weak points (nullable)
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -45,6 +49,12 @@ public class Macrocycle {
     public void setWeek(int week) { this.week = week; }
     public List<Mesocycle> getMesocycles() { return mesocycles; }
     public void setMesocycles(List<Mesocycle> mesocycles) { this.mesocycles = mesocycles; }
+    public String getGoal() { return goal; }
+    public void setGoal(String goal) { this.goal = goal; }
+    public LocalDate getTargetDate() { return targetDate; }
+    public void setTargetDate(LocalDate targetDate) { this.targetDate = targetDate; }
+    public List<Muscle> getFocusMuscles() { return focusMuscles; }
+    public void setFocusMuscles(List<Muscle> focusMuscles) { this.focusMuscles = focusMuscles; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

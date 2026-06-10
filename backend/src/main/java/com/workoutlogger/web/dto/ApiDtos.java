@@ -1,6 +1,7 @@
 package com.workoutlogger.web.dto;
 
 import com.workoutlogger.domain.ActivityLevel;
+import com.workoutlogger.domain.BlockType;
 import com.workoutlogger.domain.CardioMetric;
 import com.workoutlogger.domain.CyclePhase;
 import com.workoutlogger.domain.Equipment;
@@ -106,12 +107,18 @@ public final class ApiDtos {
                             List<String> missingProfile) {}
 
     // ---- plan (macro/meso/microcycle) ----
-    public record MesocycleDto(String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles) {}
+    public record IntensityBandDto(int repLow, int repHigh, String targetRir, String pctLow, String pctHigh) {}
+
+    public record MesocycleDto(String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles,
+                               BlockType blockType, IntensityBandDto intensityBand) {}
 
     public record MacrocycleDto(String id, String name, Instant startedAt, String status,
-                                int mesoIndex, int week, List<MesocycleDto> mesocycles) {}
+                                int mesoIndex, int week, List<MesocycleDto> mesocycles,
+                                String goal, String targetDate, List<Muscle> focusMuscles) {}
 
-    public record MesoInput(@NotNull String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles) {}
+    public record MesoInput(@NotNull String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles,
+                            BlockType blockType, IntensityBandDto intensityBand) {}
 
-    public record CreatePlanRequest(@NotNull String name, @NotNull List<MesoInput> mesocycles) {}
+    public record CreatePlanRequest(@NotNull String name, @NotNull List<MesoInput> mesocycles,
+                                    String goal, String targetDate, List<Muscle> focusMuscles) {}
 }

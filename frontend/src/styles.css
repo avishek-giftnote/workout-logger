@@ -241,6 +241,15 @@ button.w-item { width: 100%; text-align: left; font: inherit; color: inherit; }
 .coach { margin-bottom: 16px; border: 1px solid var(--line-2); }
 .coach-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid; letter-spacing: 0.04em; }
 
+/* macrocycle block timeline */
+.plan-timeline { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; margin-bottom: 6px; }
+.plan-block {
+  flex: 0 0 auto; min-width: 84px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 8px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line);
+}
+.plan-block.cur { border-color: var(--volt); background: rgba(205, 241, 56, 0.08); }
+.plan-block b { font-size: 15px; }
+
 /* per-muscle weekly volume bars */
 .mvol-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; }
 .mvol-label { width: 92px; flex-shrink: 0; font-size: 13px; }

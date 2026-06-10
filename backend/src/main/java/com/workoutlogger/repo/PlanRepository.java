@@ -35,7 +35,8 @@ public class PlanRepository {
     }
 
     /** Replaces any existing active plan with a new one. */
-    public Macrocycle create(String name, List<Mesocycle> mesocycles) {
+    public Macrocycle create(String name, List<Mesocycle> mesocycles, String goal,
+                             java.time.LocalDate targetDate, List<com.workoutlogger.domain.Muscle> focusMuscles) {
         mongo.updateMulti(active(),
                 new org.springframework.data.mongodb.core.query.Update().set("status", "COMPLETED"), Macrocycle.class);
         Instant now = Instant.now();
@@ -44,6 +45,9 @@ public class PlanRepository {
         m.setUserId(tenant.userId());
         m.setName(name);
         m.setMesocycles(mesocycles);
+        m.setGoal(goal);
+        m.setTargetDate(targetDate);
+        m.setFocusMuscles(focusMuscles);
         m.setStartedAt(now);
         m.setCreatedAt(now);
         m.setUpdatedAt(now);

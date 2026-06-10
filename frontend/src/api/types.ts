@@ -107,13 +107,27 @@ export interface CreateWorkoutRequest {
   exercises: CreateBlockRequest[];
 }
 
-export interface MesocycleDto { name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[]; }
+export type GoalType = "GENERAL_HYPERTROPHY" | "MUSCLE_FOCUS" | "STRENGTH" | "CONTEST_PREP";
+export type BlockType = "HYPERTROPHY" | "STRENGTH" | "PEAK" | "RESENSITIZATION" | "MAINTENANCE" | "PREP";
+export interface IntensityBand { repLow: number; repHigh: number; targetRir: string; pctLow: string | null; pctHigh: string | null; }
+
+export interface MesocycleDto {
+  name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[];
+  blockType: BlockType | null; intensityBand: IntensityBand | null;
+}
 export interface MacrocycleDto {
   id: string; name: string; startedAt: string; status: string;
   mesoIndex: number; week: number; mesocycles: MesocycleDto[];
+  goal: string | null; targetDate: string | null; focusMuscles: Muscle[] | null;
 }
-export interface MesoInput { name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[]; }
-export interface CreatePlanRequest { name: string; mesocycles: MesoInput[]; }
+export interface MesoInput {
+  name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[];
+  blockType?: BlockType | null; intensityBand?: IntensityBand | null;
+}
+export interface CreatePlanRequest {
+  name: string; mesocycles: MesoInput[];
+  goal?: string | null; targetDate?: string | null; focusMuscles?: Muscle[] | null;
+}
 
 export interface LastWorkingSetDto {
   exerciseName: string;

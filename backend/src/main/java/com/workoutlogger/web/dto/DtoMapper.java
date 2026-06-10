@@ -46,11 +46,16 @@ public final class DtoMapper {
     }
 
     public static ApiDtos.MacrocycleDto toDto(Macrocycle m) {
-        var mesos = m.getMesocycles().stream()
-                .map(x -> new ApiDtos.MesocycleDto(x.name(), x.accumulationWeeks(), x.phase(), x.focusMuscles()))
-                .toList();
+        var mesos = m.getMesocycles().stream().map(x -> {
+            var b = x.intensityBand();
+            var band = b == null ? null
+                    : new ApiDtos.IntensityBandDto(b.repLow(), b.repHigh(), b.targetRir(), b.pctLow(), b.pctHigh());
+            return new ApiDtos.MesocycleDto(x.name(), x.accumulationWeeks(), x.phase(), x.focusMuscles(),
+                    x.blockType(), band);
+        }).toList();
         return new ApiDtos.MacrocycleDto(m.getId(), m.getName(), m.getStartedAt(), m.getStatus(),
-                m.getMesoIndex(), m.getWeek(), mesos);
+                m.getMesoIndex(), m.getWeek(), mesos, m.getGoal(),
+                m.getTargetDate() == null ? null : m.getTargetDate().toString(), m.getFocusMuscles());
     }
 
     public static LastWorkingSetDto toDto(LastWorkingSetView v) {
