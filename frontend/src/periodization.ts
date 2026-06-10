@@ -94,55 +94,102 @@ export interface PlanPreview {
   warnings: string[];
 }
 
-/** Split shapes by training days/week → muscles trained each day. */
+/**
+ * Split shapes by training days/week → muscles trained each day. Designed so every prime mover is hit
+ * ≥2×/week (Schoenfeld 2016: ≥2× beats 1× for hypertrophy, volume-equated): Full-Body×2–3, Upper/Lower×2
+ * (4d), U/L + PPL (5d), PPL×2 (6d). 48h between training the same muscle.
+ */
 const SHAPES: Record<number, { name: string; muscles: Muscle[] }[]> = {
   2: [
-    { name: "Full Body A", muscles: ["CHEST", "LAT", "QUAD", "SIDE_DELT", "BICEP", "CALF"] },
-    { name: "Full Body B", muscles: ["UPPER_BACK", "HAMSTRING", "GLUTE", "FRONT_DELT", "TRICEP", "ABS"] },
+    { name: "Full Body A", muscles: ["QUAD", "HAMSTRING", "CHEST", "LAT", "SIDE_DELT", "BICEP", "CALF"] },
+    { name: "Full Body B", muscles: ["QUAD", "HAMSTRING", "CHEST", "LAT", "FRONT_DELT", "TRICEP", "ABS"] },
   ],
   3: [
-    { name: "Push", muscles: ["CHEST", "FRONT_DELT", "SIDE_DELT", "TRICEP"] },
-    { name: "Pull", muscles: ["LAT", "UPPER_BACK", "REAR_DELT", "BICEP", "TRAP"] },
-    { name: "Legs", muscles: ["QUAD", "HAMSTRING", "GLUTE", "CALF", "ABS"] },
+    { name: "Full Body A", muscles: ["QUAD", "HAMSTRING", "CHEST", "LAT", "SIDE_DELT", "BICEP"] },
+    { name: "Full Body B", muscles: ["QUAD", "GLUTE", "CHEST", "UPPER_BACK", "TRICEP", "CALF"] },
+    { name: "Full Body C", muscles: ["HAMSTRING", "LAT", "FRONT_DELT", "REAR_DELT", "BICEP", "ABS"] },
   ],
   4: [
     { name: "Upper A", muscles: ["CHEST", "LAT", "SIDE_DELT", "BICEP", "TRICEP"] },
     { name: "Lower A", muscles: ["QUAD", "HAMSTRING", "GLUTE", "CALF"] },
-    { name: "Upper B", muscles: ["UPPER_BACK", "FRONT_DELT", "REAR_DELT", "TRICEP", "BICEP"] },
-    { name: "Lower B", muscles: ["HAMSTRING", "QUAD", "GLUTE", "CALF", "ABS"] },
+    { name: "Upper B", muscles: ["CHEST", "LAT", "UPPER_BACK", "FRONT_DELT", "REAR_DELT", "BICEP", "TRICEP"] },
+    { name: "Lower B", muscles: ["QUAD", "HAMSTRING", "GLUTE", "CALF", "ABS"] },
+  ],
+  5: [
+    { name: "Upper", muscles: ["CHEST", "LAT", "SIDE_DELT", "BICEP", "TRICEP"] },
+    { name: "Lower", muscles: ["QUAD", "HAMSTRING", "GLUTE", "CALF"] },
+    { name: "Push", muscles: ["CHEST", "FRONT_DELT", "SIDE_DELT", "TRICEP"] },
+    { name: "Pull", muscles: ["LAT", "UPPER_BACK", "REAR_DELT", "BICEP"] },
+    { name: "Legs", muscles: ["QUAD", "HAMSTRING", "GLUTE", "CALF", "ABS"] },
+  ],
+  6: [
+    { name: "Push A", muscles: ["CHEST", "FRONT_DELT", "SIDE_DELT", "TRICEP"] },
+    { name: "Pull A", muscles: ["LAT", "UPPER_BACK", "REAR_DELT", "BICEP", "TRAP"] },
+    { name: "Legs A", muscles: ["QUAD", "HAMSTRING", "GLUTE", "CALF", "ABS"] },
+    { name: "Push B", muscles: ["CHEST", "SIDE_DELT", "FRONT_DELT", "TRICEP"] },
+    { name: "Pull B", muscles: ["LAT", "UPPER_BACK", "REAR_DELT", "BICEP"] },
+    { name: "Legs B", muscles: ["QUAD", "HAMSTRING", "GLUTE", "CALF"] },
   ],
 };
-SHAPES[5] = [...SHAPES[3], SHAPES[4][0], SHAPES[4][1]];
-SHAPES[6] = [...SHAPES[3], ...SHAPES[3].map((d) => ({ name: d.name + " B", muscles: d.muscles }))];
+const PRIME_MOVERS: Muscle[] = ["CHEST", "LAT", "QUAD", "HAMSTRING", "GLUTE", "SIDE_DELT", "BICEP", "TRICEP"];
+const MIN_FREQ = 2;          // research-backed minimum sessions/week per muscle
+const PER_SESSION_CAP = 5;   // productive sets/muscle/session before junk volume
 
 const primaryFor = (ex: ExerciseDto, m: Muscle) =>
   ex.category !== "CARDIO" && ex.muscleContributions.some((c) => c.muscle === m && parseFloat(c.fraction) >= 1);
 
-/** Build a split + templates for one block: pick catalog exercises per muscle to hit the week-1 targets. */
+/**
+ * Build a split + templates for one block. Each prime mover (and every focus muscle) is hit ≥2×/week;
+ * exercise choice is goal-aware (compounds for strength) and rotates across days for variety; weekly
+ * targets are spread across the muscle's sessions, capped per session.
+ */
 function generateSplit(block: MesoInput, daysPerWeek: number, exercises: ExerciseDto[]): Omit<PlanPreview, "mesocycles" | "totalWeeks"> {
-  const days = SHAPES[Math.min(6, Math.max(2, daysPerWeek))] ?? SHAPES[3];
+  const days = (SHAPES[Math.min(6, Math.max(2, daysPerWeek))] ?? SHAPES[3]).map((d) => ({ name: d.name, muscles: [...d.muscles] }));
+
+  // guarantee focus muscles reach ≥2 sessions by adding them to the days that don't already include them
+  for (const fm of block.focusMuscles) {
+    let f = days.filter((d) => d.muscles.includes(fm)).length;
+    for (const d of days) { if (f >= MIN_FREQ) break; if (!d.muscles.includes(fm)) { d.muscles.push(fm); f++; } }
+  }
+
   const freq: Record<string, number> = {};
   for (const d of days) for (const m of d.muscles) freq[m] = (freq[m] ?? 0) + 1;
 
-  const warnings: string[] = [];
+  // candidate exercises per muscle (goal-aware), and a rotating pointer per muscle for variety
+  const candFor = (m: Muscle) => {
+    let c = exercises.filter((e) => primaryFor(e, m));
+    if (block.blockType === "STRENGTH" || block.blockType === "PEAK") {
+      const compounds = c.filter((e) => e.mechanic === "COMPOUND");
+      if (compounds.length) c = compounds;
+    }
+    return c;
+  };
+  const cand: Record<string, ExerciseDto[]> = {};
+  const ptr: Record<string, number> = {};
+  for (const m of new Set(days.flatMap((d) => d.muscles))) cand[m] = candFor(m as Muscle);
+
   const missing = new Set<Muscle>();
   const templates = days.map((d) => {
     const picked = new Map<string, { exerciseId: string; name: string; sets: number }>();
     for (const m of d.muscles) {
       const weekly = targetSets(m, block, 1);
       if (weekly <= 0) continue;
-      const ex = exercises.find((e) => primaryFor(e, m));
-      if (!ex) { missing.add(m); continue; }
-      const setsPerDay = Math.min(6, Math.max(2, Math.round(weekly / (freq[m] || 1))));
+      const list = cand[m];
+      if (!list || !list.length) { missing.add(m); continue; }
+      const ex = list[(ptr[m] = (ptr[m] ?? 0) + 1) % list.length];   // rotate for variety across days
+      const setsPerDay = Math.min(PER_SESSION_CAP, Math.max(2, Math.round(weekly / (freq[m] || 1))));
       const cur = picked.get(ex.id);
-      if (!cur || setsPerDay > cur.sets) picked.set(ex.id, { exerciseId: ex.id, name: ex.name, sets: setsPerDay });
+      if (!cur) picked.set(ex.id, { exerciseId: ex.id, name: ex.name, sets: setsPerDay });
+      else cur.sets = Math.min(PER_SESSION_CAP, cur.sets + setsPerDay);
     }
     return { name: d.name, exercises: [...picked.values()] };
   });
 
-  // coverage warnings — focus muscles first, then any prescribed muscle with no catalog exercise
+  const warnings: string[] = [];
   for (const m of block.focusMuscles) if (missing.has(m)) warnings.push(`No exercise for focus muscle ${muscleLabel(m)} — add one to your catalog.`);
   for (const m of missing) if (!block.focusMuscles.includes(m)) warnings.push(`No exercise for ${muscleLabel(m)} — that volume is unfilled.`);
+  for (const m of PRIME_MOVERS) if (!missing.has(m) && (freq[m] ?? 0) > 0 && (freq[m] ?? 0) < MIN_FREQ)
+    warnings.push(`${muscleLabel(m)} is only trained ${freq[m]}×/week — add a day to reach 2× (research-backed minimum).`);
 
   return { splitName: `${blockLabel(block.blockType)} split`, templates, warnings };
 }

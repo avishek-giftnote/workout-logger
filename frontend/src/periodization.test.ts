@@ -76,4 +76,30 @@ describe("planMacrocycle", () => {
     expect(p.templates.flatMap((t) => t.exercises).length).toBeGreaterThan(0);      // chest/lat/quad get filled
     expect(p.warnings.some((w) => w.toLowerCase().includes("side delt"))).toBe(true);
   });
+
+  // full catalog: one primary exercise per muscle, so a muscle's weekly frequency = its exercise's day count
+  const ALL: Muscle[] = ["CHEST", "FRONT_DELT", "SIDE_DELT", "REAR_DELT", "LAT", "UPPER_BACK", "TRAP", "BICEP", "TRICEP", "FOREARM", "QUAD", "HAMSTRING", "GLUTE", "CALF", "ABS"];
+  const full = ALL.map((m, i) => ex(`m${i}`, `${m} lift`, m));
+  const exId = (m: Muscle) => full[ALL.indexOf(m)].id;
+  const freqOf = (p: ReturnType<typeof planMacrocycle>, m: Muscle) =>
+    p.templates.filter((t) => t.exercises.some((e) => e.exerciseId === exId(m))).length;
+
+  it("trains each prime mover at least twice a week (4-day split)", () => {
+    const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], 4, full);
+    for (const m of ["CHEST", "LAT", "QUAD", "HAMSTRING", "GLUTE"] as Muscle[]) {
+      expect(freqOf(p, m)).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("trains every prime mover ≥2× across 2-, 3-, 4-, 5-, 6-day splits", () => {
+    for (const days of [2, 3, 4, 5, 6]) {
+      const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], days, full);
+      for (const m of ["CHEST", "LAT", "QUAD"] as Muscle[]) expect(freqOf(p, m)).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("forces a focus muscle to ≥2× even when the base split would hit it once", () => {
+    const p = planMacrocycle("MUSCLE_FOCUS", 8, null, ["SIDE_DELT"], 4, full);
+    expect(freqOf(p, "SIDE_DELT")).toBeGreaterThanOrEqual(2);
+  });
 });

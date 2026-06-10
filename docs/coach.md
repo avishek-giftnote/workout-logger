@@ -175,11 +175,27 @@ terminal-only and date-gated).
 
 ### Split / template generation
 Generate a split + templates **for the current (first) block only**; distal blocks stay as **intent**
-(type/weeks/focus snapshot). Split **shape by days/week** (2→Full-Body, 3→FB/PPL, 4→Upper-Lower, 5–6→PPL).
-Pick exercises from the **user's catalog** by muscle (`muscleContributions`, fallback `MuscleSeed.infer`);
-assign integer set counts across sessions to hit the block's per-muscle targets. **Catalog-coverage gaps are
-first-class output** — warn ("side-delt MRV needs a lateral-raise you don't have") rather than silently
-under-deliver. The same pure function computes the **preview and the accept payload**, so preview == accept.
+(type/weeks/focus snapshot). The same pure function computes the **preview and the accept payload**, so
+preview == accept.
+
+**Frequency (≥2×/week per muscle).** Schoenfeld et al. 2016 (volume-equated meta-analysis): training a muscle
+**≥2×/week beats 1×** for hypertrophy. Split **shape by days/week** is chosen to honour this — **2–3d
+Full-Body, 4d Upper/Lower×2, 5d U/L + PPL, 6d PPL×2** — so every **prime mover** (chest, lats, quads,
+hamstrings, glutes, side-delts, biceps, triceps) lands in ≥2 sessions, ~48 h apart. **Focus muscles are
+force-added** to extra days until they reach 2×. A muscle's weekly target is **spread across its sessions**
+and **capped at ~5 sets/session** (junk-volume ceiling); a prime mover stuck at 1× emits a warning.
+
+**Exercise selection (goal-aware).** Pick from the **user's catalog** by muscle (`muscleContributions`,
+fallback `MuscleSeed.infer`). **STRENGTH/PEAK blocks prefer COMPOUND** movements; hypertrophy mixes
+compound + isolation. Candidates **rotate across days** for variety (e.g. barbell bench one day, incline
+dumbbell the next). **Catalog-coverage gaps are first-class output** — warn ("side-delt needs a lateral-raise
+you don't have") rather than silently under-deliver.
+
+### Mesocycle → mesocycle transitions
+Each block ends in its **deload week** (volume → ~MV, intensity held); the next block **restarts volume at
+MEV** and ramps to its `blockType` ceiling — the deload *is* the transition and the MEV-reset. Block order
+obeys **phase potentiation** (no STRENGTH before ≥1 HYPERTROPHY; PEAK terminal/date-gated), and a periodic
+STRENGTH/RESENSITIZATION block every ~3rd mesocycle restores the MEV→MRV runway on long macros.
 
 ### Top risk
 A **confidently-wrong, over-long auto-plan** the user accepts wholesale (peak placed a week off; a deficit
