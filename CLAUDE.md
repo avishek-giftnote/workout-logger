@@ -22,7 +22,8 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
 
 ### Frontend (`cd frontend`, Node)
 - `npm install`, then `npm run dev` (`:5173`, dev-proxies `/api` → `:8080`).
-- `npm run build` (`tsc && vite build`) and `npm run typecheck` — **`tsc --noEmit` (strict) is the only lint gate; there is no ESLint.**
+- `npm run build` (`tsc && vite build`) and `npm run typecheck` — **`tsc --noEmit` (strict) is the lint gate; there is no ESLint.**
+- `npm test` — Vitest unit tests for the logging engine's pure functions (`src/logging/engine.test.ts`).
 - API types in `src/api/types.ts` are hand-written to match the backend DTOs; regenerate from the live
   contract with `npx openapi-typescript http://localhost:8080/v3/api-docs -o src/api/schema.ts` when they drift.
 

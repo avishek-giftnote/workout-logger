@@ -132,7 +132,7 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
     return {
       orderIndex, setType: s.setType, kind: "CARDIO" as const,
       weight: null, loadMode: null, loadDelta: null, reps: null, rpe: null,
-      distanceM: Number.isFinite(km) && km > 0 ? String(km * 1000) : null,
+      distanceM: Number.isFinite(km) && km > 0 ? String(Math.round(km * 1e6) / 1e3) : null,   // km→m, mm-rounded (no float drift)
       durationS: mmssToSec(orPrev(s.time ?? "", s.pTime)),
       gradePct: (s.grade ?? "").trim() || null,
       elevationGainM: (s.elev ?? "").trim() || null,

@@ -32,7 +32,7 @@ class ApiIntegrationTest {
 
     @BeforeEach
     void clean() {
-        for (String c : new String[]{"users", "workouts", "exercises", "templates"}) {
+        for (String c : new String[]{"users", "workouts", "exercises", "templates", "splits"}) {
             mongo.getDb().getCollection(c).deleteMany(new org.bson.Document());
         }
     }
@@ -107,5 +107,111 @@ class ApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.weight").value("55.0"))
                 .andExpect(jsonPath("$.orderIndex").value(2));
+    }
+
+    // ── helpers ──
+    private String createExercise(String token, String name, boolean bw) throws Exception {
+        String body = "{\"name\":\"" + name + "\",\"isBodyweight\":" + bw + "}";
+        return id(mvc.perform(post("/api/exercises").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse().getContentAsString());
+    }
+    private String createTemplate(String token, String name, String exId) throws Exception {
+        String body = "{\"name\":\"" + name + "\",\"exercises\":[{\"exerciseId\":\"" + exId + "\",\"name\":\"x\",\"position\":0,\"sets\":3}]}";
+        return id(mvc.perform(post("/api/templates").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse().getContentAsString());
+    }
+    private String createWorkout(String token, String exId, String weight, int reps) throws Exception {
+        String body = "{\"startedAt\":\"2026-06-03T09:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + exId
+                + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"" + weight
+                + "\",\"reps\":" + reps + "}]}]}";
+        return id(mvc.perform(post("/api/workouts").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse().getContentAsString());
+    }
+    private String id(String resBody) throws Exception { return json.readTree(resBody).get("id").asText(); }
+
+    @Test
+    void templateCreateUpdateGet() throws Exception {
+        String t = register("t@example.com");
+        String ex = createExercise(t, "Row (Cable)", false);
+        String tid = createTemplate(t, "Pull", ex);
+        String upd = "{\"name\":\"Pull\",\"exercises\":[{\"exerciseId\":\"" + ex + "\",\"name\":\"Row\",\"position\":0,\"sets\":5}]}";
+        mvc.perform(put("/api/templates/" + tid).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(upd))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.exercises[0].sets").value(5));
+        mvc.perform(get("/api/templates").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void splitCreateUpdateDeleteWithIsolation() throws Exception {
+        String a = register("spa@example.com");
+        String b = register("spb@example.com");
+        String ex = createExercise(a, "A", false);
+        String t1 = createTemplate(a, "T1", ex), t2 = createTemplate(a, "T2", ex);
+        String sid = id(mvc.perform(post("/api/splits").header("Authorization", bearer(a))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"AP\",\"templateIds\":[\"" + t1 + "\",\"" + t2 + "\"]}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        mvc.perform(put("/api/splits/" + sid).header("Authorization", bearer(a))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"AP\",\"templateIds\":[\"" + t1 + "\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.templateIds.length()").value(1));
+        mvc.perform(delete("/api/splits/" + sid).header("Authorization", bearer(b))).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/splits/" + sid).header("Authorization", bearer(a))).andExpect(status().isNoContent());
+        mvc.perform(get("/api/splits").header("Authorization", bearer(a))).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void workoutEditDeleteAndIsolation() throws Exception {
+        String a = register("wa@example.com");
+        String b = register("wb@example.com");
+        String ex = createExercise(a, "Curl (Dumbbell)", false);
+        String wid = createWorkout(a, ex, "40", 10);
+        String edit = "{\"startedAt\":\"2026-06-03T10:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"Curl\",\"position\":0,\"sets\":["
+                + "{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"45\",\"reps\":8},"
+                + "{\"orderIndex\":1,\"setType\":\"WORKING\",\"weight\":\"45\",\"reps\":7}]}]}";
+        mvc.perform(put("/api/workouts/" + wid).header("Authorization", bearer(a))
+                        .contentType(MediaType.APPLICATION_JSON).content(edit))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exercises[0].sets.length()").value(2))
+                .andExpect(jsonPath("$.exercises[0].sets[0].weight").value("45"));
+        mvc.perform(put("/api/workouts/" + wid).header("Authorization", bearer(b))
+                .contentType(MediaType.APPLICATION_JSON).content(edit)).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/workouts/" + wid).header("Authorization", bearer(b))).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/workouts/" + wid).header("Authorization", bearer(a))).andExpect(status().isNoContent());
+        mvc.perform(get("/api/workouts/" + wid).header("Authorization", bearer(a))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void equipmentPatchFlipsBodyweight() throws Exception {
+        String t = register("eq@example.com");
+        String ex = createExercise(t, "Thing", false);
+        mvc.perform(patch("/api/exercises/" + ex).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"equipment\":\"KETTLEBELL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.equipment").value("KETTLEBELL"))
+                .andExpect(jsonPath("$.isBodyweight").value(false));
+        mvc.perform(patch("/api/exercises/" + ex).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"equipment\":\"BODYWEIGHT\"}"))
+                .andExpect(jsonPath("$.isBodyweight").value(true));
+    }
+
+    @Test
+    void cardioSetRoundTrips() throws Exception {
+        String t = register("cardio@example.com");
+        String ex = id(mvc.perform(post("/api/exercises").header("Authorization", bearer(t))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Run\",\"isBodyweight\":false,\"category\":\"CARDIO\"}"))
+                .andReturn().getResponse().getContentAsString());
+        String body = "{\"startedAt\":\"2026-06-04T07:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"Run\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"kind\":\"CARDIO\","
+                + "\"distanceM\":\"5200\",\"durationS\":1574,\"gradePct\":\"1.0\",\"cadenceSpm\":168}]}]}";
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.exercises[0].sets[0].kind").value("CARDIO"))
+                .andExpect(jsonPath("$.exercises[0].sets[0].distanceM").value("5200"))
+                .andExpect(jsonPath("$.exercises[0].sets[0].durationS").value(1574))
+                .andExpect(jsonPath("$.exercises[0].sets[0].cadenceSpm").value(168));
     }
 }
