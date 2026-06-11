@@ -8,8 +8,8 @@ import {
   templateExercisesFromBlocks, toCreateSet, uid,
 } from "../logging/engine";
 import { useSettings } from "../settings";
-import { currentMicro } from "../periodization";
-import { readiness } from "../prescription";
+import { currentMicro, phaseMod } from "../periodization";
+import { loadIncrement, nextLoad, readiness, rirWave, topWorkingSet } from "../prescription";
 import { muscleLabel } from "../muscles";
 import RestTimer from "../components/RestTimer";
 import StartChooser from "./StartChooser";
@@ -19,16 +19,11 @@ const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();
 const blocksFromTemplate = (t: TemplateDto, catalog: ExerciseDto[]): DraftBlock[] =>
   t.exercises.map((te) => ({ key: uid(), exercise: findEx(catalog, te.exerciseId, te.name), sets: [] }));
 
-/** Placeholder sets from a template's prescription (reps + RIR→RPE) — weight blank, fills on first log. */
-const synthSets = (te: TemplateExerciseDto): SetDto[] => {
-  const rir = parseInt((te.targetRir ?? "2").split("-")[0], 10);
-  const rpe = Number.isFinite(rir) ? 10 - rir : null;
-  return Array.from({ length: Math.max(1, te.sets) }, (_, i) => ({
-    id: `rx${i}`, orderIndex: i, setType: "WORKING", weight: null, loadMode: null, loadDelta: null,
-    weightUnit: "kg", reps: te.reps, rpe, note: null, estimated: null, kind: "STRENGTH",
-    distanceM: null, durationS: null, gradePct: null, elevationGainM: null, cadenceSpm: null,
-  }));
-};
+const workingSet = (i: number, weight: string | null, reps: number | null, rpe: number | null): SetDto => ({
+  id: `rx${i}`, orderIndex: i, setType: "WORKING", weight, loadMode: null, loadDelta: null,
+  weightUnit: "kg", reps, rpe, note: null, estimated: null, kind: "STRENGTH",
+  distanceM: null, durationS: null, gradePct: null, elevationGainM: null, cadenceSpm: null,
+});
 
 export default function LogWorkoutPage() {
   const nav = useNavigate();
@@ -72,19 +67,37 @@ export default function LogWorkoutPage() {
     () => [...new Set(blocks.map((b) => primaryMuscleOf(b.exercise.id)).filter((m): m is Muscle => !!m))],
     [blocks, exercises.data]);
 
-  const prevSetsFor = (exerciseId: string): SetDto[] | null => {
-    let base: SetDto[] | null = null;
+  const historyFor = (exerciseId: string): SetDto[] | null => {
     for (const w of workouts.data ?? []) {
       // "Same template" setting: only seed from sessions of this template (when in one).
       if (prevSource === "template" && templateId && w.templateId !== templateId) continue;
       const b = w.exercises.find((e) => e.exerciseId === exerciseId);
-      if (b) { base = b.sets; break; }
+      if (b) return b.sets;
     }
-    if (!base) {
-      // no history → seed reps/RIR from the template's prescription (blank weight; load fills on first log)
-      const te = sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId);
-      base = te && te.reps != null ? synthSets(te) : null;
-    }
+    return null;
+  };
+
+  // The living plan: a prescribed exercise seeds a progressed load (double progression off the latest
+  // working set, scaled by the phase) + the meso's RIR wave. No history → load blank (fills on first log).
+  const livingSeed = (te: TemplateExerciseDto, ex: ExerciseDto): SetDto[] => {
+    const micro = plan.data ? currentMicro(plan.data) : null;
+    const meso = micro?.meso ?? null;
+    const repLow = meso?.intensityBand?.repLow ?? te.reps ?? 8;
+    const repHigh = meso?.intensityBand?.repHigh ?? repLow + 4;
+    const rir = rirWave(micro?.week ?? 1, meso?.accumulationWeeks ?? 4, phaseMod(meso?.phase).rirFloor);
+    const prev = ex.isBodyweight ? null : topWorkingSet(workouts.data ?? [], ex.id);   // load only for external loads
+    const { load, reps } = nextLoad(prev, repLow, repHigh, phaseMod(meso?.phase).progressMult, loadIncrement(ex));
+    return Array.from({ length: Math.max(1, te.sets) }, (_, i) =>
+      workingSet(i, load != null ? String(load) : null, prev ? reps : (te.reps ?? repLow), 10 - rir));
+  };
+
+  const prevSetsFor = (exerciseId: string): SetDto[] | null => {
+    const te = sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId);
+    const ex = findEx(exercises.data ?? [], exerciseId, "");
+    const history = historyFor(exerciseId);
+    let base: SetDto[] | null;
+    if (te && te.reps != null && !(ex.isBodyweight && history)) base = livingSeed(te, ex);  // prescribed → living numbers
+    else base = history;                                                                     // ad-hoc / bodyweight → echo
     // readiness: ease an under-recovered muscle — drop a set + raise RIR (lower the seeded RPE)
     if (base && base.length && easeFor(exerciseId).trim) {
       base = base.slice(0, Math.max(1, base.length - 1)).map((s) => ({ ...s, rpe: s.rpe != null ? Math.max(1, s.rpe - 1) : s.rpe }));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rpePct, e1rm, roundInc, loadIncrement, workingLoad, topWorkingSet, nextLoad, readiness } from "./prescription";
+import { rpePct, e1rm, roundInc, loadIncrement, workingLoad, topWorkingSet, nextLoad, readiness, rirWave } from "./prescription";
 import type { Muscle, SetDto, WorkoutDto } from "./api/types";
 
 const set = (over: Partial<SetDto> = {}): SetDto => ({
@@ -67,6 +67,16 @@ describe("nextLoad (double progression)", () => {
     expect(nextLoad(prev(100, 12), 8, 12, 0.1, 2.5)).toEqual({ load: 100, reps: 8 }));
   it("no history → null load at the bottom of the range", () =>
     expect(nextLoad(null, 8, 12, 1.0, 2.5)).toEqual({ load: null, reps: 8 }));
+});
+
+describe("rirWave", () => {
+  it("ramps 3→0 across accumulation, deload easy", () => {
+    expect([1, 2, 3, 4].map((w) => rirWave(w, 4, 0))).toEqual([3, 2, 1, 0]);
+    expect(rirWave(5, 4, 0)).toBe(3);    // deload week
+  });
+  it("a deficit floors RIR at 1 (never grinds)", () => {
+    expect(rirWave(4, 4, 1)).toBe(1);    // would be 0, floored to 1
+  });
 });
 
 describe("readiness", () => {

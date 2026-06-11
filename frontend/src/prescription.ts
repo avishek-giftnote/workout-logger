@@ -45,6 +45,14 @@ export function topWorkingSet(workouts: WorkoutDto[], exerciseId: string): TopSe
   return best;
 }
 
+/** Effort wave across a mesocycle: RIR ramps 3 → 0 over the accumulation weeks (deload week = easy),
+ *  floored by the energy phase (a deficit never grinds below 1 RIR). */
+export function rirWave(week: number, accumWeeks: number, floor: number): number {
+  if (week > accumWeeks) return Math.max(floor, 3);                       // deload week
+  const t = accumWeeks <= 1 ? 1 : (Math.min(week, accumWeeks) - 1) / (accumWeeks - 1);
+  return Math.max(floor, Math.round(3 + (0 - 3) * t));                    // 3 → 0
+}
+
 export interface Readiness { trim: boolean; reason: string | null; }
 /** Should the upcoming session for `muscle`/exercise be eased? True if the muscle was reported sore within
  *  `soreWindowDays`, or the last logged session for the exercise fell short of the target reps. */

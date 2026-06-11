@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
-import { MUSCLES, muscleLabel, weeklyMuscleSets } from "../muscles";
+import { LANDMARKS, MUSCLES, muscleLabel, weeklyMuscleSets } from "../muscles";
 import { blockLabel, currentMicro, planMacrocycle, targetSets } from "../periodization";
 import type { GoalType, Muscle } from "../api/types";
 
@@ -60,6 +60,19 @@ export default function PlanPage() {
           </div>
         ))}
       </div>
+
+      {/* deload prompt (suggest, don't force) */}
+      {(() => {
+        if (done || !meso) return null;
+        const atMrv = shownMuscles.filter((mk) => (actual[mk] ?? 0) >= LANDMARKS[mk].mrv);
+        if (micro?.isDeload)
+          return <div className="card card-pad" style={{ marginBottom: 14, borderColor: "var(--ice)" }}><span className="micro" style={{ color: "var(--ice)" }}>Deload week</span><p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>Back off — ~½ the sets, +2–3 RIR. Targets already dropped; mark sessions as deload on Start.</p></div>;
+        if (atMrv.length)
+          return <div className="card card-pad" style={{ marginBottom: 14, borderColor: "var(--ember)" }}><span className="micro" style={{ color: "var(--ember)" }}>Deload suggested</span><p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{atMrv.map(muscleLabel).join(", ")} at max recoverable volume — consider deloading soon.</p></div>;
+        if (micro && micro.week === meso.accumulationWeeks)
+          return <div className="card card-pad" style={{ marginBottom: 14 }}><p className="muted" style={{ fontSize: 12, margin: 0 }}>Final hard week of this block — deload comes next.</p></div>;
+        return null;
+      })()}
 
       {meso && !done && (
         <div className="card" style={{ marginBottom: 14 }}>
