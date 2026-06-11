@@ -242,6 +242,23 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void weighInsCanBeAmendedAndDeleted() throws Exception {
+        String t = register("weighedit@example.com");
+        String me = mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"80.0\",\"recordedAt\":\"2026-01-01\"}"))
+                .andExpect(jsonPath("$.currentBodyweightKg").value("80.0")).andReturn().getResponse().getContentAsString();
+        String id = json.readTree(me).get("bodyweightLog").get(0).get("id").asText();
+
+        mvc.perform(patch("/api/me/bodyweight/" + id).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"81.5\"}"))
+                .andExpect(jsonPath("$.currentBodyweightKg").value("81.5"));            // amend
+        mvc.perform(delete("/api/me/bodyweight/" + id).header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.bodyweightLog.length()").value(0));              // delete
+        mvc.perform(delete("/api/me/bodyweight/" + id).header("Authorization", bearer(t)))
+                .andExpect(status().isNotFound());                                      // already gone
+    }
+
+    @Test
     void exerciseMuscleMapInferredFromNameAndPersists() throws Exception {
         String t = register("mm@example.com");
         String ex = createExercise(t, "Brand New Lat Pulldown", false);   // not in the seed catalog

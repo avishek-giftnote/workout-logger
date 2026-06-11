@@ -5,7 +5,7 @@ import { useAuth } from "../auth/auth";
 import { useSettings } from "../settings";
 import { EXERCISE_CHARTS, TEMPLATE_CHARTS } from "../charts";
 import { TrendChart } from "./Chart";
-import type { ActivityLevel, Goal, Sex } from "../api/types";
+import type { ActivityLevel, BodyweightEntryDto, Goal, Sex } from "../api/types";
 
 const SEX_OPTS: { v: Sex; label: string }[] = [{ v: "MALE", label: "Male" }, { v: "FEMALE", label: "Female" }, { v: "UNSPECIFIED", label: "—" }];
 const GOAL_OPTS: { v: Goal; label: string }[] = [{ v: "GAIN_MUSCLE", label: "Gain muscle" }, { v: "LOSE_FAT", label: "Lose fat" }, { v: "MAINTAIN", label: "Maintain" }, { v: "GAIN_STRENGTH", label: "Strength" }];
@@ -86,6 +86,18 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
           <div style={{ marginTop: 14 }}>
             <span className="micro">Weight trend · {realWeights.length} weigh-ins</span>
             <div className="mt"><TrendChart points={realWeights} color="var(--ice)" height={78} /></div>
+          </div>
+        )}
+
+        {(me.data?.bodyweightLog?.length ?? 0) > 0 && (
+          <div className="field" style={{ marginTop: 16 }}>
+            <label>Weigh-in history</label>
+            <p className="muted" style={{ fontSize: 11, margin: "2px 0 8px" }}>Edit a date or weight, or delete an entry.</p>
+            <div className="weighin-list">
+              {[...(me.data?.bodyweightLog ?? [])]
+                .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))
+                .map((e) => <WeighInRow key={e.id} entry={e} maxDate={todayIso} />)}
+            </div>
           </div>
         )}
 
@@ -227,6 +239,33 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
         <div className="grow" />
         <button className="btn btn-ghost btn-block" onClick={signOut}>Sign out</button>
       </aside>
+    </div>
+  );
+}
+
+/** One amendable/deletable weigh-in row (date + weight, persisted on blur). */
+function WeighInRow({ entry, maxDate }: { entry: BodyweightEntryDto; maxDate: string }) {
+  const qc = useQueryClient();
+  const day = entry.recordedAt.slice(0, 10);
+  const [w, setW] = useState(entry.weightKg ?? "");
+  const [d, setD] = useState(day);
+  useEffect(() => { setW(entry.weightKg ?? ""); setD(entry.recordedAt.slice(0, 10)); }, [entry.weightKg, entry.recordedAt]);
+
+  const ok = () => qc.invalidateQueries({ queryKey: ["me"] });
+  const amend = useMutation({ mutationFn: (patch: { weightKg?: string; recordedAt?: string }) => Api.updateBodyweightEntry(entry.id, patch), onSuccess: ok });
+  const remove = useMutation({ mutationFn: () => Api.deleteBodyweightEntry(entry.id), onSuccess: ok });
+
+  return (
+    <div className="weighin-row">
+      <input className="input mono" type="date" max={maxDate} value={d}
+        onChange={(e) => setD(e.target.value)}
+        onBlur={() => { if (d && d !== day) amend.mutate({ recordedAt: d }); }} />
+      <input className="input mono" inputMode="decimal" style={{ width: 62 }} value={w}
+        onChange={(e) => setW(e.target.value)}
+        onBlur={() => { const v = w.trim(); if (v && v !== entry.weightKg) amend.mutate({ weightKg: v }); else if (!v) setW(entry.weightKg ?? ""); }} />
+      {entry.estimated && <span className="tag" style={{ fontSize: 9 }}>est</span>}
+      <button className="icon-btn" title="Delete weigh-in" disabled={remove.isPending}
+        onClick={() => remove.mutate()}>×</button>
     </div>
   );
 }

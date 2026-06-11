@@ -9,15 +9,19 @@ import com.workoutlogger.security.Tenant;
 import com.workoutlogger.web.dto.ApiDtos.EnergyDto;
 import com.workoutlogger.web.dto.ApiDtos.MeDto;
 import com.workoutlogger.web.dto.ApiDtos.SetBodyweightRequest;
+import com.workoutlogger.web.dto.ApiDtos.UpdateBodyweightEntryRequest;
 import com.workoutlogger.web.dto.ApiDtos.UpdateProfileRequest;
 import com.workoutlogger.web.dto.DtoMapper;
 import com.workoutlogger.web.error.ApiExceptions.NotFoundException;
 import jakarta.validation.Valid;
+import org.bson.types.ObjectId;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.Comparator;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/me")
@@ -40,8 +44,31 @@ public class MeController {
     }
 
     private User current() {
-        return users.findById(tenant.userId())
+        User u = users.findById(tenant.userId())
                 .orElseThrow(() -> new NotFoundException("User not found"));
+        if (backfillIds(u)) users.save(u);   // give legacy weigh-ins stable ids so they can be amended/deleted
+        return u;
+    }
+
+    private static boolean backfillIds(User u) {
+        List<BodyweightEntry> log = u.getBodyweightLog();
+        boolean changed = false;
+        for (int i = 0; i < log.size(); i++) {
+            BodyweightEntry e = log.get(i);
+            if (e.id() == null) {
+                log.set(i, new BodyweightEntry(new ObjectId().toHexString(), e.recordedAt(), e.weightKg(), e.estimated()));
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /** currentBodyweightKg = latest real weigh-in (falls back to latest overall, else null). */
+    private static void recomputeCurrent(User u) {
+        var log = u.getBodyweightLog();
+        var latest = log.stream().filter(e -> !e.estimated()).max(Comparator.comparing(BodyweightEntry::recordedAt))
+                .or(() -> log.stream().max(Comparator.comparing(BodyweightEntry::recordedAt)));
+        u.setCurrentBodyweightKg(latest.map(BodyweightEntry::weightKg).orElse(null));
     }
 
     @GetMapping
@@ -53,14 +80,48 @@ public class MeController {
     @PutMapping("/bodyweight")
     public MeDto setBodyweight(@Valid @RequestBody SetBodyweightRequest req) {
         User u = current();
-        var weight = DtoMapper.dec(req.weightKg());
-        u.getBodyweightLog().add(new BodyweightEntry(parseWhen(req.recordedAt()), weight, false));
-        u.getBodyweightLog().stream()
-                .filter(e -> !e.estimated()).max(java.util.Comparator.comparing(BodyweightEntry::recordedAt))
-                .ifPresent(latest -> u.setCurrentBodyweightKg(latest.weightKg()));
+        u.getBodyweightLog().add(new BodyweightEntry(new ObjectId().toHexString(),
+                parseWhen(req.recordedAt()), DtoMapper.dec(req.weightKg()), false));
+        recomputeCurrent(u);
         u.setUpdatedAt(Instant.now());
         users.save(u);
         return DtoMapper.toDto(u);
+    }
+
+    /** Amends a weigh-in (weight and/or date). */
+    @PatchMapping("/bodyweight/{id}")
+    public MeDto amendBodyweight(@PathVariable String id, @RequestBody UpdateBodyweightEntryRequest req) {
+        User u = current();
+        var log = u.getBodyweightLog();
+        int i = indexOf(log, id);
+        if (i < 0) throw new NotFoundException("Weigh-in " + id + " not found");
+        BodyweightEntry e = log.get(i);
+        var weight = (req.weightKg() == null || req.weightKg().isBlank()) ? e.weightKg() : DtoMapper.dec(req.weightKg());
+        var when = (req.recordedAt() == null || req.recordedAt().isBlank()) ? e.recordedAt() : parseWhen(req.recordedAt());
+        log.set(i, new BodyweightEntry(e.id(), when, weight, false));   // an amended entry is a real measurement
+        recomputeCurrent(u);
+        u.setUpdatedAt(Instant.now());
+        users.save(u);
+        return DtoMapper.toDto(u);
+    }
+
+    /** Deletes a weigh-in. */
+    @DeleteMapping("/bodyweight/{id}")
+    public MeDto deleteBodyweight(@PathVariable String id) {
+        User u = current();
+        var log = u.getBodyweightLog();
+        int i = indexOf(log, id);
+        if (i < 0) throw new NotFoundException("Weigh-in " + id + " not found");
+        log.remove(i);
+        recomputeCurrent(u);
+        u.setUpdatedAt(Instant.now());
+        users.save(u);
+        return DtoMapper.toDto(u);
+    }
+
+    private static int indexOf(List<BodyweightEntry> log, String id) {
+        for (int i = 0; i < log.size(); i++) if (id.equals(log.get(i).id())) return i;
+        return -1;
     }
 
     /** Blank → now; a yyyy-MM-dd date → that day at 12:00 UTC; otherwise a parsed instant. */

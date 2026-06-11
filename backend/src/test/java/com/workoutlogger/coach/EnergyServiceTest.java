@@ -37,7 +37,7 @@ class EnergyServiceTest {
             double frac = n == 1 ? 0 : i / (double) (n - 1);
             double w = startW + (endW - startW) * frac;
             Instant t = now.minus(Duration.ofSeconds((long) ((days * (1 - frac)) * 86_400)));
-            log.add(new BodyweightEntry(t, BigDecimal.valueOf(w), false));
+            log.add(new BodyweightEntry(java.util.UUID.randomUUID().toString(), t, BigDecimal.valueOf(w), false));
         }
         u.setBodyweightLog(log);
         if (n > 0) u.setCurrentBodyweightKg(BigDecimal.valueOf(endW));

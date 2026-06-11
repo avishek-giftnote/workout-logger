@@ -110,7 +110,7 @@ public class ImportRunner implements CommandLineRunner {
             u.setEmail(email);
             u.setPasswordHash(passwordEncoder.encode(props.getUserPassword()));
             u.setCurrentBodyweightKg(bodyweight);
-            u.getBodyweightLog().add(new BodyweightEntry(now, bodyweight, true));
+            u.getBodyweightLog().add(new BodyweightEntry(new org.bson.types.ObjectId().toHexString(), now, bodyweight, true));
             u.setCreatedAt(now);
             u.setUpdatedAt(now);
             users.save(u);

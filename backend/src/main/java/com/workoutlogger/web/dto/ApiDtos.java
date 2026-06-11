@@ -87,7 +87,7 @@ public final class ApiDtos {
     public record SaveSplitRequest(@NotNull String name, List<String> templateIds) {}
 
     // ---- me / bodyweight ----
-    public record BodyweightEntryDto(Instant recordedAt, String weightKg, boolean estimated) {}
+    public record BodyweightEntryDto(String id, Instant recordedAt, String weightKg, boolean estimated) {}
 
     public record ProfileDto(String dateOfBirth, String heightCm, Sex sex, Goal goal,
                              ActivityLevel activityLevel, Integer initialIntakeKcal) {}
@@ -97,6 +97,9 @@ public final class ApiDtos {
 
     /** recordedAt: optional ISO date (yyyy-MM-dd) or instant; defaults to now. Lets the user backdate weigh-ins. */
     public record SetBodyweightRequest(@NotNull String weightKg, String recordedAt) {}
+
+    /** Amend an existing weigh-in — only non-null fields are applied. */
+    public record UpdateBodyweightEntryRequest(String weightKg, String recordedAt) {}
 
     /** Partial profile update — only non-null fields are applied. dateOfBirth is ISO yyyy-MM-dd. */
     public record UpdateProfileRequest(String dateOfBirth, String heightCm, Sex sex, Goal goal,

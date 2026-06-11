@@ -78,7 +78,7 @@ public final class DtoMapper {
 
     public static MeDto toDto(User u) {
         List<BodyweightEntryDto> log = u.getBodyweightLog().stream()
-                .map(e -> new BodyweightEntryDto(e.recordedAt(), str(e.weightKg()), e.estimated())).toList();
+                .map(e -> new BodyweightEntryDto(e.id(), e.recordedAt(), str(e.weightKg()), e.estimated())).toList();
         Profile p = u.getProfile();
         ProfileDto profile = p == null ? null : new ProfileDto(
                 p.getDateOfBirth() == null ? null : p.getDateOfBirth().toString(),
