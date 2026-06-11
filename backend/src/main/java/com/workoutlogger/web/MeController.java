@@ -63,12 +63,13 @@ public class MeController {
         return changed;
     }
 
-    /** currentBodyweightKg = latest real weigh-in (falls back to latest overall, else null). */
+    /** currentBodyweightKg = latest REAL weigh-in, else null — never an estimated import value (it would
+     *  poison the calisthenics effective-load calc). */
     private static void recomputeCurrent(User u) {
-        var log = u.getBodyweightLog();
-        var latest = log.stream().filter(e -> !e.estimated()).max(Comparator.comparing(BodyweightEntry::recordedAt))
-                .or(() -> log.stream().max(Comparator.comparing(BodyweightEntry::recordedAt)));
-        u.setCurrentBodyweightKg(latest.map(BodyweightEntry::weightKg).orElse(null));
+        u.setCurrentBodyweightKg(u.getBodyweightLog().stream()
+                .filter(e -> !e.estimated())
+                .max(Comparator.comparing(BodyweightEntry::recordedAt))
+                .map(BodyweightEntry::weightKg).orElse(null));
     }
 
     @GetMapping

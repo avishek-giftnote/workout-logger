@@ -84,6 +84,29 @@ class EnergyServiceTest {
     }
 
     @Test
+    void maintenanceSuppressesTheDirectionalKcalRange() {
+        EnergyDto e = svc.estimate(user(true, 80.0, 80.0, 8, 28));   // flat → maintenance
+        assertThat(e.surplusDeficitKcalLow()).isNull();              // no decisive surplus/deficit → no range
+        assertThat(e.surplusDeficitKcalHigh()).isNull();
+    }
+
+    @Test
+    void noisySeriesYieldsLowConfidence() {
+        User u = user(true, 80.0, 80.0, 2, 28);                      // profile only; overwrite the log with scatter
+        List<BodyweightEntry> log = new ArrayList<>();
+        Instant now = Instant.now();
+        double[] ws = { 80, 82.5, 78.5, 81.5, 79, 82, 78.5, 81 };    // ±2 kg around a flat trend → wide slope CI
+        for (int i = 0; i < ws.length; i++) {
+            log.add(new BodyweightEntry(java.util.UUID.randomUUID().toString(),
+                    now.minus(Duration.ofDays(28L - i * 4)), BigDecimal.valueOf(ws[i]), false));
+        }
+        u.setBodyweightLog(log);
+        EnergyDto e = svc.estimate(u);
+        assertThat(e.status()).isEqualTo("READY");
+        assertThat(e.confidence()).isEqualTo("LOW");                 // CI wider than the trend → direction uncertain
+    }
+
+    @Test
     void maleGateBoundary_sixWeighInsOverFourteenDays_isReady() {
         EnergyDto e = svc.estimate(user(true, 80.0, 80.8, 6, 14));
         assertThat(e.status()).isEqualTo("READY");

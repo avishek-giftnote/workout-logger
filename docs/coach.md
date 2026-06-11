@@ -216,17 +216,20 @@ recovery between sessions for the same muscle**, **scales to the energy phase**,
 ④ over-time autoregulation. Each is a shippable, tested slice.
 
 ### ① Energy-phase modifiers — `PHASE_MODIFIERS`
-The energy phase is one axis (blockType is the other, Layer 4). It acts as three multipliers, replacing the
-ad-hoc deficit trim:
+The energy phase is one axis (blockType is the other, Layer 4). Volume is a **bounded band-step** on the
+ramped target (≈±15% of the MAV−MEV span — *not* a multiplicative scale of the ceiling); `rirFloor` and
+`progressMult` drive effort/load:
 
-| phase | `volumeMult` (scales the blockType ceiling) | `rirFloor` (don't grind below) | `progressMult` (load-progression rate) |
+| phase | `volumeBandSign` (× round(0.15·(MAV_high−MEV)) sets) | `rirFloor` (don't grind below) | `progressMult` (load-progression rate) |
 | --- | --- | --- | --- |
-| SURPLUS | 1.05 (push toward MRV) | 0 | 1.0 (full increments) |
-| MAINTENANCE | 1.0 | 0 | 0.5 (slow gain) |
-| DEFICIT | 0.85 (toward MEV/MAV) | 1 (≥1 RIR, preserve don't grind) | 0.1 (hold loads) |
+| SURPLUS | +1 (one band-step up) | 0 | 1.0 (full increments) |
+| MAINTENANCE | 0 | 0 | 0.5 (slow gain) |
+| DEFICIT | −1 (one band-step down) | 1 (≥1 RIR, preserve don't grind) | 0.1 (hold loads) |
 
-Phase defaults from the **Energy Coach's** detected phase, user-overridable per block. `targetSets` applies
-`volumeMult` to the ceiling; `rirFloor`/`progressMult` are consumed by slices ②/④.
+`targetSets` adds `volumeBandSign · bandStep` to the MEV→ceiling ramp; `rirFloor`/`progressMult` are consumed
+by slices ②/④. The block phase comes from the goal recipe but is **clamped by the Coach's measured phase**
+(HIGH-confidence only): a recipe SURPLUS is downgraded to MAINTENANCE while a sustained DEFICIT is measured —
+the plan never prescribes extra volume + faster progression while you're cutting.
 
 ### ② Populate numbers — the prescription engine (pure, tested)
 - **RPE→%1RM (one linear formula, no table):** `pct = 100 − 2.5·(reps − 1) − 5·RIR`, clamped to `[0.40, 1.0]`

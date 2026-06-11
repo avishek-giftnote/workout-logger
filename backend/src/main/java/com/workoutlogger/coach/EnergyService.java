@@ -90,14 +90,22 @@ public class EnergyService {
         double se = Math.sqrt((sse / Math.max(1, n - 2)) / sxx);   // SE of slope (kg/day)
 
         double rateWk = slope * 7, ciWk = 1.96 * se * 7;           // weekly rate + 95% CI half-width
-        double deadband = 0.001 * latestW.doubleValue();           // 0.1% bodyweight / week
+        double deadband = 0.001 * ybar;                            // 0.1% of the regression-central weight / week
         double lo = rateWk - ciWk, hi = rateWk + ciWk;
         String phase = lo > deadband ? "SURPLUS" : hi < -deadband ? "DEFICIT" : "MAINTENANCE";
-        String confidence = (spanDays >= 21 && n >= 10) ? "HIGH" : "MEDIUM";
 
-        // Surplus/deficit kcal/day from the slope (range from the CI). Straddles 0 when maintenance.
+        // Confidence from how tightly the weekly rate is pinned (CI half-width) vs the dead-band / rate,
+        // with a sex-aware span floor. LOW when the CI is wider than the trend itself (direction uncertain).
+        String confidence;
+        if (ciWk <= Math.max(deadband, 0.5 * Math.abs(rateWk)) && spanDays >= minSpan + 7) confidence = "HIGH";
+        else if (ciWk <= Math.max(2 * deadband, Math.abs(rateWk))) confidence = "MEDIUM";
+        else confidence = "LOW";
+
+        // Surplus/deficit kcal/day from the slope (range from the CI) — only meaningful with a decisive phase.
+        boolean decisive = !"MAINTENANCE".equals(phase);
         double sdMid = slope * KCAL_PER_KG, sdCi = (ciWk / 7) * KCAL_PER_KG;
-        Integer sdLow = round50(sdMid - sdCi), sdHigh = round50(sdMid + sdCi);
+        Integer sdLow = decisive ? round50(sdMid - sdCi) : null;
+        Integer sdHigh = decisive ? round50(sdMid + sdCi) : null;
         String rateStr = String.format(Locale.US, "%+.2f", rateWk);
 
         return new EnergyDto("READY", phase, confidence, n, (int) spanDays, minN, minSpan,
