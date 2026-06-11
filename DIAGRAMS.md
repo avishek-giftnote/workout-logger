@@ -380,3 +380,253 @@ flowchart TD
 
 > Energy phase scales volume/intensity/progression; numbers seed from logged e1RM (else %BW cold-start);
 > recovery spacing + readiness keep a muscle from being trained fatigued; everything stays an editable preview.
+
+### 12. Domain model — class diagram (structural)
+
+```mermaid
+classDiagram
+  class User {
+    +String id
+    +String email
+    +String passwordHash
+    +BigDecimal currentBodyweightKg
+    +List~BodyweightEntry~ bodyweightLog
+    +Profile profile
+  }
+  class BodyweightEntry {
+    +String id
+    +Instant recordedAt
+    +BigDecimal weightKg
+    +boolean estimated
+  }
+  class Profile {
+    +LocalDate dateOfBirth
+    +BigDecimal heightCm
+    +Sex sex
+    +Goal goal
+    +ActivityLevel activityLevel
+    +Integer initialIntakeKcal
+  }
+  class Workout {
+    +String id
+    +String userId
+    +Instant startedAt
+    +Integer durationSeconds
+    +String templateId
+    +CyclePhase cyclePhase
+    +List~Muscle~ soreMuscles
+    +Instant deletedAt
+  }
+  class ExerciseBlock {
+    +String exerciseId
+    +String name
+    +int position
+    +List~WorkoutSet~ sets
+  }
+  class WorkoutSet {
+    +String setId
+    +SetType setType
+    +BigDecimal weight
+    +LoadMode loadMode
+    +BigDecimal loadDelta
+    +Integer reps
+    +Integer rpe
+    +SetKind kind
+    +BigDecimal distanceM
+    +Integer durationS
+  }
+  class Exercise {
+    +String id
+    +String userId
+    +String name
+    +String nameKey
+    +boolean isBodyweight
+    +Equipment equipment
+    +ExerciseCategory category
+    +List~CardioMetric~ cardioMetrics
+    +List~MuscleContribution~ muscleContributions
+    +Laterality laterality
+    +Mechanic mechanic
+    +Boolean loadable
+  }
+  class MuscleContribution {
+    +Muscle muscle
+    +BigDecimal fraction
+  }
+  class WorkoutTemplate {
+    +String id
+    +String userId
+    +String name
+    +List~TemplateExercise~ exercises
+  }
+  class TemplateExercise {
+    +String exerciseId
+    +String name
+    +int position
+    +int sets
+    +Integer reps
+    +String targetRir
+  }
+  class Split {
+    +String id
+    +String userId
+    +String name
+    +List~String~ templateIds
+  }
+  class Macrocycle {
+    +String id
+    +String userId
+    +String name
+    +String status
+    +int mesoIndex
+    +int week
+    +String goal
+    +LocalDate targetDate
+    +List~Muscle~ focusMuscles
+    +List~Mesocycle~ mesocycles
+  }
+  class Mesocycle {
+    +String name
+    +int accumulationWeeks
+    +String phase
+    +BlockType blockType
+    +List~Muscle~ focusMuscles
+    +IntensityBand intensityBand
+  }
+  class IntensityBand {
+    +int repLow
+    +int repHigh
+    +String targetRir
+    +String pctLow
+    +String pctHigh
+  }
+
+  User "1" *-- "*" BodyweightEntry
+  User "1" *-- "0..1" Profile
+  Workout "1" *-- "*" ExerciseBlock
+  ExerciseBlock "1" *-- "*" WorkoutSet
+  Exercise "1" *-- "*" MuscleContribution
+  WorkoutTemplate "1" *-- "*" TemplateExercise
+  Macrocycle "1" *-- "*" Mesocycle
+  Mesocycle "1" *-- "0..1" IntensityBand
+  Workout ..> WorkoutTemplate : templateId
+  ExerciseBlock ..> Exercise : exerciseId
+  TemplateExercise ..> Exercise : exerciseId
+  Split ..> WorkoutTemplate : templateIds[]
+  MuscleContribution ..> Muscle
+  Mesocycle ..> BlockType
+
+  class Muscle { <<enumeration>> CHEST LAT QUAD HAMSTRING GLUTE ... ABS (15) }
+  class BlockType { <<enumeration>> HYPERTROPHY STRENGTH PEAK RESENSITIZATION MAINTENANCE PREP }
+  class CyclePhase { <<enumeration>> ACCUMULATION DELOAD }
+  class SetType { <<enumeration>> WARMUP WORKING DROP FAILURE }
+  class LoadMode { <<enumeration>> BODYWEIGHT ADDED ASSISTED }
+  class Laterality { <<enumeration>> BILATERAL ISOLATERAL UNILATERAL }
+  class Mechanic { <<enumeration>> COMPOUND ISOLATION }
+```
+
+> Every aggregate carries `userId` (tenant isolation — every repo ANDs it). Decimals are `BigDecimal`
+> (Decimal128 in Mongo, strings on the wire). The embedded set id is `setId`, not `id`. Also-present enums:
+> Equipment, ExerciseCategory, SetKind, CardioMetric, Sex, Goal, ActivityLevel.
+
+### 13. Sequence — log a planned session (the living plan)
+
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant LP as LogWorkoutPage
+  participant RX as prescription.ts
+  participant PD as periodization.ts
+  participant API as Api client
+  participant WC as WorkoutController
+  participant WR as WorkoutRepository
+  participant DB as MongoDB
+  U->>LP: start from template
+  LP->>PD: currentMicro(plan) → meso, week
+  LP->>PD: phaseMod(meso.phase) → rirFloor, progressMult
+  LP->>RX: topWorkingSet(workouts, exerciseId)
+  LP->>RX: rirWave(week, accumWeeks, rirFloor)
+  LP->>RX: progressedSeed(prev, repLow, repHigh, …)
+  LP->>RX: readiness(workouts, muscle, target) → trim?
+  RX-->>LP: seeded sets (load · reps · RPE), eased if sore/short
+  U->>LP: log sets, mark sore muscles, Finish
+  LP->>API: createWorkout(req incl. cyclePhase, soreMuscles)
+  API->>WC: POST /api/workouts
+  WC->>WC: DtoMapper.toWorkout (mints setIds)
+  WC->>WR: insert (tenant userId)
+  WR->>DB: insert workouts doc (embedded blocks/sets)
+  DB-->>LP: WorkoutDto → invalidate ["workouts"]
+```
+
+### 14. Sequence — build & accept a macrocycle plan
+
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant MP as PlanPage / MacroPlanner
+  participant EC as Energy query
+  participant PM as planMacrocycle
+  participant API as Api client
+  participant BE as Plan/Template/Split controllers
+  participant DB as MongoDB
+  U->>MP: goal · duration/date · days · focus
+  MP->>EC: measured phase (HIGH-confidence only)
+  MP->>PM: planMacrocycle(goal, weeks, focus, days, catalog, measuredPhase)
+  PM->>PM: recipeUnit(goal) → blocks · mkBlock + clampPhase(measured)
+  PM->>PM: generateSplit → targetSets (MEV→ceiling ramp + band-step), orderForRecovery, pick exercises
+  PM-->>MP: preview (block timeline · split · warnings)
+  U->>MP: Accept & start
+  loop each template
+    MP->>API: createTemplate(reps, targetRir, sets)
+    API->>BE: POST /api/templates
+  end
+  MP->>API: createSplit(templateIds)
+  MP->>API: createPlan(mesocycles, goal, targetDate, focusMuscles)
+  API->>BE: POST /api/splits, /api/plan
+  BE->>DB: insert templates, split, plan (ACTIVE, week 1)
+  DB-->>MP: invalidate ["templates","splits","plan"] → active-plan view
+```
+
+### 15. Sequence — energy "Coach" estimate (read-time, gated)
+
+```mermaid
+sequenceDiagram
+  participant CC as CoachCard / PlanPage
+  participant API as Api client
+  participant MC as MeController
+  participant ES as EnergyService
+  CC->>API: energy()
+  API->>MC: GET /api/me/energy
+  MC->>ES: estimate(currentUser)
+  ES->>ES: profile gate (sex, DOB, height, activity)
+  ES->>ES: real weigh-ins ≥6 over ≥14d (21d female)?
+  alt insufficient
+    ES-->>CC: GATHERING_DATA (+ Mifflin range if profile complete)
+  else ready
+    ES->>ES: least-squares slope ± 95% CI (kg/wk)
+    ES->>ES: Mifflin–St Jeor × PAL → maintenance ±8%
+    ES->>ES: phase vs ±0.1%bw/wk dead-band (anchored to ȳ)
+    ES->>ES: confidence from CI half-width · kcal = slope×7700 (null at maintenance)
+    ES-->>CC: EnergyDto (phase, confidence, rate, kcal)
+  end
+  CC->>CC: render pill · PlanPage clamps block phase by measured phase
+```
+
+### 16. Sequence — registration → default-catalog seeding
+
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant API as Api client
+  participant AC as AuthController
+  participant UR as UserRepository
+  participant DS as DefaultExerciseSeeder
+  participant DB as MongoDB
+  U->>API: register(email, password)
+  API->>AC: POST /api/auth/register
+  AC->>UR: save(new User)
+  AC->>DS: seed(userId)
+  DS->>DS: load default-exercises.json (84 exercises)
+  DS->>DB: insert catalog (muscle map · equipment · laterality · mechanic · loadable)
+  AC-->>U: JWT token (+ a ready-to-use exercise catalog)
+```

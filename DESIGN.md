@@ -155,7 +155,34 @@ flag those rows `estimated: true`; going forward, live logs snapshot the latest 
   Exercise List/detail (`/exercise-list`), settings sidebar. Logging engine shared by new + edit
   sessions; weights stay strings. **Online-only** (no offline sync yet).
 
-## 7. Deferred / operational (noted, not built now)
+## 7. Coaching engine — periodization + prescription + energy (Layers 4–5)
+
+Added after v5. Authoritative spec: **`docs/coach.md`**; behaviour in **`DIAGRAMS.md`** (class diagram #12,
+sequence diagrams #13–16). A research-backed coach, built as **pure frontend functions** (so the eval can sweep
+them) over thin additive backend persistence — no breaking schema change.
+
+- **Plan model (collection `plans`):** `Macrocycle` (one ACTIVE per user, cursor `mesoIndex`/`week`, `goal`,
+  `targetDate`, `focusMuscles`) embeds `Mesocycle[]` (`blockType`, `phase`, `accumulationWeeks`, focus,
+  `IntensityBand`). `PlanController` (`/api/plan` GET/POST/advance/mesocycle/DELETE). Additive fields on
+  existing docs: `Workout.soreMuscles`, `Workout.cyclePhase` (DELOAD excluded from trends),
+  `TemplateExercise.{reps,targetRir}`, `Exercise.{laterality,mechanic,loadable}`, `BodyweightEntry.id`.
+- **Planner — `frontend/src/periodization.ts`:** `planMacrocycle(goal, weeks, targetDate, focus, days,
+  catalog, measuredPhase)` → ordered blocks (goal recipe, `clampPhase` by the Coach's measured energy phase) +
+  a generated split. `targetSets` = MEV→ceiling ramp ~+2 sets/wk + a bounded **phase band-step** (`PHASE_MODIFIERS`,
+  orthogonal to `blockType`). `generateSplit` selects exercises by the shared **`trainsMuscle` ≥0.5 basis**,
+  keeps every prime mover ≥2×/week, and `orderForRecovery` spaces a muscle + synergists ≥48–72 h.
+- **Prescription — `frontend/src/prescription.ts`:** `rpePct` (RTS `100−2.5(reps−1)−5·RIR`), `e1rm`,
+  `nextLoad`/`progressedSeed` (double progression; bodyweight on reps), `rirWave` (3→0), `readiness`
+  (eases a sore/under-recovered muscle, strictly-prior). `LogWorkoutPage` seeds the next session live.
+- **Energy Coach — `backend/coach/EnergyService.java`:** Mifflin–St Jeor × PAL + least-squares slope/CI,
+  ≥6 weigh-ins / ≥14–21 d gate, ±0.1%bw/wk dead-band (anchored to ȳ), CI-derived confidence; feeds
+  `measuredPhase`.
+- **Catalog:** `DefaultExerciseSeeder` seeds 84 exercises (muscle map + equipment + laterality + mechanic +
+  loadable) into every new user; `restore-defaults` back-fills existing users.
+- **Eval harness (`npm run eval`):** `coach.eval.test.ts` (planner R1–R18) + `prescription.eval.test.ts`
+  (engine R10–R22) — every coaching invariant is pinned as an `R##` guard, separate from the `npm test` gate.
+
+## 8. Deferred / operational (noted, not built now)
 
 - **Mobile sync hooks already in place:** `updatedAt`, `deletedAt` tombstones, `version`, `loggedAt`
   live-vs-import, `schemaVersion`, stable per-set `setId`. Additive later — a `GET /workouts?updatedSince=`

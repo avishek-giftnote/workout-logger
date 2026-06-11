@@ -12,6 +12,14 @@ a Claude Code subagent definition (YAML frontmatter + a system prompt grounded i
 | [mobile-engineer](mobile-engineer.md) | React Native/Expo + the deferred offline-sync engine |
 | [sports-data-expert](sports-data-expert.md) | exercise-science metrics: strength + cardio units, what athletes log |
 | [test-user](test-user.md) | QA / real-athlete persona that pressure-tests UX and finds friction |
+| [periodization-coach](periodization-coach.md) | macro/meso/microcycle, volume landmarks, RIR waves, ≥2×/week — the planner + prescription engine |
+| [contest-prep-coach](contest-prep-coach.md) | backward-from-show-date prep, off-season→cut→peak, lagging muscles, real-competitor trust |
+| [energy-analyst](energy-analyst.md) | Mifflin/PAL TDEE, weight-slope CI, data gates, dead-band phase + confidence |
+| [eval-engineer](eval-engineer.md) | turns invariants into eval sweeps (R## guards), scorecards, silent-regression gates |
+
+> **Workflow gotcha:** when convening a council via a `Workflow`, these are **not** registered workflow agent
+> types — embed each persona in the prompt (title + lens); do **not** pass `agentType`. Use `subagent_type`
+> only for the one-expert Agent-tool path.
 
 ## How to convene them
 

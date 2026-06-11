@@ -63,8 +63,9 @@ tests still pass.
    correctness, missed edge cases, and regressions — the same way the cardio / energy-balance / progression
    designs were vetted. Worth it when a change spans backend+frontend+data model or has safety implications.
 
-Current suite size (keep roughly current when you add tests): **backend 38** (`mvn test` runs 25; `+13`
-`ApiIntegrationTest` with `RUN_MONGO_TESTS=1`), **frontend 28** (`npm test`).
+Current suite size (keep roughly current when you add tests): **backend ~51** (`mvn test` runs the pure
+classes; `RUN_MONGO_TESTS=1` adds `ApiIntegrationTest`), **frontend 49** (`npm test`) **+ 2 eval sweeps**
+(`npm run eval`).
 
 **Coaching eval harness:** `cd frontend && npm run eval` sweeps the macrocycle planner across every
 goal × days/week × duration × focus combination (240 configs) and scores the research invariants — every
@@ -107,6 +108,36 @@ Import is a **one-time bootstrap** that loads into a real, loginable account. Go
 no-break space) before AM/PM and must be normalized first; durations have 4 shapes; `Set Order` mixes `1..N`
 with `W` (split into `orderIndex` + `setType`); equipment is parsed from the name suffix.
 
+### The coaching engine (Layers 4–5) — `docs/coach.md` is the authoritative spec
+A research-backed periodization + prescription system, mostly **pure frontend functions** (so they're swept by
+the eval), with thin additive backend persistence. Read `docs/coach.md` before touching it.
+- **`src/periodization.ts`** — the **macrocycle planner**. `planMacrocycle(goal, weeks, targetDate, focus,
+  days, catalog, measuredPhase)` → an ordered `Mesocycle[]` (block types/phases per goal recipe, `clampPhase`
+  by the Coach's measured energy phase) + a generated split. `targetSets` ramps every muscle MEV→ceiling at
+  ~+2 sets/wk with a bounded **phase band-step** (`PHASE_MODIFIERS`, orthogonal to `blockType`); `generateSplit`
+  selects exercises via the shared **`trainsMuscle`/`fracOf` ≥0.5 basis** (`muscles.ts`), keeps every prime
+  mover ≥2×/week, and `orderForRecovery` spaces a muscle + synergists ≥48–72h.
+- **`src/prescription.ts`** — the **living-plan engine** (pure, tested): `rpePct` (RTS table
+  `100−2.5(reps−1)−5·RIR`), `e1rm`, `workingLoad`, `topWorkingSet`, `nextLoad`/`progressedSeed` (double
+  progression; bodyweight progresses on reps), `rirWave` (3→0, phase-floored), `readiness` (eases a sore /
+  under-recovered muscle from strictly-prior sessions). `LogWorkoutPage` seeds the next session from these.
+- **`coach/EnergyService.java`** — read-time, gated surplus/deficit estimate: Mifflin–St Jeor × PAL +
+  least-squares weight slope with a 95% CI, a ±0.1%bw/wk dead-band (anchored to ȳ), CI-derived confidence.
+  Feeds the planner's `measuredPhase` clamp. Persisted plan endpoints live in `PlanController` (collection
+  `plans`, one ACTIVE macrocycle, `advance()` rolls week→deload→next meso).
+- **Eval harness** (see above) — `coach.eval.test.ts` (planner R1–R18) + `prescription.eval.test.ts`
+  (engine R10–R22). **Every coaching invariant is pinned here**; add a new `R##` when you add a rule.
+- **Default catalog**: `DefaultExerciseSeeder` seeds `resources/default-exercises.json` (84 exercises w/ muscle
+  map, equipment, laterality, mechanic, loadable) into every new user at registration; `restore-defaults`
+  back-fills missing ones for existing users. Exercise attributes are user-editable (`ExerciseDetailPage`).
+
+### Diagrams
+`DIAGRAMS.md` holds 16 validated Mermaid diagrams (renders on GitHub) — structural (the domain **class
+diagram** #12) + behavioural **sequence diagrams** (#13 log-a-planned-session, #14 build/accept-a-plan, #15
+energy estimate, #16 registration+seeding) plus the earlier flow charts. **Keep it current when the model
+changes** and validate (the repo has used a `mermaid.parse` node check; a `;` inside a sequence message breaks
+the parser — use `·`).
+
 ### Frontend structure
 - `src/logging/engine.tsx` is the **shared set-logging engine** (`DraftSet`/`DraftBlock`, `ExerciseBlockEditor`,
   `ExercisePicker`, `toCreateSet`, `seededSet` vs `filledSet`, the equipment list). Both `LogWorkoutPage`
@@ -134,3 +165,24 @@ with `W` (split into `orderIndex` + `setType`); equipment is parsed from the nam
 - **Commits** end with the `Co-Authored-By` trailer; the author email is a GitHub noreply (history was
   scrubbed of company emails). Secrets are env-only (no committed JWT secret or import credentials);
   `strong_workouts.csv` and `tools/import_preview.json` are git-ignored (personal data).
+
+## Streamlining: skills & sub-agents (recommendations)
+Recurring rituals this project keeps doing by hand — worth a **skill** (slash command) or a **sub-agent** so
+they're one step and consistent:
+- **`/restart-smoke` skill** — the most-repeated loop: stop the running `spring-boot:run`, restart it on the
+  demo3 DB with the fixed JWT secret (no re-login), wait for `:8080`, then curl-smoke the changed endpoints +
+  clean up any junk demo rows. Done ~10× this session by hand.
+- **`/gate` skill** (exists) — run it every commit: frontend `tsc + npm test + npm run eval + build`; backend
+  `RUN_MONGO_TESTS=1 mvn test`. Extend it to also validate `DIAGRAMS.md` mermaid when that file changed.
+- **`/diagrams` skill** — regenerate/validate the Mermaid in `DIAGRAMS.md` via the `mermaid.parse` node check
+  (the repo re-implements this ad-hoc each time; the `;`-in-sequence-message trap should be auto-caught).
+- **research sub-agents** — exercise-science / periodization research and broad codebase surveys should always
+  be delegated (the `periodization-coach`, `sports-data-expert`, `Explore` agents) so raw pages/file-dumps stay
+  out of the main context. This session proved it: the planner, prescription, and audit work all went through
+  sub-agents and only conclusions returned.
+- **the council `Workflow`** — for any cross-cutting design or end-to-end review, convene the `.claude/agents/`
+  specialists (now incl. `periodization-coach`, `contest-prep-coach`, `energy-analyst`, `eval-engineer`).
+  Reminder: workflow agents are **not** the `.claude/agents` types — embed each persona in the prompt
+  (title + lens); do **not** pass `agentType` for them.
+- **eval-author sub-agent** — when a decision/invariant is stated, an `eval-engineer` agent can draft the `R##`
+  guard (the "decision → executable guard, same change" rule), keeping the sweep exhaustive.
