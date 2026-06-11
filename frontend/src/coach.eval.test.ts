@@ -11,7 +11,7 @@
  * measurement you run, separate from the unit suite). Track the pass-rate as the planner changes.
  */
 import { describe, it, expect } from "vitest";
-import { planMacrocycle, type PlanPreview } from "./periodization";
+import { planMacrocycle, phaseMod, type PlanPreview } from "./periodization";
 import { muscleLabel } from "./muscles";
 import type { ExerciseDto, GoalType, Muscle } from "./api/types";
 
@@ -93,6 +93,15 @@ function evaluate(c: Case): Violation[] {
   // R8 — no single exercise exceeds the per-session set cap (junk-volume guard)
   for (const t of p.templates) for (const e of t.exercises)
     if (e.sets > PER_SESSION_CAP) fail("R8-session-cap", `${t.name}/${e.name}=${e.sets} sets > cap ${PER_SESSION_CAP}`);
+
+  // R9 — generated prescription sanity: positive reps + targetRir within [phase floor, 3]
+  const floor = phaseMod(p.mesocycles[0]?.phase).rirFloor;
+  for (const t of p.templates) for (const e of t.exercises) {
+    if (!(e.reps > 0)) fail("R9-reps", `${t.name}/${e.name} reps=${e.reps}`);
+    const rir = parseInt(e.targetRir, 10);
+    if (!Number.isInteger(rir) || rir < floor || rir > 3)
+      fail("R9-rir", `${t.name}/${e.name} targetRir=${e.targetRir} (allowed ${floor}..3)`);
+  }
 
   return v;
 }
