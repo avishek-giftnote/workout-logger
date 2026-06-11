@@ -137,6 +137,18 @@ diagram** #12) + behavioural **sequence diagrams** (#13 log-a-planned-session, #
 energy estimate, #16 registration+seeding) plus the earlier flow charts. **Keep it current when the model
 changes** and validate (the repo has used a `mermaid.parse` node check; a `;` inside a sequence message breaks
 the parser — use `·`).
+- **ALWAYS regenerate `DIAGRAMS.pdf` after editing `DIAGRAMS.md`** (it's a committed artifact, not
+  git-ignored, so a stale PDF ships otherwise). Run `tools/build-diagrams-pdf.mjs` (renders each Mermaid block
+  in headless Chrome → A4 PDF). It needs `marked mermaid puppeteer-core` + a local Chrome — install the deps
+  **into `tools/` (not repo-root `node_modules`, which is NOT git-ignored), build, then delete
+  `tools/node_modules` + `tools/package*.json` before committing.** Commit `DIAGRAMS.pdf` explicitly (don't
+  `git add -A` while those temp deps exist):
+  ```
+  cd tools && npm init -y && npm install marked mermaid puppeteer-core && cd ..
+  CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" node tools/build-diagrams-pdf.mjs
+  rm -rf tools/node_modules tools/package.json tools/package-lock.json
+  ```
+  (A `/diagrams` skill should wrap this validate-then-rebuild-then-clean loop.)
 
 ### Frontend structure
 - `src/logging/engine.tsx` is the **shared set-logging engine** (`DraftSet`/`DraftBlock`, `ExerciseBlockEditor`,
