@@ -7,6 +7,7 @@ import { ChartCard, type Point } from "../components/Chart";
 import { EXERCISE_CHARTS } from "../charts";
 import { MUSCLES } from "../muscles";
 import { isDeload } from "../periodization";
+import { e1rm as est1rm } from "../prescription";
 import { useSettings } from "../settings";
 import type { CardioMetric, Equipment, Laterality, Mechanic, Muscle, MuscleContributionDto, SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
@@ -17,7 +18,6 @@ const LATERALITY: { v: Laterality; label: string }[] = [
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-const est1rm = (weight: number, reps: number) => weight * (1 + reps / 30);   // Epley
 
 function loadLabel(s: SetDto): string {
   if (s.kind === "CARDIO") {

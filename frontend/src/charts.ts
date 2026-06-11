@@ -1,7 +1,7 @@
 import type { WorkoutDto } from "./api/types";
+import { e1rm as est1rm } from "./prescription";
 
 type Block = WorkoutDto["exercises"][number];
-const est1rm = (w: number, r: number) => w * (1 + r / 30); // Epley
 
 export interface ChartDef {
   key: string;
