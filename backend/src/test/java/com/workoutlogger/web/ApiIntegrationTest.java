@@ -259,6 +259,23 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void exerciseAttributesAreEditableAndCompoundNeedsTwoMuscles() throws Exception {
+        String t = register("exedit@example.com");
+        String ex = createExercise(t, "My Custom Press", false);
+        mvc.perform(patch("/api/exercises/" + ex).header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"laterality\":\"UNILATERAL\",\"loadable\":false,\"equipment\":\"DUMBBELL\"}"))
+                .andExpect(jsonPath("$.laterality").value("UNILATERAL"))
+                .andExpect(jsonPath("$.loadable").value(false))
+                .andExpect(jsonPath("$.equipment").value("DUMBBELL"));
+        mvc.perform(patch("/api/exercises/" + ex).header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mechanic\":\"COMPOUND\",\"muscleContributions\":[{\"muscle\":\"CHEST\",\"fraction\":\"1.0\"}]}"))
+                .andExpect(status().isBadRequest());                                    // compound needs >1 muscle
+        mvc.perform(patch("/api/exercises/" + ex).header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mechanic\":\"COMPOUND\",\"muscleContributions\":[{\"muscle\":\"CHEST\",\"fraction\":\"1.0\"},{\"muscle\":\"TRICEP\",\"fraction\":\"0.5\"}]}"))
+                .andExpect(jsonPath("$.mechanic").value("COMPOUND"));
+    }
+
+    @Test
     void exerciseMuscleMapInferredFromNameAndPersists() throws Exception {
         String t = register("mm@example.com");
         String ex = createExercise(t, "Brand New Lat Pulldown", false);   // not in the seed catalog

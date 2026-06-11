@@ -2,13 +2,17 @@ import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
-import { CARDIO_METRICS, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
+import { CARDIO_METRICS, EQUIPMENT, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
 import { ChartCard, type Point } from "../components/Chart";
 import { EXERCISE_CHARTS } from "../charts";
 import { MUSCLES } from "../muscles";
 import { isDeload } from "../periodization";
 import { useSettings } from "../settings";
-import type { CardioMetric, Muscle, MuscleContributionDto, SetDto, TemplateDto, WorkoutDto } from "../api/types";
+import type { CardioMetric, Equipment, Laterality, Mechanic, Muscle, MuscleContributionDto, SetDto, TemplateDto, WorkoutDto } from "../api/types";
+
+const LATERALITY: { v: Laterality; label: string }[] = [
+  { v: "BILATERAL", label: "Bilateral" }, { v: "ISOLATERAL", label: "Isolateral" }, { v: "UNILATERAL", label: "Unilateral" },
+];
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
@@ -50,7 +54,7 @@ export default function ExerciseDetailPage() {
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
   const save = useMutation({
-    mutationFn: (patch: { restSeconds?: number | null; cardioMetrics?: CardioMetric[]; muscleContributions?: MuscleContributionDto[] }) => Api.updateExercise(id, patch),
+    mutationFn: (patch: { restSeconds?: number | null; cardioMetrics?: CardioMetric[]; muscleContributions?: MuscleContributionDto[]; equipment?: Equipment; laterality?: Laterality; mechanic?: Mechanic; loadable?: boolean }) => Api.updateExercise(id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["exercises"] }),
   });
 
@@ -67,7 +71,10 @@ export default function ExerciseDetailPage() {
       !f ? [...cur, { muscle: m, fraction: "1.0" }]
         : f === "1.0" ? cur.map((c) => (c.muscle === m ? { muscle: m, fraction: "0.5" } : c))
           : cur.filter((c) => c.muscle !== m);
-    save.mutate({ muscleContributions: next });
+    // a compound movement needs ≥2 muscles — drop to isolation if removing one would break that
+    const patch: { muscleContributions: MuscleContributionDto[]; mechanic?: Mechanic } = { muscleContributions: next };
+    if (next.length < 2 && ex?.mechanic === "COMPOUND") patch.mechanic = "ISOLATION";
+    save.mutate(patch);
   };
   const tName = useMemo(() => {
     const m = new Map((templates.data ?? []).map((t: TemplateDto) => [t.id, t.name]));
@@ -149,6 +156,27 @@ export default function ExerciseDetailPage() {
           </>
         ) : (
           <>
+            <span className="micro" style={{ display: "block", marginTop: 14 }}>Load type</span>
+            <div className="chip-wrap" style={{ marginTop: 6 }}>
+              {EQUIPMENT.map((eq) => (
+                <button key={eq.value} className={`chip-toggle${ex.equipment === eq.value ? " on" : ""}`}
+                  disabled={save.isPending} onClick={() => save.mutate({ equipment: eq.value })}>{eq.label}</button>
+              ))}
+            </div>
+
+            <span className="micro" style={{ display: "block", marginTop: 14 }}>Movement</span>
+            <div className="seg" style={{ width: "100%", marginTop: 6 }}>
+              <button className={ex.mechanic === "ISOLATION" ? "on" : ""} style={{ flex: 1 }}
+                disabled={save.isPending} onClick={() => save.mutate({ mechanic: "ISOLATION" })}>Isolation</button>
+              <button className={ex.mechanic === "COMPOUND" ? "on" : ""} style={{ flex: 1 }}
+                disabled={save.isPending || ex.muscleContributions.length < 2}
+                title={ex.muscleContributions.length < 2 ? "Select 2+ muscles first" : ""}
+                onClick={() => save.mutate({ mechanic: "COMPOUND" })}>Compound</button>
+            </div>
+            <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              {ex.muscleContributions.length < 2 ? "Compound needs 2+ muscles selected below." : "Compound works multiple muscles; isolation targets one."}
+            </p>
+
             <span className="micro" style={{ display: "block", marginTop: 14 }}>
               Muscles worked {ex.muscleContributions.length === 0 && <b style={{ color: "var(--ember)" }}>· unmapped</b>}
             </span>
@@ -164,8 +192,26 @@ export default function ExerciseDetailPage() {
                 );
               })}
             </div>
+
+            <span className="micro" style={{ display: "block", marginTop: 14 }}>
+              Loadability {ex.isBodyweight && <span className="muted">· can you add/assist resistance?</span>}
+            </span>
+            <div className="seg" style={{ width: "100%", marginTop: 6 }}>
+              <button className={ex.loadable === true ? "on" : ""} style={{ flex: 1 }}
+                disabled={save.isPending} onClick={() => save.mutate({ loadable: true })}>Loadable</button>
+              <button className={ex.loadable === false ? "on" : ""} style={{ flex: 1 }}
+                disabled={save.isPending} onClick={() => save.mutate({ loadable: false })}>Fixed</button>
+            </div>
           </>
         )}
+
+        <span className="micro" style={{ display: "block", marginTop: 14 }}>Laterality</span>
+        <div className="seg" style={{ width: "100%", marginTop: 6 }}>
+          {LATERALITY.map((l) => (
+            <button key={l.v} className={ex.laterality === l.v ? "on" : ""} style={{ flex: 1, fontSize: 12 }}
+              disabled={save.isPending} onClick={() => save.mutate({ laterality: l.v })}>{l.label}</button>
+          ))}
+        </div>
       </div>
 
       {/* records */}

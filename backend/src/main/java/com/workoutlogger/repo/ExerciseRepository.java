@@ -4,9 +4,12 @@ import com.workoutlogger.domain.CardioMetric;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.Exercise;
 import com.workoutlogger.domain.ExerciseCategory;
+import com.workoutlogger.domain.Laterality;
+import com.workoutlogger.domain.Mechanic;
 import com.workoutlogger.domain.MuscleContribution;
 import com.workoutlogger.importer.StrongParsers;
 import com.workoutlogger.security.Tenant;
+import com.workoutlogger.web.error.ApiExceptions.BadRequestException;
 import com.workoutlogger.web.error.ApiExceptions.ConflictException;
 import org.bson.types.ObjectId;
 import org.springframework.data.domain.Sort;
@@ -78,7 +81,8 @@ public class ExerciseRepository {
 
     /** Partial update — applies only the non-null fields. BODYWEIGHT keeps isBodyweight in sync. */
     public Optional<Exercise> update(String id, Equipment equipment, Integer restSeconds,
-                                     List<CardioMetric> cardioMetrics, List<MuscleContribution> muscleContributions) {
+                                     List<CardioMetric> cardioMetrics, List<MuscleContribution> muscleContributions,
+                                     Laterality laterality, Mechanic mechanic, Boolean loadable) {
         return findOne(id).map(e -> {
             if (equipment != null) {
                 e.setEquipment(equipment);
@@ -87,6 +91,15 @@ public class ExerciseRepository {
             if (restSeconds != null) e.setRestSeconds(restSeconds < 0 ? null : restSeconds);
             if (cardioMetrics != null) e.setCardioMetrics(cardioMetrics);
             if (muscleContributions != null) e.setMuscleContributions(muscleContributions);
+            if (laterality != null) e.setLaterality(laterality);
+            if (mechanic != null) e.setMechanic(mechanic);
+            if (loadable != null) e.setLoadable(loadable);
+            // a compound movement works more than one muscle — enforced only when mechanic or the
+            // muscle map is being changed, so unrelated edits to legacy-inconsistent rows aren't blocked
+            if ((mechanic != null || muscleContributions != null) && e.getMechanic() == Mechanic.COMPOUND
+                    && (e.getMuscleContributions() == null || e.getMuscleContributions().size() < 2)) {
+                throw new BadRequestException("A compound movement works more than one muscle — select at least two.");
+            }
             e.setUpdatedAt(Instant.now());
             return mongo.save(e);
         });

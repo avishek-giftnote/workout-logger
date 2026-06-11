@@ -86,7 +86,7 @@
   {"name":"Hanging Leg Raise","category":"STRENGTH","equipment":"BODYWEIGHT","isBodyweight":true,"loadable":true,"laterality":"BILATERAL","mechanic":"ISOLATION","muscles":[{"muscle":"ABS","fraction":"1.0"}]},
   {"name":"Plank","category":"STRENGTH","equipment":"BODYWEIGHT","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":"ISOLATION","muscles":[{"muscle":"ABS","fraction":"1.0"}]},
   {"name":"Crunch","category":"STRENGTH","equipment":"BODYWEIGHT","isBodyweight":true,"loadable":true,"laterality":"BILATERAL","mechanic":"ISOLATION","muscles":[{"muscle":"ABS","fraction":"1.0"}]},
-  {"name":"Ab Wheel Rollout","category":"STRENGTH","equipment":"BODYWEIGHT","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":"COMPOUND","muscles":[{"muscle":"ABS","fraction":"1.0"}]},
+  {"name":"Ab Wheel Rollout","category":"STRENGTH","equipment":"BODYWEIGHT","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":"COMPOUND","muscles":[{"muscle":"ABS","fraction":"1.0"},{"muscle":"LAT","fraction":"0.4"}]},
 
   {"name":"Treadmill Run","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},
   {"name":"Outdoor Run","category":"CARDIO","equipment":"OTHER","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},

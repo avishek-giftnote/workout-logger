@@ -40,7 +40,8 @@ public final class ApiDtos {
 
     /** Partial update — only non-null fields are applied. */
     public record UpdateExerciseRequest(Equipment equipment, Integer restSeconds, List<CardioMetric> cardioMetrics,
-                                        List<MuscleContributionDto> muscleContributions) {}
+                                        List<MuscleContributionDto> muscleContributions,
+                                        Laterality laterality, Mechanic mechanic, Boolean loadable) {}
 
     // ---- sets / workouts ----  (cardio fields nullable; decimals are STRINGS on the wire)
     public record SetDto(String id, int orderIndex, SetType setType, String weight, LoadMode loadMode,
