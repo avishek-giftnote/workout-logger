@@ -6,6 +6,14 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
 **React/Vite/TypeScript frontend** (`frontend/`). It was bootstrapped from a real Strong-app CSV export.
 **`DESIGN.md` is the authoritative architecture record — read it before non-trivial changes.**
 
+## Workflow rules (read me first)
+
+- **Keep the main context clean — delegate, don't dump.** For web research or large-file exploration, spawn a sub-agent (the Agent tool) and bring back only the conclusion; never fill this session with raw research. Run independent tasks in **parallel**.
+- **Decision → executable guard, same change.** The moment a design decision or council states an invariant (Decimal128-as-string, every prime mover ≥2×/week, data-sufficiency gates…), encode it as a *failing test first*, then implement. Every bug this codebase hit was a known hazard that recurred until a test pinned it.
+- **Plan before multi-file features.** Use plan mode for anything spanning backend+frontend or several modules; get the plan approved before writing code.
+- **Verify UI changes in the running app** before reporting them done — don't claim a layout/CSS fix you haven't watched render.
+- **Slash commands for the rituals:** `/gate` (full pre-commit checks), `/council` (convene the specialists in `.claude/agents/`), `/import` (rebuild the dev DB). A `git commit` by Claude also triggers the frontend pre-commit gate via `.claude/hooks/pre-commit-gate.sh`.
+
 ## Commands
 
 ### Backend (`cd backend`, Java 21 + Maven; set `JAVA_HOME` to a JDK 21)
@@ -56,7 +64,14 @@ tests still pass.
    designs were vetted. Worth it when a change spans backend+frontend+data model or has safety implications.
 
 Current suite size (keep roughly current when you add tests): **backend 38** (`mvn test` runs 25; `+13`
-`ApiIntegrationTest` with `RUN_MONGO_TESTS=1`), **frontend 19** (`npm test`).
+`ApiIntegrationTest` with `RUN_MONGO_TESTS=1`), **frontend 28** (`npm test`).
+
+**Coaching eval harness:** `cd frontend && npm run eval` sweeps the macrocycle planner across every
+goal × days/week × duration × focus combination (240 configs) and scores the research invariants — every
+prime mover trained ≥2×/week (or warned by name), first block / contest-prep block & phase rules, focus
+muscles pinned and ≥2×, and per-session set caps. Run it after any change to `periodization.ts` (or
+`EnergyService`); it catches silent rule violations the sampled unit tests miss. It's **separate** from
+`npm test` (the unit gate) and lives in `src/*.eval.test.ts`.
 
 ## Architecture (big picture)
 

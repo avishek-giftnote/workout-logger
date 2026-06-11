@@ -198,8 +198,8 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
   const warnings: string[] = [];
   for (const m of block.focusMuscles) if (missing.has(m)) warnings.push(`No exercise for focus muscle ${muscleLabel(m)} — add one to your catalog.`);
   for (const m of missing) if (!block.focusMuscles.includes(m)) warnings.push(`No exercise for ${muscleLabel(m)} — that volume is unfilled.`);
-  for (const m of PRIME_MOVERS) if (!missing.has(m) && (freq[m] ?? 0) > 0 && (freq[m] ?? 0) < MIN_FREQ)
-    warnings.push(`${muscleLabel(m)} is only trained ${freq[m]}×/week — add a day to reach 2× (research-backed minimum).`);
+  for (const m of PRIME_MOVERS) if (!missing.has(m) && (freq[m] ?? 0) < MIN_FREQ)
+    warnings.push(`${muscleLabel(m)} is trained ${freq[m] ?? 0}×/week — add a day (or a session that hits it) to reach the 2× minimum (research-backed).`);
 
   return { splitName: `${blockLabel(block.blockType)} split`, templates, warnings };
 }

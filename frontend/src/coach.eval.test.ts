@@ -68,7 +68,8 @@ function evaluate(c: Case): Violation[] {
 
   // R3/R4 — contest prep ends in PEAK, every block in a DEFICIT
   if (c.goal === "CONTEST_PREP") {
-    if (p.mesocycles.at(-1)?.blockType !== "PEAK") fail("R3-prep-peak", `ends in ${p.mesocycles.at(-1)?.blockType}, expected PEAK`);
+    const last = p.mesocycles[p.mesocycles.length - 1];
+    if (last?.blockType !== "PEAK") fail("R3-prep-peak", `ends in ${last?.blockType}, expected PEAK`);
     if (!p.mesocycles.every((b) => b.phase === "DEFICIT")) fail("R4-prep-deficit", "a block is not in a DEFICIT");
   }
 
