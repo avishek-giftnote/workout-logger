@@ -31,6 +31,7 @@ public class Workout {
     private CyclePhase cyclePhase;      // ACCUMULATION/DELOAD; DELOAD is excluded from progression trends
 
     private List<ExerciseBlock> exercises;
+    private List<Muscle> soreMuscles;   // muscles the user reported still sore at session start (readiness; nullable)
 
     @Field("schemaVersion")
     private int schemaVersion = 1;
@@ -61,6 +62,8 @@ public class Workout {
     public void setCyclePhase(CyclePhase cyclePhase) { this.cyclePhase = cyclePhase; }
     public List<ExerciseBlock> getExercises() { return exercises; }
     public void setExercises(List<ExerciseBlock> exercises) { this.exercises = exercises; }
+    public List<Muscle> getSoreMuscles() { return soreMuscles; }
+    public void setSoreMuscles(List<Muscle> soreMuscles) { this.soreMuscles = soreMuscles; }
     public int getSchemaVersion() { return schemaVersion; }
     public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
     public Instant getCreatedAt() { return createdAt; }

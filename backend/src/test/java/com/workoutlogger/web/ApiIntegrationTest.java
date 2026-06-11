@@ -131,6 +131,19 @@ class ApiIntegrationTest {
     private String id(String resBody) throws Exception { return json.readTree(resBody).get("id").asText(); }
 
     @Test
+    void workoutCapturesSoreMuscles() throws Exception {
+        String t = register("sore@example.com");
+        String ex = createExercise(t, "Incline Press X", false);
+        String body = "{\"startedAt\":\"2026-06-03T09:00:00Z\",\"soreMuscles\":[\"CHEST\",\"TRICEP\"],\"exercises\":[{\"exerciseId\":\""
+                + ex + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"50\",\"reps\":8}]}]}";
+        String wid = id(mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse().getContentAsString());
+        mvc.perform(get("/api/workouts/" + wid).header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.soreMuscles.length()").value(2))
+                .andExpect(jsonPath("$.soreMuscles[0]").value("CHEST"));
+    }
+
+    @Test
     void templateCreateUpdateGet() throws Exception {
         String t = register("t@example.com");
         String ex = createExercise(t, "Row (Cable)", false);

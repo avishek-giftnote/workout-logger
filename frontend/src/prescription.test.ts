@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { rpePct, e1rm, roundInc, loadIncrement, workingLoad, topWorkingSet, nextLoad } from "./prescription";
-import type { SetDto, WorkoutDto } from "./api/types";
+import { rpePct, e1rm, roundInc, loadIncrement, workingLoad, topWorkingSet, nextLoad, readiness } from "./prescription";
+import type { Muscle, SetDto, WorkoutDto } from "./api/types";
 
 const set = (over: Partial<SetDto> = {}): SetDto => ({
   id: "s", orderIndex: 0, setType: "WORKING", weight: "100", loadMode: null, loadDelta: null,
@@ -9,7 +9,8 @@ const set = (over: Partial<SetDto> = {}): SetDto => ({
 });
 const wk = (id: string, startedAt: string, sets: SetDto[], over: Partial<WorkoutDto> = {}): WorkoutDto => ({
   id, startedAt, durationSeconds: null, rawDurationText: null, templateId: null, cyclePhase: null,
-  exercises: [{ exerciseId: "x", name: "X", position: 0, note: null, sets }], createdAt: "", updatedAt: "", ...over,
+  exercises: [{ exerciseId: "x", name: "X", position: 0, note: null, sets }], soreMuscles: null,
+  createdAt: "", updatedAt: "", ...over,
 });
 
 describe("rpePct (RTS table: 100 − 2.5(reps−1) − 5·RIR)", () => {
@@ -66,4 +67,25 @@ describe("nextLoad (double progression)", () => {
     expect(nextLoad(prev(100, 12), 8, 12, 0.1, 2.5)).toEqual({ load: 100, reps: 8 }));
   it("no history → null load at the bottom of the range", () =>
     expect(nextLoad(null, 8, 12, 1.0, 2.5)).toEqual({ load: null, reps: 8 }));
+});
+
+describe("readiness", () => {
+  const NOW = new Date("2026-03-10T00:00:00Z").getTime();
+  const CHEST: Muscle = "CHEST";
+  it("trims when the muscle was reported sore within the window", () => {
+    const data = [wk("1", "2026-03-09T00:00:00Z", [set({ reps: 8 })], { soreMuscles: ["CHEST"] })];
+    expect(readiness(data, "x", CHEST, 8, NOW)).toMatchObject({ trim: true, reason: "recently sore" });
+  });
+  it("ignores a stale soreness report (outside the window)", () => {
+    const data = [wk("1", "2026-03-01T00:00:00Z", [set({ reps: 8 })], { soreMuscles: ["CHEST"] })];
+    expect(readiness(data, "x", CHEST, 8, NOW).trim).toBe(false);
+  });
+  it("trims when the last session fell short of target reps", () => {
+    const data = [wk("1", "2026-03-09T00:00:00Z", [set({ weight: "100", reps: 5 })])];
+    expect(readiness(data, "x", CHEST, 8, NOW)).toMatchObject({ trim: true, reason: "last session fell short" });
+  });
+  it("no trim when recovered (hit target, not sore)", () => {
+    const data = [wk("1", "2026-03-09T00:00:00Z", [set({ weight: "100", reps: 8 })])];
+    expect(readiness(data, "x", CHEST, 8, NOW).trim).toBe(false);
+  });
 });

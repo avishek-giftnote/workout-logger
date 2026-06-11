@@ -119,4 +119,11 @@ describe("planMacrocycle", () => {
     expect(exs.length).toBeGreaterThan(0);
     expect(exs.every((e) => e.reps > 0 && /^\d+$/.test(e.targetRir))).toBe(true);
   });
+
+  it("does not schedule a prime mover on back-to-back days (4–6 day splits)", () => {
+    for (const days of [4, 5, 6]) {
+      const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], days, full);
+      expect(p.warnings.some((w) => /back-to-back/.test(w))).toBe(false);
+    }
+  });
 });

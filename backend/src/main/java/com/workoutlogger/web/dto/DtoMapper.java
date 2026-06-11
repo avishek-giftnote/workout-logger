@@ -43,7 +43,7 @@ public final class DtoMapper {
     public static WorkoutDto toDto(Workout w) {
         return new WorkoutDto(w.getId(), w.getStartedAt(), w.getDurationSeconds(), w.getRawDurationText(),
                 w.getTemplateId(), w.getCyclePhase(), w.getExercises().stream().map(DtoMapper::toDto).toList(),
-                w.getCreatedAt(), w.getUpdatedAt());
+                w.getSoreMuscles(), w.getCreatedAt(), w.getUpdatedAt());
     }
 
     public static ApiDtos.MacrocycleDto toDto(Macrocycle m) {
@@ -112,6 +112,7 @@ public final class DtoMapper {
         w.setTemplateId(req.templateId());
         w.setCyclePhase(req.cyclePhase());
         w.setExercises(toBlocks(req));
+        w.setSoreMuscles(req.soreMuscles());
         return w;
     }
 

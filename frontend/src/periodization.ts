@@ -149,19 +149,54 @@ const PER_SESSION_CAP = 5;   // productive sets/muscle/session before junk volum
 const primaryFor = (ex: ExerciseDto, m: Muscle) =>
   ex.category !== "CARDIO" && ex.muscleContributions.some((c) => c.muscle === m && parseFloat(c.fraction) >= 1);
 
+type Day = { name: string; muscles: Muscle[] };
+/** Greedily order days so each is followed by the remaining day that shares the fewest muscles — keeps a
+ *  muscle (and its synergists) off back-to-back days for ~48–72h recovery. */
+function orderForRecovery(days: Day[]): Day[] {
+  if (days.length <= 2) return days;
+  const rest = [...days];
+  const out: Day[] = [rest.shift()!];
+  while (rest.length) {
+    const prev = new Set(out[out.length - 1].muscles);
+    let bestI = 0, bestShared = Infinity;
+    rest.forEach((d, i) => {
+      const shared = d.muscles.reduce((n, m) => n + (prev.has(m) ? 1 : 0), 0);
+      if (shared < bestShared) { bestShared = shared; bestI = i; }
+    });
+    out.push(rest.splice(bestI, 1)[0]);
+  }
+  return out;
+}
+/** Prime movers trained on adjacent days (recovery risk) — surfaced as warnings. */
+function adjacencyWarnings(days: Day[]): string[] {
+  const out: string[] = [];
+  for (const m of PRIME_MOVERS) {
+    for (let i = 1; i < days.length; i++) {
+      if (days[i].muscles.includes(m) && days[i - 1].muscles.includes(m)) {
+        out.push(`${muscleLabel(m)} lands on back-to-back days (${days[i - 1].name} → ${days[i].name}) — add a rest day between them.`);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Build a split + templates for one block. Each prime mover (and every focus muscle) is hit ≥2×/week;
  * exercise choice is goal-aware (compounds for strength) and rotates across days for variety; weekly
  * targets are spread across the muscle's sessions, capped per session.
  */
 function generateSplit(block: MesoInput, daysPerWeek: number, exercises: ExerciseDto[]): Omit<PlanPreview, "mesocycles" | "totalWeeks"> {
-  const days = (SHAPES[Math.min(6, Math.max(2, daysPerWeek))] ?? SHAPES[3]).map((d) => ({ name: d.name, muscles: [...d.muscles] }));
+  const base = (SHAPES[Math.min(6, Math.max(2, daysPerWeek))] ?? SHAPES[3]).map((d) => ({ name: d.name, muscles: [...d.muscles] }));
 
   // guarantee focus muscles reach ≥2 sessions by adding them to the days that don't already include them
   for (const fm of block.focusMuscles) {
-    let f = days.filter((d) => d.muscles.includes(fm)).length;
-    for (const d of days) { if (f >= MIN_FREQ) break; if (!d.muscles.includes(fm)) { d.muscles.push(fm); f++; } }
+    let f = base.filter((d) => d.muscles.includes(fm)).length;
+    for (const d of base) { if (f >= MIN_FREQ) break; if (!d.muscles.includes(fm)) { d.muscles.push(fm); f++; } }
   }
+
+  // order days so the same muscle isn't trained on back-to-back days (≥48–72h recovery)
+  const days = orderForRecovery(base);
 
   const freq: Record<string, number> = {};
   for (const d of days) for (const m of d.muscles) freq[m] = (freq[m] ?? 0) + 1;
@@ -201,7 +236,7 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
     return { name: d.name, exercises: [...picked.values()] };
   });
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...adjacencyWarnings(days)];
   for (const m of block.focusMuscles) if (missing.has(m)) warnings.push(`No exercise for focus muscle ${muscleLabel(m)} — add one to your catalog.`);
   for (const m of missing) if (!block.focusMuscles.includes(m)) warnings.push(`No exercise for ${muscleLabel(m)} — that volume is unfilled.`);
   for (const m of PRIME_MOVERS) if (!missing.has(m) && (freq[m] ?? 0) < MIN_FREQ)

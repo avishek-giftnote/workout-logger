@@ -1,7 +1,9 @@
 // Prescription engine (Layer 5 ②/④): project reps / RIR / load and progress them over time.
 // All pure + tested (prescription.test.ts). Reused by the planner (generateSplit) and the log screen.
-import type { WorkoutDto } from "./api/types";
+import type { Muscle, WorkoutDto } from "./api/types";
 import { isDeload } from "./periodization";
+
+const DAY_MS = 86_400_000;
 
 /** Fraction of 1RM for a set of `reps` left with `rir` in reserve — RTS/Tuchscherer table as a linear rule:
  *  one rep ≈ 2.5%, one RIR ≈ 5%. Accurate ~reps ≤ 12, near failure; clamped [0.40, 1.0]. */
@@ -41,6 +43,22 @@ export function topWorkingSet(workouts: WorkoutDto[], exerciseId: string): TopSe
     if (!best || e1rm(cand.weight, cand.reps, cand.rpe) > e1rm(best.weight, best.reps, best.rpe)) best = cand;
   }
   return best;
+}
+
+export interface Readiness { trim: boolean; reason: string | null; }
+/** Should the upcoming session for `muscle`/exercise be eased? True if the muscle was reported sore within
+ *  `soreWindowDays`, or the last logged session for the exercise fell short of the target reps. */
+export function readiness(
+  workouts: WorkoutDto[], exerciseId: string, muscle: Muscle, targetReps: number, nowMs: number, soreWindowDays = 3,
+): Readiness {
+  for (const w of workouts) {
+    if (w.soreMuscles?.includes(muscle) && nowMs - new Date(w.startedAt).getTime() <= soreWindowDays * DAY_MS) {
+      return { trim: true, reason: "recently sore" };
+    }
+  }
+  const top = topWorkingSet(workouts, exerciseId);
+  if (top && top.reps < targetReps) return { trim: true, reason: "last session fell short" };
+  return { trim: false, reason: null };
 }
 
 /** Double progression: at the top of the range → add a load increment (held in a deficit) and reset reps;

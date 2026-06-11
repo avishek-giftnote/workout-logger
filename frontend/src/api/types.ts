@@ -75,6 +75,7 @@ export interface WorkoutDto {
   templateId: string | null;
   cyclePhase: CyclePhase | null;
   exercises: ExerciseBlockDto[];
+  soreMuscles: Muscle[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,6 +111,7 @@ export interface CreateWorkoutRequest {
   templateId?: string | null;
   cyclePhase?: CyclePhase | null;
   exercises: CreateBlockRequest[];
+  soreMuscles?: Muscle[] | null;
 }
 
 export type GoalType = "GENERAL_HYPERTROPHY" | "MUSCLE_FOCUS" | "STRENGTH" | "CONTEST_PREP";

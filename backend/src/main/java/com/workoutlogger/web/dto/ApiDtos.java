@@ -54,7 +54,7 @@ public final class ApiDtos {
 
     public record WorkoutDto(String id, Instant startedAt, Integer durationSeconds, String rawDurationText,
                              String templateId, CyclePhase cyclePhase, List<ExerciseBlockDto> exercises,
-                             Instant createdAt, Instant updatedAt) {}
+                             List<Muscle> soreMuscles, Instant createdAt, Instant updatedAt) {}
 
     public record CreateSetRequest(int orderIndex, @NotNull SetType setType, String weight,
                                    LoadMode loadMode, String loadDelta, Integer reps, Integer rpe, String note,
@@ -65,7 +65,8 @@ public final class ApiDtos {
                                      @NotNull List<CreateSetRequest> sets) {}
 
     public record CreateWorkoutRequest(@NotNull Instant startedAt, Integer durationSeconds, String templateId,
-                                       CyclePhase cyclePhase, @NotNull List<CreateBlockRequest> exercises) {}
+                                       CyclePhase cyclePhase, @NotNull List<CreateBlockRequest> exercises,
+                                       List<Muscle> soreMuscles) {}
 
     public record UpdateSetRequest(String weight, Integer reps, Integer rpe, String note,
                                    SetType setType, String loadDelta) {}

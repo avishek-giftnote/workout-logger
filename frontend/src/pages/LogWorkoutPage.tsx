@@ -2,13 +2,15 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
-import type { CreateWorkoutRequest, ExerciseDto, SetDto, TemplateDto, TemplateExerciseDto } from "../api/types";
+import type { CreateWorkoutRequest, ExerciseDto, Muscle, SetDto, TemplateDto, TemplateExerciseDto } from "../api/types";
 import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, findEx, isCardioEx, structureChanged,
   templateExercisesFromBlocks, toCreateSet, uid,
 } from "../logging/engine";
 import { useSettings } from "../settings";
 import { currentMicro } from "../periodization";
+import { readiness } from "../prescription";
+import { muscleLabel } from "../muscles";
 import RestTimer from "../components/RestTimer";
 import StartChooser from "./StartChooser";
 
@@ -54,19 +56,44 @@ export default function LogWorkoutPage() {
   const done = () => nav("/previous-workouts");
   const { prevSource, showRpe, restTarget, restTimerEnabled } = useSettings();
   const [rest, setRest] = useState<{ at: number; target: number } | null>(null);
+  const [soreNow, setSoreNow] = useState<Muscle[]>([]);
+
+  const primaryMuscleOf = (exerciseId: string): Muscle | null =>
+    findEx(exercises.data ?? [], exerciseId, "").muscleContributions.find((c) => parseFloat(c.fraction) >= 1)?.muscle ?? null;
+  // readiness from logged history (recent soreness reports + last session's reps) — eases the upcoming session
+  const easeFor = (exerciseId: string) => {
+    const pm = primaryMuscleOf(exerciseId);
+    if (!pm) return { trim: false, reason: null as string | null };
+    const target = sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId)?.reps ?? 8;
+    return readiness(workouts.data ?? [], exerciseId, pm, target, startedAt.getTime());
+  };
+  // muscles this session trains (for the "still sore?" prompt)
+  const sessionMuscles = useMemo(
+    () => [...new Set(blocks.map((b) => primaryMuscleOf(b.exercise.id)).filter((m): m is Muscle => !!m))],
+    [blocks, exercises.data]);
 
   const prevSetsFor = (exerciseId: string): SetDto[] | null => {
+    let base: SetDto[] | null = null;
     for (const w of workouts.data ?? []) {
       // "Same template" setting: only seed from sessions of this template (when in one).
       if (prevSource === "template" && templateId && w.templateId !== templateId) continue;
       const b = w.exercises.find((e) => e.exerciseId === exerciseId);
-      if (b) return b.sets;
+      if (b) { base = b.sets; break; }
     }
-    // no history → seed reps/RIR from the template's prescription (blank weight; load fills on first log)
-    const te = sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId);
-    if (te && te.reps != null) return synthSets(te);
-    return null;
+    if (!base) {
+      // no history → seed reps/RIR from the template's prescription (blank weight; load fills on first log)
+      const te = sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId);
+      base = te && te.reps != null ? synthSets(te) : null;
+    }
+    // readiness: ease an under-recovered muscle — drop a set + raise RIR (lower the seeded RPE)
+    if (base && base.length && easeFor(exerciseId).trim) {
+      base = base.slice(0, Math.max(1, base.length - 1)).map((s) => ({ ...s, rpe: s.rpe != null ? Math.max(1, s.rpe - 1) : s.rpe }));
+    }
+    return base;
   };
+  const easedNotes = started
+    ? blocks.map((b) => ({ name: b.exercise.name, ...easeFor(b.exercise.id) })).filter((e) => e.trim)
+    : [];
 
   const setBlock = (key: string, sets: DraftBlock["sets"]) =>
     setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, sets } : b)));
@@ -106,6 +133,7 @@ export default function LogWorkoutPage() {
         startedAt: startedAt.toISOString(),
         templateId: templateId ?? undefined,
         cyclePhase: deload ? "DELOAD" : undefined,
+        soreMuscles: soreNow.length ? soreNow : undefined,
         exercises: fin.map((b, i) => ({
           exerciseId: b.exercise.id,
           name: b.exercise.name,
@@ -166,6 +194,28 @@ export default function LogWorkoutPage() {
             {deload ? "✓ Deload session" : "Mark as deload session"}
           </button>
           {deload && <p className="muted" style={{ fontSize: 12, margin: "-6px 0 14px" }}>Excluded from your progression charts & strength trajectory.</p>}
+
+          {sessionMuscles.length > 0 && (
+            <div className="card card-pad" style={{ marginBottom: 12 }}>
+              <span className="micro">Still sore from recent training?</span>
+              <p className="muted" style={{ fontSize: 11, margin: "2px 0 8px" }}>Helps ease your next session for those muscles.</p>
+              <div className="chip-wrap">
+                {sessionMuscles.map((m) => (
+                  <button key={m} className={`chip-toggle${soreNow.includes(m) ? " on" : ""}`}
+                    onClick={() => setSoreNow((s) => s.includes(m) ? s.filter((x) => x !== m) : [...s, m])}>{muscleLabel(m)}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          {easedNotes.length > 0 && (
+            <div className="card card-pad" style={{ marginBottom: 12, borderColor: "var(--ice)" }}>
+              <span className="micro" style={{ color: "var(--ice)" }}>Eased today (readiness)</span>
+              {easedNotes.map((e, i) => (
+                <p key={i} className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{e.name} — {e.reason} → a set lighter, +1 RIR.</p>
+              ))}
+            </div>
+          )}
+
           <div className="stagger">
             {blocks.map((b, i) => (
               <ExerciseBlockEditor
