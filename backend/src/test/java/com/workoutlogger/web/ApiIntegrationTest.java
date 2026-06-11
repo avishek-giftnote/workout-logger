@@ -144,6 +144,42 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void workoutEditAppliesDeloadAndSoreness() throws Exception {
+        String t = register("wedit@example.com");
+        String ex = createExercise(t, "Edit Press", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        String body = "{\"startedAt\":\"2026-06-03T09:00:00Z\",\"cyclePhase\":\"DELOAD\",\"soreMuscles\":[\"CHEST\"],\"exercises\":[{\"exerciseId\":\""
+                + ex + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"55\",\"reps\":8}]}]}";
+        mvc.perform(put("/api/workouts/" + wid).header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(jsonPath("$.cyclePhase").value("DELOAD"))
+                .andExpect(jsonPath("$.soreMuscles[0]").value("CHEST"));
+        String cleared = "{\"startedAt\":\"2026-06-03T09:00:00Z\",\"exercises\":[{\"exerciseId\":\""
+                + ex + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"55\",\"reps\":8}]}]}";
+        mvc.perform(put("/api/workouts/" + wid).header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(cleared))
+                .andExpect(jsonPath("$.cyclePhase").doesNotExist());   // edit can clear a mis-marked deload
+    }
+
+    @Test
+    void inputHardeningReturns400NotFiveHundred() throws Exception {
+        String t = register("harden@example.com");
+        String ex = createExercise(t, "Harden Lift", false);
+        String bad = "{\"startedAt\":\"2026-06-03T09:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"abc\",\"reps\":8}]}]}";
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(bad))
+                .andExpect(status().isBadRequest());                    // malformed decimal → 400, not 500
+        String wid = createWorkout(t, ex, "50", 8);
+        String me = mvc.perform(get("/api/workouts/" + wid).header("Authorization", bearer(t))).andReturn().getResponse().getContentAsString();
+        String sid = json.readTree(me).get("exercises").get(0).get("sets").get(0).get("id").asText();
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"rpe\":99}"))
+                .andExpect(status().isBadRequest());                    // rpe out of 1..10 → 400
+        String plan = "{\"name\":\"P\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":4,\"phase\":\"SURPLUS\",\"focusMuscles\":[],"
+                + "\"intensityBand\":{\"repLow\":12,\"repHigh\":8,\"targetRir\":\"2\",\"pctLow\":null,\"pctHigh\":null}}]}";
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(plan))
+                .andExpect(status().isBadRequest());                    // repLow > repHigh → 400
+    }
+
+    @Test
     void templateCreateUpdateGet() throws Exception {
         String t = register("t@example.com");
         String ex = createExercise(t, "Row (Cable)", false);

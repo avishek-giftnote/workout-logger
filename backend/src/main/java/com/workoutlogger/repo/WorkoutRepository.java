@@ -54,12 +54,16 @@ public class WorkoutRepository {
         return mongo.insert(w);
     }
 
-    /** Replace a session's exercises/sets (full edit of a completed workout). */
+    /** Replace a session's exercises/sets + deload flag + soreness report (full edit of a completed workout).
+     *  null cyclePhase/soreMuscles clear the stored value — the edit screen always sends the current ones. */
     public Optional<Workout> replaceExercises(String id, List<com.workoutlogger.domain.ExerciseBlock> exercises,
-                                              String templateId) {
+                                              String templateId, com.workoutlogger.domain.CyclePhase cyclePhase,
+                                              List<com.workoutlogger.domain.Muscle> soreMuscles) {
         return findOne(id).map(w -> {
             w.setExercises(exercises);
             w.setTemplateId(templateId);
+            w.setCyclePhase(cyclePhase);
+            w.setSoreMuscles(soreMuscles);
             w.setUpdatedAt(Instant.now());
             return mongo.save(w);
         });

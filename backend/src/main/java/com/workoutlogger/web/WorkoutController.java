@@ -39,10 +39,10 @@ public class WorkoutController {
         return DtoMapper.toDto(saved);
     }
 
-    /** Full edit of a completed session: replace its exercises/sets. */
+    /** Full edit of a completed session: replace its exercises/sets, deload flag, and soreness report. */
     @PutMapping("/{id}")
     public WorkoutDto update(@PathVariable String id, @Valid @RequestBody CreateWorkoutRequest req) {
-        return workouts.replaceExercises(id, DtoMapper.toBlocks(req), req.templateId())
+        return workouts.replaceExercises(id, DtoMapper.toBlocks(req), req.templateId(), req.cyclePhase(), req.soreMuscles())
                 .map(DtoMapper::toDto)
                 .orElseThrow(() -> new NotFoundException("Workout " + id + " not found"));
     }
@@ -50,7 +50,7 @@ public class WorkoutController {
     /** Granular set update addressed by (workoutId, setId). Returns the updated session. */
     @PatchMapping("/{workoutId}/sets/{setId}")
     public WorkoutDto updateSet(@PathVariable String workoutId, @PathVariable String setId,
-                                @RequestBody UpdateSetRequest req) {
+                                @Valid @RequestBody UpdateSetRequest req) {
         boolean updated = workouts.updateSet(workoutId, setId,
                 DtoMapper.dec(req.weight()), req.reps(), req.rpe(), req.note(),
                 req.setType(), DtoMapper.dec(req.loadDelta()));

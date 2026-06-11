@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
-import type { CreateWorkoutRequest, ExerciseDto, WorkoutDto } from "../api/types";
+import type { CreateWorkoutRequest, ExerciseDto, Muscle, WorkoutDto } from "../api/types";
 import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, filledSet, findEx, isCardioEx, toCreateSet, uid,
 } from "../logging/engine";
 import { useSettings } from "../settings";
+import { muscleLabel } from "../muscles";
 
 function workoutToBlocks(w: WorkoutDto, catalog: ExerciseDto[]): DraftBlock[] {
   return w.exercises.map((b) => {
@@ -28,15 +29,23 @@ export default function EditWorkoutPage() {
   const [blocks, setBlocks] = useState<DraftBlock[] | null>(null);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deload, setDeload] = useState(false);
+  const [sore, setSore] = useState<Muscle[]>([]);
   const { showRpe } = useSettings();
   const bodyweight = me.data?.currentBodyweightKg ?? "";
 
-  // Populate the editor once the workout + catalog have loaded.
+  // Populate the editor (incl. deload flag + soreness report) once the workout + catalog have loaded.
   useEffect(() => {
     if (blocks === null && workout.data && exercises.isSuccess) {
       setBlocks(workoutToBlocks(workout.data, exercises.data ?? []));
+      setDeload(workout.data.cyclePhase === "DELOAD");
+      setSore(workout.data.soreMuscles ?? []);
     }
   }, [blocks, workout.data, exercises.isSuccess, exercises.data]);
+
+  const primaryMuscleOf = (id: string): Muscle | null =>
+    findEx(exercises.data ?? [], id, "").muscleContributions.find((c) => parseFloat(c.fraction) >= 0.5)?.muscle ?? null;
+  const sessionMuscles = [...new Set((blocks ?? []).map((b) => primaryMuscleOf(b.exercise.id)).filter((m): m is Muscle => !!m))];
 
   const setBlock = (key: string, sets: DraftBlock["sets"]) =>
     setBlocks((bs) => (bs ?? []).map((b) => (b.key === key ? { ...b, sets } : b)));
@@ -60,7 +69,10 @@ export default function EditWorkoutPage() {
       const w = workout.data!;
       const body: CreateWorkoutRequest = {
         startedAt: w.startedAt,
+        durationSeconds: w.durationSeconds ?? undefined,
         templateId: w.templateId ?? undefined,
+        cyclePhase: deload ? "DELOAD" : undefined,
+        soreMuscles: sore.length ? sore : undefined,
         exercises: (blocks ?? []).map((b, i) => ({
           exerciseId: b.exercise.id, name: b.exercise.name, position: i, note: b.note?.trim() || undefined,
           sets: b.sets.map((s, j) => toCreateSet(s, j, b.exercise.isBodyweight, bodyweight, showRpe, isCardioEx(b.exercise))),
@@ -89,6 +101,20 @@ export default function EditWorkoutPage() {
           <p>Change weights, reps, RPE, sets, or exercises</p>
         </div>
       </div>
+
+      <button className={`chip-toggle${deload ? " on" : ""}`} style={{ marginBottom: 12 }}
+        onClick={() => setDeload((d) => !d)}>{deload ? "✓ Deload session" : "Mark as deload session"}</button>
+      {sessionMuscles.length > 0 && (
+        <div className="card card-pad" style={{ marginBottom: 12 }}>
+          <span className="micro">Sore muscles reported at this session</span>
+          <div className="chip-wrap" style={{ marginTop: 6 }}>
+            {sessionMuscles.map((m) => (
+              <button key={m} className={`chip-toggle${sore.includes(m) ? " on" : ""}`}
+                onClick={() => setSore((s) => s.includes(m) ? s.filter((x) => x !== m) : [...s, m])}>{muscleLabel(m)}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="stagger">
         {blocks.map((b, i) => (

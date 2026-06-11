@@ -7,6 +7,7 @@ import com.workoutlogger.web.dto.ApiDtos.CreatePlanRequest;
 import com.workoutlogger.web.dto.ApiDtos.MacrocycleDto;
 import com.workoutlogger.web.dto.ApiDtos.MesoInput;
 import com.workoutlogger.web.dto.DtoMapper;
+import com.workoutlogger.web.error.ApiExceptions.BadRequestException;
 import com.workoutlogger.web.error.ApiExceptions.NotFoundException;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,18 @@ public class PlanController {
     private static Mesocycle meso(MesoInput mi) {
         var b = mi.intensityBand();
         var band = b == null ? null : new IntensityBand(b.repLow(), b.repHigh(), b.targetRir(), b.pctLow(), b.pctHigh());
+        if (band != null) {
+            if (band.repLow() <= 0 || band.repHigh() <= 0 || band.repLow() > band.repHigh())
+                throw new BadRequestException("intensityBand: reps must be positive and repLow ≤ repHigh");
+            for (String p : new String[]{band.pctLow(), band.pctHigh()}) {
+                if (p == null || p.isBlank()) continue;
+                try {
+                    var d = new java.math.BigDecimal(p);
+                    if (d.signum() <= 0 || d.compareTo(new java.math.BigDecimal("1.5")) > 0)
+                        throw new BadRequestException("intensityBand: %1RM must be in (0, 1.5]");
+                } catch (NumberFormatException e) { throw new BadRequestException("intensityBand: %1RM not a number"); }
+            }
+        }
         return new Mesocycle(mi.name(), Math.max(1, mi.accumulationWeeks()), mi.phase(), mi.focusMuscles(),
                 mi.blockType(), band);
     }

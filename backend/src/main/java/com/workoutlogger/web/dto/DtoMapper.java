@@ -15,7 +15,11 @@ public final class DtoMapper {
     private DtoMapper() {}
 
     public static String str(BigDecimal v) { return v == null ? null : v.toPlainString(); }
-    public static BigDecimal dec(String v) { return (v == null || v.isBlank()) ? null : new BigDecimal(v.trim()); }
+    public static BigDecimal dec(String v) {
+        if (v == null || v.isBlank()) return null;
+        try { return new BigDecimal(v.trim()); }
+        catch (NumberFormatException e) { throw new com.workoutlogger.web.error.ApiExceptions.BadRequestException("Not a number: " + v); }
+    }
 
     public static ExerciseDto toDto(Exercise e) {
         var contribs = e.getMuscleContributions() != null

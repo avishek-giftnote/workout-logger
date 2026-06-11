@@ -14,6 +14,8 @@ import com.workoutlogger.domain.Muscle;
 import com.workoutlogger.domain.Sex;
 import com.workoutlogger.domain.SetKind;
 import com.workoutlogger.domain.SetType;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
@@ -68,8 +70,8 @@ public final class ApiDtos {
                                        CyclePhase cyclePhase, @NotNull List<CreateBlockRequest> exercises,
                                        List<Muscle> soreMuscles) {}
 
-    public record UpdateSetRequest(String weight, Integer reps, Integer rpe, String note,
-                                   SetType setType, String loadDelta) {}
+    public record UpdateSetRequest(String weight, @Min(0) @Max(1000) Integer reps, @Min(1) @Max(10) Integer rpe,
+                                   String note, SetType setType, String loadDelta) {}
 
     public record LastWorkingSetDto(String exerciseName, Instant startedAt, int orderIndex, String weight,
                                     LoadMode loadMode, String loadDelta, Integer reps, Integer rpe) {}

@@ -42,6 +42,19 @@ public class ApiExceptionHandler {
         return body(HttpStatus.FORBIDDEN, "Access denied", null);
     }
 
+    // preserve explicit status exceptions (e.g. login 401) before the generic fallback below
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> responseStatus(org.springframework.web.server.ResponseStatusException e) {
+        HttpStatus s = HttpStatus.valueOf(e.getStatusCode().value());
+        return body(s, e.getReason() != null ? e.getReason() : s.getReasonPhrase(), null);
+    }
+
+    // last-resort: never leak a stack trace / internal message to the client
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> generic(Exception e) {
+        return body(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error", null);
+    }
+
     private ResponseEntity<Map<String, Object>> body(HttpStatus status, String message, Object detail) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("timestamp", Instant.now().toString());
