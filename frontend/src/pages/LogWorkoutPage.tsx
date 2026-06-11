@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
-import type { CreateWorkoutRequest, ExerciseDto, TemplateDto } from "../api/types";
+import type { CreateWorkoutRequest, ExerciseDto, SetDto, TemplateDto, TemplateExerciseDto } from "../api/types";
 import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, findEx, isCardioEx, structureChanged,
   templateExercisesFromBlocks, toCreateSet, uid,
@@ -16,6 +16,17 @@ const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();
 
 const blocksFromTemplate = (t: TemplateDto, catalog: ExerciseDto[]): DraftBlock[] =>
   t.exercises.map((te) => ({ key: uid(), exercise: findEx(catalog, te.exerciseId, te.name), sets: [] }));
+
+/** Placeholder sets from a template's prescription (reps + RIR→RPE) — weight blank, fills on first log. */
+const synthSets = (te: TemplateExerciseDto): SetDto[] => {
+  const rir = parseInt((te.targetRir ?? "2").split("-")[0], 10);
+  const rpe = Number.isFinite(rir) ? 10 - rir : null;
+  return Array.from({ length: Math.max(1, te.sets) }, (_, i) => ({
+    id: `rx${i}`, orderIndex: i, setType: "WORKING", weight: null, loadMode: null, loadDelta: null,
+    weightUnit: "kg", reps: te.reps, rpe, note: null, estimated: null, kind: "STRENGTH",
+    distanceM: null, durationS: null, gradePct: null, elevationGainM: null, cadenceSpm: null,
+  }));
+};
 
 export default function LogWorkoutPage() {
   const nav = useNavigate();
@@ -44,13 +55,16 @@ export default function LogWorkoutPage() {
   const { prevSource, showRpe, restTarget, restTimerEnabled } = useSettings();
   const [rest, setRest] = useState<{ at: number; target: number } | null>(null);
 
-  const prevSetsFor = (exerciseId: string) => {
+  const prevSetsFor = (exerciseId: string): SetDto[] | null => {
     for (const w of workouts.data ?? []) {
       // "Same template" setting: only seed from sessions of this template (when in one).
       if (prevSource === "template" && templateId && w.templateId !== templateId) continue;
       const b = w.exercises.find((e) => e.exerciseId === exerciseId);
       if (b) return b.sets;
     }
+    // no history → seed reps/RIR from the template's prescription (blank weight; load fills on first log)
+    const te = sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId);
+    if (te && te.reps != null) return synthSets(te);
     return null;
   };
 

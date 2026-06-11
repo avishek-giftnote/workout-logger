@@ -74,11 +74,13 @@ public final class ApiDtos {
                                     LoadMode loadMode, String loadDelta, Integer reps, Integer rpe) {}
 
     // ---- templates ----
-    public record TemplateExerciseDto(String exerciseId, String name, int position, int sets) {}
+    public record TemplateExerciseDto(String exerciseId, String name, int position, int sets,
+                                      Integer reps, String targetRir) {}
 
     public record TemplateDto(String id, String name, List<TemplateExerciseDto> exercises) {}
 
-    public record TemplateExerciseInput(@NotNull String exerciseId, String name, int position, int sets) {}
+    public record TemplateExerciseInput(@NotNull String exerciseId, String name, int position, int sets,
+                                        Integer reps, String targetRir) {}
 
     public record SaveTemplateRequest(@NotNull String name, @NotNull List<TemplateExerciseInput> exercises) {}
 

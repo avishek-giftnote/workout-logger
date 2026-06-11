@@ -145,10 +145,10 @@ export interface LastWorkingSetDto {
   rpe: number | null;
 }
 
-export interface TemplateExerciseDto { exerciseId: string; name: string; position: number; sets: number; }
+export interface TemplateExerciseDto { exerciseId: string; name: string; position: number; sets: number; reps: number | null; targetRir: string | null; }
 export interface TemplateDto { id: string; name: string; exercises: TemplateExerciseDto[]; }
 
-export interface TemplateExerciseInput { exerciseId: string; name?: string | null; position: number; sets: number; }
+export interface TemplateExerciseInput { exerciseId: string; name?: string | null; position: number; sets: number; reps?: number | null; targetRir?: string | null; }
 export interface SaveTemplateRequest { name: string; exercises: TemplateExerciseInput[]; }
 
 export interface SplitDto { id: string; name: string; templateIds: string[]; }

@@ -134,13 +134,17 @@ class ApiIntegrationTest {
     void templateCreateUpdateGet() throws Exception {
         String t = register("t@example.com");
         String ex = createExercise(t, "Row (Cable)", false);
-        String tid = createTemplate(t, "Pull", ex);
-        String upd = "{\"name\":\"Pull\",\"exercises\":[{\"exerciseId\":\"" + ex + "\",\"name\":\"Row\",\"position\":0,\"sets\":5}]}";
+        String tid = createTemplate(t, "Pull", ex);   // legacy shape (no reps/targetRir) still valid
+        String upd = "{\"name\":\"Pull\",\"exercises\":[{\"exerciseId\":\"" + ex + "\",\"name\":\"Row\",\"position\":0,\"sets\":5,\"reps\":8,\"targetRir\":\"2\"}]}";
         mvc.perform(put("/api/templates/" + tid).header("Authorization", bearer(t))
                         .contentType(MediaType.APPLICATION_JSON).content(upd))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.exercises[0].sets").value(5));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exercises[0].sets").value(5))
+                .andExpect(jsonPath("$.exercises[0].reps").value(8))          // prescription round-trips
+                .andExpect(jsonPath("$.exercises[0].targetRir").value("2"));
         mvc.perform(get("/api/templates").header("Authorization", bearer(t)))
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].exercises[0].reps").value(8));
     }
 
     @Test

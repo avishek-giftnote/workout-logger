@@ -133,7 +133,7 @@ function MacroPlanner({ onCreated }: { onCreated: () => void }) {
       const ids: string[] = [];
       for (const t of pv.templates) {
         if (!t.exercises.length) continue;
-        const created = await Api.createTemplate({ name: t.name, exercises: t.exercises.map((e, i) => ({ exerciseId: e.exerciseId, name: e.name, position: i, sets: e.sets })) });
+        const created = await Api.createTemplate({ name: t.name, exercises: t.exercises.map((e, i) => ({ exerciseId: e.exerciseId, name: e.name, position: i, sets: e.sets, reps: e.reps, targetRir: e.targetRir })) });
         ids.push(created.id);
       }
       if (ids.length) await Api.createSplit({ name: pv.splitName, templateIds: ids });
@@ -220,7 +220,7 @@ function MacroPlanner({ onCreated }: { onCreated: () => void }) {
                 {t.exercises.map((e) => (
                   <div key={e.exerciseId} className="detail-row">
                     <span className="readout grow">{e.name}</span>
-                    <span className="mono detail-reps">{e.sets} <span className="micro">sets</span></span>
+                    <span className="mono detail-reps">{e.sets} × {e.reps} <span className="micro">@ {e.targetRir} RIR</span></span>
                   </div>
                 ))}
                 {t.exercises.length === 0 && <div className="set-note">No catalog exercises matched this day.</div>}

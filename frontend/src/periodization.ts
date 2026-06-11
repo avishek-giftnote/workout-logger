@@ -96,11 +96,12 @@ function mkBlock(spec: Spec, focus: Muscle[], n: number): MesoInput {
   };
 }
 
+export interface PrescribedExercise { exerciseId: string; name: string; sets: number; reps: number; targetRir: string; }
 export interface PlanPreview {
   mesocycles: MesoInput[];
   totalWeeks: number;
   splitName: string;
-  templates: { name: string; exercises: { exerciseId: string; name: string; sets: number }[] }[];
+  templates: { name: string; exercises: PrescribedExercise[] }[];
   warnings: string[];
 }
 
@@ -178,9 +179,14 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
   const ptr: Record<string, number> = {};
   for (const m of new Set(days.flatMap((d) => d.muscles))) cand[m] = candFor(m as Muscle);
 
+  // per-block prescription: target reps (range low) + RIR (band's, floored by the energy phase)
+  const reps = block.intensityBand?.repLow ?? 8;
+  const bandRir = parseInt((block.intensityBand?.targetRir ?? "2").split("-").pop() ?? "2", 10) || 2;
+  const targetRir = String(Math.max(phaseMod(block.phase).rirFloor, bandRir));
+
   const missing = new Set<Muscle>();
   const templates = days.map((d) => {
-    const picked = new Map<string, { exerciseId: string; name: string; sets: number }>();
+    const picked = new Map<string, PrescribedExercise>();
     for (const m of d.muscles) {
       const weekly = targetSets(m, block, 1);
       if (weekly <= 0) continue;
@@ -189,7 +195,7 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
       const ex = list[(ptr[m] = (ptr[m] ?? 0) + 1) % list.length];   // rotate for variety across days
       const setsPerDay = Math.min(PER_SESSION_CAP, Math.max(2, Math.round(weekly / (freq[m] || 1))));
       const cur = picked.get(ex.id);
-      if (!cur) picked.set(ex.id, { exerciseId: ex.id, name: ex.name, sets: setsPerDay });
+      if (!cur) picked.set(ex.id, { exerciseId: ex.id, name: ex.name, sets: setsPerDay, reps, targetRir });
       else cur.sets = Math.min(PER_SESSION_CAP, cur.sets + setsPerDay);
     }
     return { name: d.name, exercises: [...picked.values()] };

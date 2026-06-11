@@ -59,7 +59,7 @@ export default function TemplateDetailPage() {
           <button key={e.exerciseId + i} className="ex-row" style={{ width: "100%", background: "none", border: "none", cursor: "pointer", borderTop: i ? "1px solid var(--line)" : "none" }}
             onClick={() => nav(`/exercise-list/${e.exerciseId}`)}>
             <span className="grow" style={{ textAlign: "left" }}>{e.name}</span>
-            <span className="mono micro">{e.sets} sets</span>
+            <span className="mono micro">{e.reps != null ? `${e.sets} × ${e.reps}${e.targetRir ? ` @ ${e.targetRir} RIR` : ""}` : `${e.sets} sets`}</span>
             <span className="readout" style={{ color: "var(--volt)" }}>›</span>
           </button>
         ))}

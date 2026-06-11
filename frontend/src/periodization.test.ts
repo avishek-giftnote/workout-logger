@@ -112,4 +112,11 @@ describe("planMacrocycle", () => {
     const p = planMacrocycle("MUSCLE_FOCUS", 8, null, ["SIDE_DELT"], 4, full);
     expect(freqOf(p, "SIDE_DELT")).toBeGreaterThanOrEqual(2);
   });
+
+  it("populates target reps + RIR on every generated exercise (load left for first log)", () => {
+    const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], 4, full);
+    const exs = p.templates.flatMap((t) => t.exercises);
+    expect(exs.length).toBeGreaterThan(0);
+    expect(exs.every((e) => e.reps > 0 && /^\d+$/.test(e.targetRir))).toBe(true);
+  });
 });
