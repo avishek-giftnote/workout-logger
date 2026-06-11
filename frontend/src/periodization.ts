@@ -1,5 +1,5 @@
 import type { BlockType, ExerciseDto, GoalType, IntensityBand, MacrocycleDto, MesoInput, MesocycleDto, Muscle, WorkoutDto } from "./api/types";
-import { LANDMARKS, MUSCLES, muscleLabel, type Landmark } from "./muscles";
+import { LANDMARKS, MUSCLES, TRAINS_THRESHOLD, muscleLabel, trainsMuscle, type Landmark } from "./muscles";
 
 /** DELOAD sessions are excluded from progression charts + the strength trajectory. */
 export const isDeload = (w: WorkoutDto) => w.cyclePhase === "DELOAD";
@@ -30,6 +30,8 @@ export const BLOCK_INTENSITY: Record<BlockType, IntensityBand> = {
 export const blockLabel = (b: BlockType | null | undefined): string =>
   ({ HYPERTROPHY: "Hypertrophy", STRENGTH: "Strength", PEAK: "Peak", RESENSITIZATION: "Resensitize", MAINTENANCE: "Maintenance", PREP: "Prep" } as Record<string, string>)[b ?? "HYPERTROPHY"] ?? "Block";
 
+/** End-of-block volume ceiling per muscle. HYPERTROPHY: focus → MRV, others → MAV-high (so non-focus
+ *  muscles still progress, not sit flat at MEV). */
 function blockCeiling(bt: BlockType, lm: Landmark, focus: boolean): number {
   switch (bt) {
     case "STRENGTH": return focus ? lm.mav[0] : Math.max(lm.mv, Math.round(lm.mev * 0.6));
@@ -37,33 +39,37 @@ function blockCeiling(bt: BlockType, lm: Landmark, focus: boolean): number {
     case "RESENSITIZATION":
     case "MAINTENANCE": return lm.mv;
     case "PREP": return focus ? lm.mav[0] : lm.mev;
-    default: return focus ? lm.mrv : lm.mev;   // HYPERTROPHY
+    default: return focus ? lm.mrv : lm.mav[1];   // HYPERTROPHY
   }
 }
 
-// ── energy-phase modifiers (Layer 5 ①): phase is orthogonal to blockType ──
-export interface PhaseModifier { volumeMult: number; rirFloor: number; progressMult: number; }
+const RAMP_PER_WEEK = 2;   // ~+2 hard sets/muscle/week (RP) — bounded overload rate, not a fit to week n
+
+// ── energy-phase modifiers (Layer 5 ①): phase ⟂ blockType. Volume is a BOUNDED band-step (~±15% of the
+//    MAV−MEV span), not a multiplicative scale of the ceiling; rirFloor + progressMult drive load/effort. ──
+export interface PhaseModifier { volumeBandSign: number; rirFloor: number; progressMult: number; }
 export const PHASE_MODIFIERS: Record<string, PhaseModifier> = {
-  SURPLUS:     { volumeMult: 1.05, rirFloor: 0, progressMult: 1.0 },   // push toward MRV, full progression
-  MAINTENANCE: { volumeMult: 1.0,  rirFloor: 0, progressMult: 0.5 },   // slow gain
-  DEFICIT:     { volumeMult: 0.85, rirFloor: 1, progressMult: 0.1 },   // toward MEV/MAV, hold loads, don't grind
+  SURPLUS:     { volumeBandSign: +1, rirFloor: 0, progressMult: 1.0 },   // +one band-step, full progression
+  MAINTENANCE: { volumeBandSign: 0,  rirFloor: 0, progressMult: 0.5 },   // slow gain
+  DEFICIT:     { volumeBandSign: -1, rirFloor: 1, progressMult: 0.1 },   // −one band-step, hold loads, don't grind
 };
 export const phaseMod = (phase: string | null | undefined): PhaseModifier =>
   PHASE_MODIFIERS[phase ?? "MAINTENANCE"] ?? PHASE_MODIFIERS.MAINTENANCE;
 
-/** Weekly hard-set target for a muscle in a block's given week. blockType sets the band; the energy phase
- *  scales the ceiling (SURPLUS 1.05 / MAINTENANCE 1.0 / DEFICIT 0.85). */
+const bandStep = (lm: Landmark) => Math.round(0.15 * (lm.mav[1] - lm.mev));   // ~±15% of the MAV−MEV span
+
+/** Weekly hard-set target for a muscle in a block's given week. Every trained muscle starts at MEV and ramps
+ *  ~+2 sets/week toward the blockType ceiling; the energy phase shifts that by ±one bounded band-step. */
 export function targetSets(muscle: Muscle, meso: MesocycleDto | MesoInput, week: number): number {
   const lm = LANDMARKS[muscle];
   const n = meso.accumulationWeeks;
   if (week > n) return Math.max(lm.mv, Math.round(lm.mev * 0.5));        // deload (phase-independent floor)
   const focus = meso.focusMuscles.includes(muscle);
   const bt = (meso.blockType ?? "HYPERTROPHY") as BlockType;
-  const ceiling = blockCeiling(bt, lm, focus) * phaseMod(meso.phase).volumeMult;
-  const start = focus && bt === "HYPERTROPHY" ? lm.mev : ceiling;       // hypertrophy ramps; others ~flat
-  const w = Math.min(week, n);
-  const t = n <= 1 ? ceiling : start + (ceiling - start) * (w - 1) / (n - 1);
-  return Math.max(lm.mv, Math.round(t));
+  const ceiling = blockCeiling(bt, lm, focus);
+  const start = Math.min(Math.max(lm.mv, lm.mev), ceiling);             // start at MEV (unless ceiling is lower)
+  const ramp = Math.min(ceiling, start + RAMP_PER_WEEK * (Math.min(week, n) - 1));
+  return Math.max(lm.mv, ramp + bandStep(lm) * phaseMod(meso.phase).volumeBandSign);
 }
 
 // ── macrocycle planner ──
@@ -87,11 +93,17 @@ function recipeUnit(goal: GoalType): Spec[] {
   }
 }
 
-function mkBlock(spec: Spec, focus: Muscle[], n: number): MesoInput {
+/** Don't prescribe a SURPLUS (extra volume + faster progression) while the Coach measures a sustained
+ *  DEFICIT — downgrade to MAINTENANCE. Goal stays aspirational otherwise. */
+function clampPhase(phase: string, measured: string | null | undefined): string {
+  return measured === "DEFICIT" && phase === "SURPLUS" ? "MAINTENANCE" : phase;
+}
+
+function mkBlock(spec: Spec, focus: Muscle[], n: number, measured?: string | null): MesoInput {
   const label = blockLabel(spec.blockType);
   const tag = focus.length ? ` (${focus.map(muscleLabel).join("/")})` : "";
   return {
-    name: `${label} ${n}${tag}`, accumulationWeeks: spec.accum, phase: spec.phase,
+    name: `${label} ${n}${tag}`, accumulationWeeks: spec.accum, phase: clampPhase(spec.phase, measured),
     focusMuscles: focus, blockType: spec.blockType, intensityBand: BLOCK_INTENSITY[spec.blockType],
   };
 }
@@ -146,33 +158,37 @@ const PRIME_MOVERS: Muscle[] = ["CHEST", "LAT", "QUAD", "HAMSTRING", "GLUTE", "S
 const MIN_FREQ = 2;          // research-backed minimum sessions/week per muscle
 const PER_SESSION_CAP = 5;   // productive sets/muscle/session before junk volume
 
-const primaryFor = (ex: ExerciseDto, m: Muscle) =>
-  ex.category !== "CARDIO" && ex.muscleContributions.some((c) => c.muscle === m && parseFloat(c.fraction) >= 1);
+// an exercise "trains" a muscle at the shared ≥0.5 basis (so Deadlift/glutes count, not just fraction==1)
+const primaryFor = (ex: ExerciseDto, m: Muscle) => ex.category !== "CARDIO" && trainsMuscle(ex.muscleContributions, m);
+const fracOf = (ex: ExerciseDto, m: Muscle): number =>
+  ex.muscleContributions.reduce((f, c) => (c.muscle === m ? Math.max(f, parseFloat(c.fraction)) : f), 0);
 
 type Day = { name: string; muscles: Muscle[] };
-/** Greedily order days so each is followed by the remaining day that shares the fewest muscles — keeps a
- *  muscle (and its synergists) off back-to-back days for ~48–72h recovery. */
-function orderForRecovery(days: Day[]): Day[] {
+/** Greedily order days so each is followed by the remaining day that shares the fewest EFFECTIVE muscles
+ *  (primaries + the ≥0.5 synergists of its exercises) — keeps a muscle and its synergists off back-to-back
+ *  days for ~48–72h recovery. */
+function orderForRecovery(days: Day[], effOf: (d: Day) => Set<Muscle>): Day[] {
   if (days.length <= 2) return days;
   const rest = [...days];
   const out: Day[] = [rest.shift()!];
   while (rest.length) {
-    const prev = new Set(out[out.length - 1].muscles);
+    const prev = effOf(out[out.length - 1]);
     let bestI = 0, bestShared = Infinity;
     rest.forEach((d, i) => {
-      const shared = d.muscles.reduce((n, m) => n + (prev.has(m) ? 1 : 0), 0);
+      const shared = [...effOf(d)].reduce((n, m) => n + (prev.has(m) ? 1 : 0), 0);
       if (shared < bestShared) { bestShared = shared; bestI = i; }
     });
     out.push(rest.splice(bestI, 1)[0]);
   }
   return out;
 }
-/** Prime movers trained on adjacent days (recovery risk) — surfaced as warnings. */
-function adjacencyWarnings(days: Day[]): string[] {
+/** Prime movers (incl. synergists) trained on adjacent days (recovery risk) — surfaced as warnings. */
+function adjacencyWarnings(days: Day[], effOf: (d: Day) => Set<Muscle>): string[] {
   const out: string[] = [];
+  const eff = days.map(effOf);
   for (const m of PRIME_MOVERS) {
     for (let i = 1; i < days.length; i++) {
-      if (days[i].muscles.includes(m) && days[i - 1].muscles.includes(m)) {
+      if (eff[i].has(m) && eff[i - 1].has(m)) {
         out.push(`${muscleLabel(m)} lands on back-to-back days (${days[i - 1].name} → ${days[i].name}) — add a rest day between them.`);
         break;
       }
@@ -195,24 +211,32 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
     for (const d of base) { if (f >= MIN_FREQ) break; if (!d.muscles.includes(fm)) { d.muscles.push(fm); f++; } }
   }
 
-  // order days so the same muscle isn't trained on back-to-back days (≥48–72h recovery)
-  const days = orderForRecovery(base);
-
-  const freq: Record<string, number> = {};
-  for (const d of days) for (const m of d.muscles) freq[m] = (freq[m] ?? 0) + 1;
-
-  // candidate exercises per muscle (goal-aware), and a rotating pointer per muscle for variety
+  // candidate exercises per muscle (goal-aware, best-contribution first), built once
   const candFor = (m: Muscle) => {
     let c = exercises.filter((e) => primaryFor(e, m));
     if (block.blockType === "STRENGTH" || block.blockType === "PEAK") {
       const compounds = c.filter((e) => e.mechanic === "COMPOUND");
       if (compounds.length) c = compounds;
     }
-    return c;
+    return c.slice().sort((a, b) => fracOf(b, m) - fracOf(a, m));   // prefer the strongest contributor
   };
   const cand: Record<string, ExerciseDto[]> = {};
   const ptr: Record<string, number> = {};
-  for (const m of new Set(days.flatMap((d) => d.muscles))) cand[m] = candFor(m as Muscle);
+  for (const m of new Set(base.flatMap((d) => d.muscles))) cand[m] = candFor(m as Muscle);
+
+  // effective muscles for recovery spacing = the day's muscles + the ≥0.5 synergists of its top exercises
+  const effOf = (d: Day): Set<Muscle> => {
+    const s = new Set<Muscle>(d.muscles);
+    for (const m of d.muscles) for (const c of cand[m]?.[0]?.muscleContributions ?? [])
+      if (parseFloat(c.fraction) >= TRAINS_THRESHOLD) s.add(c.muscle);
+    return s;
+  };
+
+  // order days so the same muscle (+ synergists) isn't trained on back-to-back days (≥48–72h recovery)
+  const days = orderForRecovery(base, effOf);
+
+  const freq: Record<string, number> = {};
+  for (const d of days) for (const m of d.muscles) freq[m] = (freq[m] ?? 0) + 1;
 
   // per-block prescription: target reps (range low) + week-1 RIR = the start of the wave (3), floored by
   // the phase — same value the log screen seeds at week 1, so accept-time == first session.
@@ -236,7 +260,7 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
     return { name: d.name, exercises: [...picked.values()] };
   });
 
-  const warnings: string[] = [...adjacencyWarnings(days)];
+  const warnings: string[] = [...adjacencyWarnings(days, effOf)];
   for (const m of block.focusMuscles) if (missing.has(m)) warnings.push(`No exercise for focus muscle ${muscleLabel(m)} — add one to your catalog.`);
   for (const m of missing) if (!block.focusMuscles.includes(m)) warnings.push(`No exercise for ${muscleLabel(m)} — that volume is unfilled.`);
   for (const m of PRIME_MOVERS) if (!missing.has(m) && (freq[m] ?? 0) < MIN_FREQ)
@@ -252,6 +276,7 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
 export function planMacrocycle(
   goal: GoalType, durationWeeks: number, targetDate: string | null,
   focusMuscles: Muscle[], daysPerWeek: number, exercises: ExerciseDto[],
+  measuredPhase: string | null = null,
 ): PlanPreview {
   let total = Math.max(5, durationWeeks);
   if (targetDate) {
@@ -267,11 +292,11 @@ export function planMacrocycle(
     let i = 0;
     while (used < prepWeeks) {
       const accum = Math.min(4, Math.max(3, prepWeeks - used - 1));
-      blocks.push(mkBlock({ blockType: "PREP", accum, phase: "DEFICIT" }, focus, blocks.length + 1));
+      blocks.push(mkBlock({ blockType: "PREP", accum, phase: "DEFICIT" }, focus, blocks.length + 1, measuredPhase));
       used += accum + 1; i++;
       if (i > 12) break;
     }
-    blocks.push(mkBlock({ blockType: "PEAK", accum: 1, phase: "DEFICIT" }, focus, blocks.length + 1));
+    blocks.push(mkBlock({ blockType: "PEAK", accum: 1, phase: "DEFICIT" }, focus, blocks.length + 1, measuredPhase));
     used += 2;
   } else {
     const unit = recipeUnit(goal);
@@ -280,11 +305,11 @@ export function planMacrocycle(
       const spec = unit[i % unit.length];
       const weeks = spec.accum + 1;
       if (used > 0 && used + weeks > total + 2) break;
-      blocks.push(mkBlock(spec, focus, blocks.length + 1));
+      blocks.push(mkBlock(spec, focus, blocks.length + 1, measuredPhase));
       used += weeks; i++;
       if (i > 40) break;
     }
-    if (blocks.length === 0) blocks.push(mkBlock(unit[0], focus, 1)), used += unit[0].accum + 1;
+    if (blocks.length === 0) blocks.push(mkBlock(unit[0], focus, 1, measuredPhase)), used += unit[0].accum + 1;
   }
 
   const split = generateSplit(blocks[0], daysPerWeek, exercises);

@@ -18,33 +18,35 @@ describe("isDeload", () => {
   });
 });
 
-describe("targetSets (blockType ⟂ phase)", () => {
-  it("hypertrophy focus ramps MEV→MRV, deload→~MV", () => {
+describe("targetSets (MEV-reset ramp + bounded phase band-step)", () => {
+  it("every trained muscle starts at MEV and ramps ~+2 sets/week, deload→~MV", () => {
     const m = meso();
     expect(targetSets("CHEST", m, 1)).toBe(8);    // MEV
-    expect(targetSets("CHEST", m, 4)).toBe(20);   // MRV
+    expect(targetSets("CHEST", m, 2)).toBe(10);   // +2
+    expect(targetSets("CHEST", m, 4)).toBe(14);   // 8 + 2·3 (capped at MRV 20, not yet reached)
     expect(targetSets("CHEST", m, 5)).toBe(4);    // deload
   });
-  it("holds non-focus muscles at MEV", () => {
-    expect(targetSets("LAT", meso(), 4)).toBe(10);
+  it("ramps non-focus muscles too (toward MAV, not flat at MEV)", () => {
+    expect(targetSets("LAT", meso(), 1)).toBe(10);   // MEV
+    expect(targetSets("LAT", meso(), 4)).toBe(16);   // ramped toward MAV-high 18
   });
-  it("STRENGTH block caps focus volume at MAV-low (intensity carries the load)", () => {
+  it("STRENGTH block caps focus volume at MAV-low", () => {
     expect(targetSets("CHEST", meso({ blockType: "STRENGTH" }), 4)).toBe(12);   // MAV[0]
   });
-  it("PEAK block drops to MV", () => {
+  it("PEAK block sits at MV", () => {
     expect(targetSets("CHEST", meso({ blockType: "PEAK" }), 4)).toBe(4);        // MV
   });
-  it("scales the ceiling by the energy phase (orthogonal to block type)", () => {
-    expect(targetSets("CHEST", meso({ phase: "DEFICIT" }), 4)).toBe(17);        // MRV 20 × 0.85
-    expect(targetSets("CHEST", meso({ phase: "SURPLUS" }), 4)).toBe(21);        // MRV 20 × 1.05
-    expect(targetSets("CHEST", meso({ phase: "MAINTENANCE" }), 4)).toBe(20);    // MRV 20 × 1.0
+  it("the energy phase shifts the target by ±one bounded band-step", () => {
+    expect(targetSets("CHEST", meso({ phase: "MAINTENANCE" }), 4)).toBe(14);    // ramp
+    expect(targetSets("CHEST", meso({ phase: "DEFICIT" }), 4)).toBe(13);        // −1 band-step
+    expect(targetSets("CHEST", meso({ phase: "SURPLUS" }), 4)).toBe(15);        // +1 band-step
   });
 });
 
 describe("phaseMod", () => {
   it("returns the locked energy-phase modifiers; unknown → maintenance", () => {
-    expect(phaseMod("DEFICIT")).toMatchObject({ volumeMult: 0.85, rirFloor: 1, progressMult: 0.1 });
-    expect(phaseMod("SURPLUS").volumeMult).toBe(1.05);
+    expect(phaseMod("DEFICIT")).toMatchObject({ volumeBandSign: -1, rirFloor: 1, progressMult: 0.1 });
+    expect(phaseMod("SURPLUS").volumeBandSign).toBe(1);
     expect(phaseMod(null).progressMult).toBe(0.5);   // maintenance default
   });
 });

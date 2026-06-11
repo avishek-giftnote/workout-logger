@@ -129,11 +129,14 @@ function MacroPlanner({ onCreated }: { onCreated: () => void }) {
   const usesDate = goal === "CONTEST_PREP";
   const toggle = (m: Muscle) => setFocus((f) => (f.includes(m) ? f.filter((x) => x !== m) : f.length >= 3 ? f : [...f, m]));
 
+  // clamp the plan's block phases by the Coach's measured phase, but only when confidently measured
+  const measuredPhase = energy.data?.status === "READY" && energy.data.confidence === "HIGH" && energy.data.phase !== "UNKNOWN"
+    ? energy.data.phase : null;
   const preview = useMemo(() => {
     if (!exercises.data) return null;
     if (usesDate && !targetDate) return null;
-    return planMacrocycle(goal, months * 4, usesDate ? targetDate : null, focus, days, exercises.data);
-  }, [goal, months, targetDate, focus, days, exercises.data, usesDate]);
+    return planMacrocycle(goal, months * 4, usesDate ? targetDate : null, focus, days, exercises.data, measuredPhase);
+  }, [goal, months, targetDate, focus, days, exercises.data, usesDate, measuredPhase]);
 
   const planName = useMemo(() => {
     const g = GOALS.find((x) => x.v === goal)!.label;
@@ -201,7 +204,7 @@ function MacroPlanner({ onCreated }: { onCreated: () => void }) {
             </div>
           </>
         )}
-        {coachPhase && <p className="muted" style={{ fontSize: 11, marginTop: 10 }}>Coach reads your current phase as <b>{coachPhase.toLowerCase()}</b>; blocks set their own surplus/deficit by goal.</p>}
+        {coachPhase && <p className="muted" style={{ fontSize: 11, marginTop: 10 }}>Coach reads your current phase as <b>{coachPhase.toLowerCase()}</b>{measuredPhase === "DEFICIT" ? " — surplus blocks are downgraded to maintenance while you're cutting." : "."}</p>}
       </div>
 
       {preview && (

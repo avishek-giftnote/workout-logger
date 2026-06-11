@@ -19,6 +19,13 @@ export const MUSCLES: { key: Muscle; label: string }[] = [
 ];
 export const muscleLabel = (m: Muscle) => MUSCLES.find((x) => x.key === m)?.label ?? m;
 
+/** Shared crediting basis: an exercise "trains" a muscle when it contributes ≥ `threshold` (default 0.5).
+ *  One definition for planner frequency, recovery spacing, and the volume tally so they never disagree. */
+export const TRAINS_THRESHOLD = 0.5;
+export const trainsMuscle = (
+  contribs: MuscleContributionDto[] | undefined, m: Muscle, threshold = TRAINS_THRESHOLD,
+): boolean => (contribs ?? []).some((c) => c.muscle === m && parseFloat(c.fraction) >= threshold);
+
 /** Weekly hard-set landmarks per muscle (MV / MEV / MAV range / MRV). See docs/coach.md. */
 export interface Landmark { mv: number; mev: number; mav: [number, number]; mrv: number; }
 export const LANDMARKS: Record<Muscle, Landmark> = {

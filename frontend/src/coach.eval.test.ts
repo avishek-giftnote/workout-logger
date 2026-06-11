@@ -11,9 +11,9 @@
  * measurement you run, separate from the unit suite). Track the pass-rate as the planner changes.
  */
 import { describe, it, expect } from "vitest";
-import { planMacrocycle, phaseMod, type PlanPreview } from "./periodization";
+import { planMacrocycle, phaseMod, targetSets, type PlanPreview } from "./periodization";
 import { rirWave } from "./prescription";
-import { muscleLabel } from "./muscles";
+import { LANDMARKS, muscleLabel } from "./muscles";
 import type { ExerciseDto, GoalType, Muscle } from "./api/types";
 
 // Mirror the planner's own constants (they aren't exported).
@@ -109,6 +109,27 @@ function evaluate(c: Case): Violation[] {
   const wantRir = String(rirWave(1, p.mesocycles[0]?.accumulationWeeks ?? 4, floor));
   for (const t of p.templates) for (const e of t.exercises)
     if (e.targetRir !== wantRir) fail("R14-targetRir-wave", `${t.name}/${e.name} targetRir=${e.targetRir}, want wave wk1 ${wantRir}`);
+
+  // R15/R16/R18 — volume ramp + bounded phase band-step on the first block
+  const b = p.mesocycles[0];
+  if (b) {
+    const n = b.accumulationWeeks;
+    for (const m of PRIME_MOVERS) {
+      const lm = LANDMARKS[m];
+      // R15 — a HYPERTROPHY block ramps (not flat at the ceiling) for muscles with room above MEV
+      if (b.blockType === "HYPERTROPHY" && n > 1 && targetSets(m, b, n) <= targetSets(m, b, 1) && Math.max(lm.mv, lm.mev) < lm.mrv)
+        fail("R15-ramps", `${m} flat at ${targetSets(m, b, 1)} over ${n} weeks`);
+      // R16 — bounded ramp rate: 0 ≤ Δ ≤ 2 sets/week
+      for (let w = 2; w <= n; w++) {
+        const d = targetSets(m, b, w) - targetSets(m, b, w - 1);
+        if (d < 0 || d > 2) fail("R16-ramp-rate", `${m} Δwk${w}=${d}`);
+      }
+      // R18 — phase is a bounded, monotone band-step: deficit ≤ maintenance ≤ surplus
+      const ph = (phase: string) => targetSets(m, { ...b, phase }, n);
+      if (!(ph("DEFICIT") <= ph("MAINTENANCE") && ph("MAINTENANCE") <= ph("SURPLUS")))
+        fail("R18-phase-monotone", `${m} d/m/s = ${ph("DEFICIT")}/${ph("MAINTENANCE")}/${ph("SURPLUS")}`);
+    }
+  }
 
   return v;
 }
