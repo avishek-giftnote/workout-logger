@@ -9,7 +9,7 @@ import {
 } from "../logging/engine";
 import { useSettings } from "../settings";
 import { currentMicro, phaseMod } from "../periodization";
-import { loadIncrement, nextLoad, readiness, rirWave, topWorkingSet } from "../prescription";
+import { loadIncrement, progressedSeed, readiness, rirWave, topWorkingSet } from "../prescription";
 import { muscleLabel } from "../muscles";
 import RestTimer from "../components/RestTimer";
 import StartChooser from "./StartChooser";
@@ -53,13 +53,15 @@ export default function LogWorkoutPage() {
   const [rest, setRest] = useState<{ at: number; target: number } | null>(null);
   const [soreNow, setSoreNow] = useState<Muscle[]>([]);
 
+  const planMeso = plan.data ? currentMicro(plan.data)?.meso ?? null : null;
   const primaryMuscleOf = (exerciseId: string): Muscle | null =>
     findEx(exercises.data ?? [], exerciseId, "").muscleContributions.find((c) => parseFloat(c.fraction) >= 1)?.muscle ?? null;
-  // readiness from logged history (recent soreness reports + last session's reps) — eases the upcoming session
+  // readiness from logged history (recent soreness reports + last session's reps) — eases the upcoming session.
+  // target = the reps livingSeed actually seeds (meso repLow), so the trim doesn't stack on the RIR wave.
   const easeFor = (exerciseId: string) => {
     const pm = primaryMuscleOf(exerciseId);
     if (!pm) return { trim: false, reason: null as string | null };
-    const target = sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId)?.reps ?? 8;
+    const target = planMeso?.intensityBand?.repLow ?? sourceTemplate?.exercises.find((e) => e.exerciseId === exerciseId)?.reps ?? 8;
     return readiness(workouts.data ?? [], exerciseId, pm, target, startedAt.getTime());
   };
   // muscles this session trains (for the "still sore?" prompt)
@@ -85,8 +87,8 @@ export default function LogWorkoutPage() {
     const repLow = meso?.intensityBand?.repLow ?? te.reps ?? 8;
     const repHigh = meso?.intensityBand?.repHigh ?? repLow + 4;
     const rir = rirWave(micro?.week ?? 1, meso?.accumulationWeeks ?? 4, phaseMod(meso?.phase).rirFloor);
-    const prev = ex.isBodyweight ? null : topWorkingSet(workouts.data ?? [], ex.id);   // load only for external loads
-    const { load, reps } = nextLoad(prev, repLow, repHigh, phaseMod(meso?.phase).progressMult, loadIncrement(ex));
+    const prev = topWorkingSet(workouts.data ?? [], ex.id);
+    const { load, reps } = progressedSeed(prev, repLow, repHigh, phaseMod(meso?.phase).progressMult, loadIncrement(ex), ex.isBodyweight);
     return Array.from({ length: Math.max(1, te.sets) }, (_, i) =>
       workingSet(i, load != null ? String(load) : null, prev ? reps : (te.reps ?? repLow), 10 - rir));
   };
@@ -180,7 +182,7 @@ export default function LogWorkoutPage() {
   });
   const updateTemplate = useMutation({
     mutationFn: () => Api.updateTemplate(sourceTemplate!.id,
-      { name: sourceTemplate!.name, exercises: templateExercisesFromBlocks(finishedBlocks()) }),
+      { name: sourceTemplate!.name, exercises: templateExercisesFromBlocks(finishedBlocks(), sourceTemplate) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); done(); },
     onError: done,
   });

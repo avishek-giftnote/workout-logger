@@ -229,13 +229,15 @@ Phase defaults from the **Energy Coach's** detected phase, user-overridable per 
 `volumeMult` to the ceiling; `rirFloor`/`progressMult` are consumed by slices ②/④.
 
 ### ② Populate numbers — the prescription engine (pure, tested)
-- **RPE→%1RM (one linear formula, no table):** `pct = 100 − 2.5·(reps + RIR − 1)`, clamped 55–100; treat
-  >12-rep isolation as rep-driven.
-- **e1RM seed:** from a logged top set *through the same RPE math* (`e1RM = weight ÷ pct%`), else Epley
-  (`w·(1+reps/30)`); **cold-start** with %bodyweight anchors (squat ~0.55×BW, bench ~0.45×, DL ~0.7×, OHP
-  ~0.3×, row ~0.4×; ×~0.65 female) when there's no history.
-- **Working load:** `round_inc(e1RM · pct(target_reps, target_RIR)/100)` — increments 2.5 kg barbell /
-  2.5–5 kg DB-machine / 1–2.5 kg isolation; respect `loadable`/bodyweight flags.
+- **RPE→%1RM (one linear formula, no table):** `pct = 100 − 2.5·(reps − 1) − 5·RIR`, clamped to `[0.40, 1.0]`
+  — i.e. one rep ≈ 2.5%, one RIR ≈ 5% (matches the RTS/Tuchscherer chart: RPE 8 / 2 RIR at 5 reps = 80%).
+  Treat >12-rep isolation as rep-driven.
+- **e1RM seed:** from a logged top set *through the same RPE math* (`e1RM = weight ÷ pct`), else Epley
+  (`w·(1+reps/30)`). **No cold-start load:** with no logged history the prescription shows **reps + RIR only**
+  and the load is logged on the first session, then progresses (product decision — anchors were rejected as
+  too inaccurate).
+- **Working load:** `round_inc(e1RM · pct(target_reps, target_RIR))` — increments 2.5 kg compound / 1.25 kg
+  isolation; bodyweight exercises progress on **reps** (the load is an added/assist delta logged on the day).
 - **MEV by experience** (beginner ~6–8 → advanced ~12–14 sets/muscle), **per-session cap ~10 sets/muscle**,
   ≥2× frequency (Layer 4). The generated split is filled with **exact sets × reps × RIR × load** (full fixed
   prescription), still an editable preview.

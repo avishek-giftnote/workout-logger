@@ -163,8 +163,13 @@ export function filledSet(prev: SetDto, isBw: boolean): DraftSet {
 export const findEx = (catalog: ExerciseDto[], id: string, name: string): ExerciseDto =>
   catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg", restSeconds: null, cardioMetrics: null, muscleContributions: [], laterality: null, mechanic: null, loadable: null };
 
-export const templateExercisesFromBlocks = (blocks: DraftBlock[]): TemplateExerciseInput[] =>
-  blocks.map((b, i) => ({ exerciseId: b.exercise.id, name: b.exercise.name, position: i, sets: b.sets.length }));
+export const templateExercisesFromBlocks = (blocks: DraftBlock[], source?: TemplateDto | null): TemplateExerciseInput[] => {
+  const rx = new Map((source?.exercises ?? []).map((e) => [e.exerciseId, e]));   // carry the prescription forward
+  return blocks.map((b, i) => {
+    const s = rx.get(b.exercise.id);
+    return { exerciseId: b.exercise.id, name: b.exercise.name, position: i, sets: b.sets.length, reps: s?.reps ?? null, targetRir: s?.targetRir ?? null };
+  });
+};
 
 /** Did the logged session differ from its template? (exercise added/removed, or a set count changed) */
 export const structureChanged = (t: TemplateDto, blocks: DraftBlock[]): boolean => {

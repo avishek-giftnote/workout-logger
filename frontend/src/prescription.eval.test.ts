@@ -9,11 +9,37 @@
  * Run with:  npm run eval   (kept OUT of the default `npm test` gate on purpose).
  */
 import { describe, it, expect } from "vitest";
-import { rirWave, nextLoad, readiness, loadIncrement, roundInc } from "./prescription";
+import { rirWave, nextLoad, readiness, loadIncrement, roundInc, rpePct, progressedSeed } from "./prescription";
 import { phaseMod } from "./periodization";
 import type { Muscle, SetDto, WorkoutDto } from "./api/types";
 
 interface Violation { rule: string; detail: string; }
+const approx = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+// ── R13: rpePct is the single documented formula 100−2.5(reps−1)−5·RIR, clamped [0.40,1.0] ──
+function evalRpePct(): Violation[] {
+  const v: Violation[] = [];
+  const ref: [number, number, number][] = [[1, 0, 1.0], [5, 2, 0.80], [8, 2, 0.725], [10, 1, 0.725], [15, 5, 0.40]];
+  for (const [reps, rir, want] of ref)
+    if (!approx(rpePct(reps, rir), want)) v.push({ rule: "R13-rpePct-formula", detail: `rpePct(${reps},${rir})=${rpePct(reps, rir)}, want ${want}` });
+  for (let reps = 1; reps <= 15; reps++) for (let rir = 0; rir <= 5; rir++) {
+    const p = rpePct(reps, rir);
+    if (p < 0.40 - 1e-9 || p > 1.0 + 1e-9) v.push({ rule: "R13-clamp", detail: `rpePct(${reps},${rir})=${p} ∉ [0.40,1.0]` });
+  }
+  return v;
+}
+
+// ── R20: bodyweight progressedSeed climbs on reps (load stays null) ──
+function evalBodyweightProgression(): Violation[] {
+  const v: Violation[] = [];
+  for (const [lo, hi] of [[8, 12], [5, 8]] as [number, number][]) for (const reps of [lo, hi, hi + 2]) {
+    const r = progressedSeed({ weight: 0, reps, rpe: null, startedAt: "" }, lo, hi, 1.0, 2.5, true);
+    if (r.load !== null) v.push({ rule: "R20-bw-no-load", detail: `bw reps=${reps} → load=${r.load}` });
+    if (r.reps <= lo && reps >= lo) v.push({ rule: "R20-bw-rep-progress", detail: `bw reps=${reps} → next reps=${r.reps} (not > ${lo})` });
+  }
+  if (progressedSeed(null, 8, 12, 1.0, 2.5, true).reps !== 8) v.push({ rule: "R20-bw-cold", detail: "no history bw → reps≠repLow" });
+  return v;
+}
 
 // ── fixtures ──
 const set = (reps: number, weight = "100"): SetDto => ({
@@ -89,10 +115,31 @@ function evalReadiness(): Violation[] {
   return v;
 }
 
+// ── R21: readiness is strictly-prior and a sore report is superseded by a LATER working set ──
+function evalReadinessSemantics(): Violation[] {
+  const v: Violation[] = [];
+  const NOW = new Date("2026-03-10T00:00:00Z").getTime();
+  const M: Muscle = "CHEST";
+  // sore reported, then the muscle is trained AGAIN (hitting target) before now → soreness superseded, no trim
+  const supersede = readiness(
+    [wk("2026-03-07T00:00:00Z", [set(8)], [M]), wk("2026-03-09T00:00:00Z", [set(8)], null)], "x", M, 8, NOW);
+  if (supersede.trim) v.push({ rule: "R21-superseded", detail: `sore then later working set → trim=${supersede.trim}` });
+  // sore with no later working set → trims
+  const sore = readiness([wk("2026-03-09T00:00:00Z", [set(8)], [M])], "x", M, 8, NOW);
+  if (!sore.trim || sore.reason !== "recently sore") v.push({ rule: "R21-sore-trims", detail: `sore only → ${JSON.stringify(sore)}` });
+  // a future-dated session (>= now) must be ignored (strictly-prior)
+  const future = readiness([wk("2026-03-11T00:00:00Z", [set(3)], [M])], "x", M, 8, NOW);
+  if (future.trim) v.push({ rule: "R21-strictly-prior", detail: `future session influenced readiness` });
+  return v;
+}
+
 describe("prescription engine eval — Layer 5 invariants over a full parameter sweep", () => {
-  it("scores RIR wave, double progression, and readiness (R10–R12)", () => {
+  it("scores rpePct, RIR wave, double progression, bodyweight + readiness (R10–R13, R20–R22)", () => {
     void phaseMod("MAINTENANCE"); void loadIncrement;   // keep the engine's exported surface referenced
-    const violations = [...evalRirWave(), ...evalNextLoad(), ...evalReadiness()];
+    const violations = [
+      ...evalRpePct(), ...evalRirWave(), ...evalNextLoad(),
+      ...evalBodyweightProgression(), ...evalReadiness(), ...evalReadinessSemantics(),
+    ];
 
     const byRule: Record<string, number> = {};
     for (const v of violations) byRule[v.rule] = (byRule[v.rule] ?? 0) + 1;
@@ -100,7 +147,7 @@ describe("prescription engine eval — Layer 5 invariants over a full parameter 
     /* eslint-disable no-console */
     console.log(`\n=== PRESCRIPTION ENGINE EVAL SCORECARD ===`);
     console.log(`total violations:  ${violations.length}`);
-    if (violations.length === 0) console.log(`  R10 rir-wave · R11 double-progression · R12 readiness — all clear`);
+    if (violations.length === 0) console.log(`  R13 rpePct · R10 rir-wave · R11 double-progression · R20 bodyweight · R12/R21 readiness — all clear`);
     for (const [rule, n] of Object.entries(byRule).sort((a, b) => b[1] - a[1])) console.log(`  ${rule}: ${n}`);
     for (const v of violations.slice(0, 10)) console.log(`  e.g. [${v.rule}] ${v.detail}`);
     console.log(`==========================================\n`);

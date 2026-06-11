@@ -54,17 +54,22 @@ export function rirWave(week: number, accumWeeks: number, floor: number): number
 }
 
 export interface Readiness { trim: boolean; reason: string | null; }
-/** Should the upcoming session for `muscle`/exercise be eased? True if the muscle was reported sore within
- *  `soreWindowDays`, or the last logged session for the exercise fell short of the target reps. */
+/** Should the upcoming session for `muscle`/exercise be eased? Considers only STRICTLY-PRIOR sessions: a
+ *  soreness report (within `soreWindowDays`) eases the next session — but only if it isn't superseded by a
+ *  later working set for the exercise (training it again means it had recovered). Else, a last-session
+ *  rep shortfall eases it. */
 export function readiness(
   workouts: WorkoutDto[], exerciseId: string, muscle: Muscle, targetReps: number, nowMs: number, soreWindowDays = 3,
 ): Readiness {
-  for (const w of workouts) {
-    if (w.soreMuscles?.includes(muscle) && nowMs - new Date(w.startedAt).getTime() <= soreWindowDays * DAY_MS) {
-      return { trim: true, reason: "recently sore" };
-    }
+  const prior = workouts.filter((w) => new Date(w.startedAt).getTime() < nowMs);
+  const top = topWorkingSet(prior, exerciseId);
+  const topMs = top ? new Date(top.startedAt).getTime() : -Infinity;
+  let lastSoreMs = -Infinity;
+  for (const w of prior) {
+    const ms = new Date(w.startedAt).getTime();
+    if (w.soreMuscles?.includes(muscle) && nowMs - ms <= soreWindowDays * DAY_MS) lastSoreMs = Math.max(lastSoreMs, ms);
   }
-  const top = topWorkingSet(workouts, exerciseId);
+  if (lastSoreMs > -Infinity && lastSoreMs >= topMs) return { trim: true, reason: "recently sore" };
   if (top && top.reps < targetReps) return { trim: true, reason: "last session fell short" };
   return { trim: false, reason: null };
 }
@@ -80,4 +85,14 @@ export function nextLoad(
     return { load: roundInc(prev.weight + add, increment), reps: repLow };
   }
   return { load: prev.weight, reps: Math.min(repHigh, prev.reps + 1) };
+}
+
+/** Seed the next prescription. External-load exercises use double progression (nextLoad). Bodyweight
+ *  exercises progress on REPS only (load is logged as an added/assist delta on the day), climbing past the
+ *  range until the lifter chooses to add weight. */
+export function progressedSeed(
+  prev: TopSet | null, repLow: number, repHigh: number, progressMult: number, increment: number, isBodyweight: boolean,
+): { load: number | null; reps: number } {
+  if (isBodyweight) return { load: null, reps: prev ? prev.reps + 1 : repLow };
+  return nextLoad(prev, repLow, repHigh, progressMult, increment);
 }

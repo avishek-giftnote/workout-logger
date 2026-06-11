@@ -214,10 +214,10 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
   const ptr: Record<string, number> = {};
   for (const m of new Set(days.flatMap((d) => d.muscles))) cand[m] = candFor(m as Muscle);
 
-  // per-block prescription: target reps (range low) + RIR (band's, floored by the energy phase)
+  // per-block prescription: target reps (range low) + week-1 RIR = the start of the wave (3), floored by
+  // the phase — same value the log screen seeds at week 1, so accept-time == first session.
   const reps = block.intensityBand?.repLow ?? 8;
-  const bandRir = parseInt((block.intensityBand?.targetRir ?? "2").split("-").pop() ?? "2", 10) || 2;
-  const targetRir = String(Math.max(phaseMod(block.phase).rirFloor, bandRir));
+  const targetRir = String(Math.max(phaseMod(block.phase).rirFloor, 3));
 
   const missing = new Set<Muscle>();
   const templates = days.map((d) => {

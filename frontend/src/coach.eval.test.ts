@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { planMacrocycle, phaseMod, type PlanPreview } from "./periodization";
+import { rirWave } from "./prescription";
 import { muscleLabel } from "./muscles";
 import type { ExerciseDto, GoalType, Muscle } from "./api/types";
 
@@ -102,6 +103,12 @@ function evaluate(c: Case): Violation[] {
     if (!Number.isInteger(rir) || rir < floor || rir > 3)
       fail("R9-rir", `${t.name}/${e.name} targetRir=${e.targetRir} (allowed ${floor}..3)`);
   }
+
+  // R14 — the stored template targetRir equals the RIR wave's week-1 value under the same phase floor
+  // (accept-time number == first logged session's seed)
+  const wantRir = String(rirWave(1, p.mesocycles[0]?.accumulationWeeks ?? 4, floor));
+  for (const t of p.templates) for (const e of t.exercises)
+    if (e.targetRir !== wantRir) fail("R14-targetRir-wave", `${t.name}/${e.name} targetRir=${e.targetRir}, want wave wk1 ${wantRir}`);
 
   return v;
 }
