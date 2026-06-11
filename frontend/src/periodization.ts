@@ -41,19 +41,29 @@ function blockCeiling(bt: BlockType, lm: Landmark, focus: boolean): number {
   }
 }
 
-/** Weekly hard-set target for a muscle in a block's given week. blockType sets the band; DEFICIT trims it. */
+// ── energy-phase modifiers (Layer 5 ①): phase is orthogonal to blockType ──
+export interface PhaseModifier { volumeMult: number; rirFloor: number; progressMult: number; }
+export const PHASE_MODIFIERS: Record<string, PhaseModifier> = {
+  SURPLUS:     { volumeMult: 1.05, rirFloor: 0, progressMult: 1.0 },   // push toward MRV, full progression
+  MAINTENANCE: { volumeMult: 1.0,  rirFloor: 0, progressMult: 0.5 },   // slow gain
+  DEFICIT:     { volumeMult: 0.85, rirFloor: 1, progressMult: 0.1 },   // toward MEV/MAV, hold loads, don't grind
+};
+export const phaseMod = (phase: string | null | undefined): PhaseModifier =>
+  PHASE_MODIFIERS[phase ?? "MAINTENANCE"] ?? PHASE_MODIFIERS.MAINTENANCE;
+
+/** Weekly hard-set target for a muscle in a block's given week. blockType sets the band; the energy phase
+ *  scales the ceiling (SURPLUS 1.05 / MAINTENANCE 1.0 / DEFICIT 0.85). */
 export function targetSets(muscle: Muscle, meso: MesocycleDto | MesoInput, week: number): number {
   const lm = LANDMARKS[muscle];
   const n = meso.accumulationWeeks;
-  if (week > n) return Math.max(lm.mv, Math.round(lm.mev * 0.5));        // deload
+  if (week > n) return Math.max(lm.mv, Math.round(lm.mev * 0.5));        // deload (phase-independent floor)
   const focus = meso.focusMuscles.includes(muscle);
   const bt = (meso.blockType ?? "HYPERTROPHY") as BlockType;
-  const ceiling = blockCeiling(bt, lm, focus);
+  const ceiling = blockCeiling(bt, lm, focus) * phaseMod(meso.phase).volumeMult;
   const start = focus && bt === "HYPERTROPHY" ? lm.mev : ceiling;       // hypertrophy ramps; others ~flat
   const w = Math.min(week, n);
-  let t = n <= 1 ? ceiling : start + (ceiling - start) * (w - 1) / (n - 1);
-  if (meso.phase === "DEFICIT") t = Math.max(Math.round(lm.mev * 0.8), Math.round(t * 0.8));   // deficit trim
-  return Math.round(t);
+  const t = n <= 1 ? ceiling : start + (ceiling - start) * (w - 1) / (n - 1);
+  return Math.max(lm.mv, Math.round(t));
 }
 
 // ── macrocycle planner ──

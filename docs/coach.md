@@ -205,6 +205,64 @@ immovable terminal block, every set/exercise an **editable preview**, coverage w
 
 ---
 
+## Layer 5 — Prescription, recovery & autoregulation (coach-grade numbers)
+
+Closes the gaps that a real coach wouldn't leave: the planner now **populates exact loads/reps/RIR**, **respects
+recovery between sessions for the same muscle**, **scales to the energy phase**, and **updates as you log**
+(a *living* plan). Decisions locked from web research (RP volume landmarks, Tuchscherer/RTS RPE chart, Zourdos
+2016, Schoenfeld 2017, Helms/Henselmans, Epley/Brzycki) + user answers. Stays additive + accept-creates-never-mutates.
+
+**Build order (locked):** ① energy-phase modifiers → ② populate numbers → ③ recovery-aware sequencing →
+④ over-time autoregulation. Each is a shippable, tested slice.
+
+### ① Energy-phase modifiers — `PHASE_MODIFIERS`
+The energy phase is one axis (blockType is the other, Layer 4). It acts as three multipliers, replacing the
+ad-hoc deficit trim:
+
+| phase | `volumeMult` (scales the blockType ceiling) | `rirFloor` (don't grind below) | `progressMult` (load-progression rate) |
+| --- | --- | --- | --- |
+| SURPLUS | 1.05 (push toward MRV) | 0 | 1.0 (full increments) |
+| MAINTENANCE | 1.0 | 0 | 0.5 (slow gain) |
+| DEFICIT | 0.85 (toward MEV/MAV) | 1 (≥1 RIR, preserve don't grind) | 0.1 (hold loads) |
+
+Phase defaults from the **Energy Coach's** detected phase, user-overridable per block. `targetSets` applies
+`volumeMult` to the ceiling; `rirFloor`/`progressMult` are consumed by slices ②/④.
+
+### ② Populate numbers — the prescription engine (pure, tested)
+- **RPE→%1RM (one linear formula, no table):** `pct = 100 − 2.5·(reps + RIR − 1)`, clamped 55–100; treat
+  >12-rep isolation as rep-driven.
+- **e1RM seed:** from a logged top set *through the same RPE math* (`e1RM = weight ÷ pct%`), else Epley
+  (`w·(1+reps/30)`); **cold-start** with %bodyweight anchors (squat ~0.55×BW, bench ~0.45×, DL ~0.7×, OHP
+  ~0.3×, row ~0.4×; ×~0.65 female) when there's no history.
+- **Working load:** `round_inc(e1RM · pct(target_reps, target_RIR)/100)` — increments 2.5 kg barbell /
+  2.5–5 kg DB-machine / 1–2.5 kg isolation; respect `loadable`/bodyweight flags.
+- **MEV by experience** (beginner ~6–8 → advanced ~12–14 sets/muscle), **per-session cap ~10 sets/muscle**,
+  ≥2× frequency (Layer 4). The generated split is filled with **exact sets × reps × RIR × load** (full fixed
+  prescription), still an editable preview.
+
+### ③ Recovery-aware sequencing + readiness
+- **Spacing:** order the microcycle so a muscle (and its synergists, via secondary `muscleContributions` —
+  bench→triceps) isn't re-trained inside **~48–72 h**; the window grows with last session's sets/closeness to
+  failure.
+- **Readiness (v1, user-chosen):** logged soreness + a performance drop (reps/e1RM down vs target) **trim the
+  next same-muscle session** (−sets / +1 RIR) — autoregulation, not just static spacing.
+
+### ④ Over-time autoregulation — the living plan
+- **Recompute e1RM on every logged session**; pre-fill the next session's suggested load/reps via **double
+  progression** (reps to top of range at target RIR → then +load: +2.5–5 kg lower / +1–2.5 kg upper, ×
+  `progressMult`).
+- **RIR wave** across the meso (3→2→1→0–1), floored by `rirFloor`.
+- **Deload triggers** (reached MRV / performance drops >2 sessions / end of block) **prompt** (don't force) the
+  deload week (~½ MEV sets, +2–3 RIR).
+
+### Top risk
+Confidently-wrong *numbers* the user trusts blindly (a cold-start load way off; a deficit plan still adding
+weight; a readiness trim that masks a bad day as under-recovery). Mitigations: every number an **editable
+preview**, conservative cold-start that self-corrects in 1–2 logs, `progressMult`≈0.1 in a deficit, and
+readiness adjustments are **suggestions** shown with their reason — never silent.
+
+---
+
 ## Top risks (every member flagged the same one)
 
 A **confidently-wrong TDEE/phase off sparse, noisy weight data that compounds into a bad volume prescription**

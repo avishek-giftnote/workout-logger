@@ -353,3 +353,30 @@ flowchart TD
 
 > blockType (volume band + reps) and energy phase (deficit-trim) are orthogonal axes; accept creates, never
 > mutates; only the current block's training is materialized — distal blocks stay as intent.
+
+### 11. Prescription, recovery & autoregulation (Layer 5)
+
+```mermaid
+flowchart TD
+  P["energy phase (Coach) + blockType"] --> MOD["PHASE_MODIFIERS: volumeMult · rirFloor · progressMult"]
+  MOD --> VOL["targetSets × volumeMult → weekly sets/muscle"]
+  H{"logged history for exercise?"} -- "yes" --> E1["e1RM = weight ÷ pct(RPE,reps)"]
+  H -- "no" --> CS["cold-start: %bodyweight anchor"]
+  E1 --> RX
+  CS --> RX["working load = round(e1RM × pct(target reps, target RIR))"]
+  VOL --> SPLIT["fill split: sets × reps × RIR × load (exact, editable)"]
+  RX --> SPLIT
+  SPLIT --> SEQ["sequence days: same muscle + synergists ≥48–72h apart"]
+  SEQ --> LOG["user logs the session"]
+  LOG --> RD{"sore / performance drop?"}
+  RD -- "yes" --> TRIM["readiness: next session −sets / +1 RIR"]
+  RD -- "no" --> DP["double progression: +reps→+load × progressMult"]
+  TRIM --> NEXT["recompute e1RM → pre-fill next session (living plan)"]
+  DP --> NEXT
+  NEXT --> DL{"MRV reached / perf↓ ×2 / block end?"}
+  DL -- "yes" --> DELOAD["prompt deload (~½ MEV, +2–3 RIR)"]
+  DL -- "no" --> LOG
+```
+
+> Energy phase scales volume/intensity/progression; numbers seed from logged e1RM (else %BW cold-start);
+> recovery spacing + readiness keep a muscle from being trained fatigued; everything stays an editable preview.

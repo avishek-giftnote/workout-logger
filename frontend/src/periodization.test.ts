@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { isDeload, targetSets, currentMicro, planMacrocycle } from "./periodization";
+import { isDeload, targetSets, currentMicro, planMacrocycle, phaseMod } from "./periodization";
 import type { ExerciseDto, MacrocycleDto, MesoInput, Muscle, WorkoutDto } from "./api/types";
 
 const meso = (over: Partial<MesoInput> = {}): MesoInput =>
-  ({ name: "M", accumulationWeeks: 4, phase: "SURPLUS", focusMuscles: ["CHEST"], blockType: "HYPERTROPHY", intensityBand: null, ...over });
+  ({ name: "M", accumulationWeeks: 4, phase: "MAINTENANCE", focusMuscles: ["CHEST"], blockType: "HYPERTROPHY", intensityBand: null, ...over });
 
 const ex = (id: string, name: string, muscle: Muscle): ExerciseDto => ({
   id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg",
@@ -34,8 +34,18 @@ describe("targetSets (blockType ⟂ phase)", () => {
   it("PEAK block drops to MV", () => {
     expect(targetSets("CHEST", meso({ blockType: "PEAK" }), 4)).toBe(4);        // MV
   });
-  it("a DEFICIT trims a hypertrophy target (~20%) without changing the block type", () => {
-    expect(targetSets("CHEST", meso({ phase: "DEFICIT" }), 4)).toBe(16);        // 20 × 0.8
+  it("scales the ceiling by the energy phase (orthogonal to block type)", () => {
+    expect(targetSets("CHEST", meso({ phase: "DEFICIT" }), 4)).toBe(17);        // MRV 20 × 0.85
+    expect(targetSets("CHEST", meso({ phase: "SURPLUS" }), 4)).toBe(21);        // MRV 20 × 1.05
+    expect(targetSets("CHEST", meso({ phase: "MAINTENANCE" }), 4)).toBe(20);    // MRV 20 × 1.0
+  });
+});
+
+describe("phaseMod", () => {
+  it("returns the locked energy-phase modifiers; unknown → maintenance", () => {
+    expect(phaseMod("DEFICIT")).toMatchObject({ volumeMult: 0.85, rirFloor: 1, progressMult: 0.1 });
+    expect(phaseMod("SURPLUS").volumeMult).toBe(1.05);
+    expect(phaseMod(null).progressMult).toBe(0.5);   // maintenance default
   });
 });
 
