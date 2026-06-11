@@ -61,6 +61,13 @@ class MuscleSeedTest {
     }
 
     @Test
+    void cardioMachinesAreNotMisCreditedAsStrength() {
+        assertThat(MuscleSeed.infer("Rowing Machine")).isEmpty();   // "rowing" guards the "row" → lat rule
+        assertThat(MuscleSeed.infer("Stair Climber")).isEmpty();
+        assertThat(muscles("Barbell Row")).contains(Muscle.LAT);    // a real row still maps
+    }
+
+    @Test
     void unrecognizedReturnsEmpty(/* flagged "unmapped" in the UI */) {
         assertThat(MuscleSeed.infer("Hip Adductor (Machine)")).isEmpty();
         assertThat(MuscleSeed.infer("Some Made Up Lift")).isEmpty();

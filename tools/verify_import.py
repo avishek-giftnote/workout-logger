@@ -134,7 +134,7 @@ def build(rows, bodyweight_kg):
     for sess in sessions.values():
         latest_by_name[sess["name"]] = sess  # later sessions overwrite -> last wins (ordered by file)
     templates = []
-    for tname in SCOPED_TEMPLATES:
+    for tname in sorted(SCOPED_TEMPLATES):   # deterministic order (set iteration is hash-seeded)
         src = latest_by_name.get(tname)
         if src:
             templates.append(dict(

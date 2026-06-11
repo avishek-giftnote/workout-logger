@@ -26,7 +26,7 @@ public final class MuscleSeed {
 
     public static List<MuscleContribution> infer(String name) {
         String n = name == null ? "" : name.toLowerCase();
-        if (has(n, "treadmill", "running", "cycl", "swim", "ellipt", "jog", "sprint")) return List.of(); // cardio (avoid bare "run" — matches "crunch")
+        if (has(n, "treadmill", "running", "cycl", "swim", "ellipt", "jog", "sprint", "rowing", "stair", "ski erg", "arc trainer")) return List.of(); // cardio ("rowing" guards the "row" rule below; avoid bare "run" — matches "crunch")
         if (has(n, "crunch", "sit up", "sit-up", "knee raise", "leg raise", "plank", "ab wheel")) return List.of(mc(ABS, "1.0"));
         if (has(n, "wrist", "forearm")) return List.of(mc(FOREARM, "1.0"));
         if (has(n, "calf")) return List.of(mc(CALF, "1.0"));
