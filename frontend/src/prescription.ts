@@ -12,7 +12,10 @@ export function rpePct(reps: number, rir: number): number {
   return Math.min(100, Math.max(40, pct)) / 100;
 }
 
-/** Estimated 1RM. RPE-adjusted when an RPE was logged (discounts a non-failure set), else Epley. */
+/** Estimated 1RM. RPE-adjusted when an RPE was logged (reps in reserve ⇒ more in the tank ⇒ a higher,
+ *  more accurate estimate), else plain Epley as a conservative fallback that assumes the set was near
+ *  failure. The two paths intentionally differ: logging an RPE REFINES the estimate (and the prescription)
+ *  upward — that shift is information, not noise. See docs/eval-findings.md (D5). */
 export function e1rm(weight: number, reps: number, rpe?: number | null): number {
   if (rpe != null && rpe > 0) return weight / rpePct(reps, Math.max(0, 10 - rpe));
   return weight * (1 + reps / 30);   // Epley
@@ -74,17 +77,24 @@ export function readiness(
   return { trim: false, reason: null };
 }
 
-/** Double progression: at the top of the range → add a load increment (held in a deficit) and reset reps;
- *  below the top → hold load, add a rep. No history → null load (filled on first log) at the bottom. */
+/** Double progression, phase-scaled by `progressMult`:
+ *   • surplus (mult 1.0) → add a load increment as soon as you hit the top of the range, reset reps;
+ *   • maintenance (0.2 < mult < 1.0) → "slow gain": beat the top of the range by ONE extra rep before
+ *     loading (an extra session at the top), so load climbs slower than in a surplus;
+ *   • deficit (mult ≤ 0.2) → hold the load entirely, just reset reps at the top.
+ *  Below the load threshold → hold load, add a rep. No history → null load (filled on first log). */
 export function nextLoad(
   prev: TopSet | null, repLow: number, repHigh: number, progressMult: number, increment: number,
 ): { load: number | null; reps: number } {
   if (!prev) return { load: null, reps: repLow };
-  if (prev.reps >= repHigh) {
-    const add = progressMult <= 0.2 ? 0 : increment;            // deficit holds the load
+  const deficit = progressMult <= 0.2;
+  const slow = !deficit && progressMult < 1.0;                  // maintenance: slow gain
+  const loadAt = slow ? repHigh + 1 : repHigh;                  // reps needed before a load bump
+  if (prev.reps >= loadAt) {
+    const add = deficit ? 0 : increment;                        // surplus/maintenance step up; deficit holds
     return { load: roundInc(prev.weight + add, increment), reps: repLow };
   }
-  return { load: prev.weight, reps: Math.min(repHigh, prev.reps + 1) };
+  return { load: prev.weight, reps: Math.min(loadAt, prev.reps + 1) };
 }
 
 /** Seed the next prescription. External-load exercises use double progression (nextLoad). Bodyweight

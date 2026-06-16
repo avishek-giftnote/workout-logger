@@ -74,21 +74,29 @@ function evalNextLoad(): Violation[] {
   const v: Violation[] = [];
   const RANGES: [number, number][] = [[8, 12], [5, 8], [3, 6]];
   for (const weight of [40, 100]) for (const [lo, hi] of RANGES)
-    for (const reps of [lo - 1, hi, hi + 2]) for (const mult of [0.1, 0.5, 1.0]) for (const inc of [1.25, 2.5]) {
+    for (const reps of [lo - 1, hi, hi + 1, hi + 2]) for (const mult of [0.1, 0.5, 1.0]) for (const inc of [1.25, 2.5]) {
       const prev = { weight, reps, rpe: null, startedAt: "" };
       const r = nextLoad(prev, lo, hi, mult, inc);
+      const deficit = mult <= 0.2, slow = !deficit && mult < 1.0;   // slow = MAINTENANCE
+      const loadAt = slow ? hi + 1 : hi;                            // maintenance needs one extra rep (D3)
       const ctx = `w=${weight} reps=${reps} range=${lo}-${hi} mult=${mult} inc=${inc}`;
-      if (mult <= 0.2) {
+      if (deficit) {
         if (r.load == null || r.load > weight) v.push({ rule: "R11-deficit-holds", detail: `${ctx} → load=${r.load} > ${weight}` });
-      } else if (reps >= hi) {
+      } else if (reps >= loadAt) {
         const want = roundInc(weight + inc, inc);
         if (r.load !== want || !(r.load > weight)) v.push({ rule: "R11-top-adds-load", detail: `${ctx} → load=${r.load}, want ${want}` });
         if (r.reps !== lo) v.push({ rule: "R11-top-resets-reps", detail: `${ctx} → reps=${r.reps}, want ${lo}` });
       } else {
         if (r.load !== weight) v.push({ rule: "R11-below-holds-load", detail: `${ctx} → load=${r.load}, want ${weight}` });
-        if (r.reps !== reps + 1) v.push({ rule: "R11-below-adds-rep", detail: `${ctx} → reps=${r.reps}, want ${reps + 1}` });
+        if (r.reps !== Math.min(loadAt, reps + 1)) v.push({ rule: "R11-below-adds-rep", detail: `${ctx} → reps=${r.reps}, want ${Math.min(loadAt, reps + 1)}` });
       }
     }
+  // D3 — slow gain: at the TOP of the range, SURPLUS adds the increment immediately while MAINTENANCE holds
+  // the load and climbs one extra rep first.
+  const top = { weight: 100, reps: 12, rpe: null, startedAt: "" };
+  if (nextLoad(top, 8, 12, 1.0, 2.5).load !== 102.5) v.push({ rule: "D3-surplus-loads-at-top", detail: `surplus@top → ${nextLoad(top, 8, 12, 1.0, 2.5).load}, want 102.5` });
+  const maint = nextLoad(top, 8, 12, 0.5, 2.5);
+  if (maint.load !== 100 || maint.reps !== 13) v.push({ rule: "D3-maintenance-slow", detail: `maintenance@top → load=${maint.load} reps=${maint.reps}, want hold@100 reps 13` });
   // no history → load blank at the bottom of the range
   const none = nextLoad(null, 8, 12, 1.0, 2.5);
   if (none.load !== null || none.reps !== 8) v.push({ rule: "R11-cold-start", detail: `null prev → ${JSON.stringify(none)}` });
@@ -133,8 +141,7 @@ function evalReadinessSemantics(): Violation[] {
   return v;
 }
 
-// ── R33: e1rm is monotone non-decreasing in weight and in reps (both paths). The RPE-vs-Epley level
-//    divergence is a DEFERRED finding (docs/eval-findings.md) — we pin monotonicity, not cross-path agreement. ──
+// ── R33: e1rm is monotone non-decreasing in weight and in reps (both paths). ──
 function evalE1rmMonotone(): Violation[] {
   const v: Violation[] = [];
   for (const reps of [1, 3, 5, 8, 12]) for (let w = 40; w <= 200; w += 20) {
@@ -143,6 +150,17 @@ function evalE1rmMonotone(): Violation[] {
   }
   for (const w of [60, 100, 140]) for (let reps = 1; reps <= 11; reps++)
     if (e1rm(w, reps + 1) < e1rm(w, reps)) v.push({ rule: "R33-e1rm-reps-monotone", detail: `w=${w}: e1rm dropped from ${reps} to ${reps + 1} reps` });
+  return v;
+}
+
+// ── D5: the RPE-adjusted e1RM intentionally REFINES the Epley fallback UPWARD on a sub-failure set (reps
+//    in reserve ⇒ more in the tank). This divergence is by design (docs/eval-findings.md), not a bug. ──
+function evalE1rmRpeRefinement(): Violation[] {
+  const v: Violation[] = [];
+  for (const [w, reps] of [[100, 5], [150, 8], [200, 3]] as [number, number][]) for (const rpe of [7, 8, 9]) {
+    const refined = e1rm(w, reps, rpe), fallback = e1rm(w, reps);
+    if (refined < fallback - 1e-9) v.push({ rule: "D5-rpe-refines-up", detail: `${w}x${reps}@RPE${rpe}: rpe-path ${refined.toFixed(1)} < Epley ${fallback.toFixed(1)}` });
+  }
   return v;
 }
 
@@ -197,7 +215,7 @@ describe("prescription engine eval — Layer 5 invariants over a full parameter 
     const violations = [
       ...evalRpePct(), ...evalRirWave(), ...evalNextLoad(),
       ...evalBodyweightProgression(), ...evalReadiness(), ...evalReadinessSemantics(),
-      ...evalE1rmMonotone(), ...evalTopWorkingSet(), ...evalRpePctMonotone(), ...evalWorkingLoadRounding(),
+      ...evalE1rmMonotone(), ...evalE1rmRpeRefinement(), ...evalTopWorkingSet(), ...evalRpePctMonotone(), ...evalWorkingLoadRounding(),
     ];
 
     const byRule: Record<string, number> = {};

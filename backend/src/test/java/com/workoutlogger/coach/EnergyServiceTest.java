@@ -209,4 +209,13 @@ class EnergyServiceTest {
         EnergyDto e = svc.estimate(user(true, 80.0, 81.6, 8, 28));
         assertThat(e.ratePerWeekKg()).matches("^[+-]\\d+\\.\\d{2}$");
     }
+
+    // ── D4: the CI half-width uses a small-sample Student-t multiplier (df = n−2), not a fixed z=1.96, so
+    //    small samples aren't called more decisively than the data warrants. ──
+    @Test
+    void usesSmallSampleTMultiplierNotZ() {
+        assertThat(EnergyService.tMultiplier(4)).isEqualTo(2.776);   // n=6 (df=4): t, well above z
+        assertThat(EnergyService.tMultiplier(6)).isGreaterThan(1.96);
+        assertThat(EnergyService.tMultiplier(100)).isEqualTo(1.96);  // large n → normal approximation
+    }
 }

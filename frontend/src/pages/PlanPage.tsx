@@ -135,7 +135,8 @@ function MacroPlanner({ onCreated }: { onCreated: () => void }) {
   const preview = useMemo(() => {
     if (!exercises.data) return null;
     if (usesDate && !targetDate) return null;
-    return planMacrocycle(goal, months * 4, usesDate ? targetDate : null, focus, days, exercises.data, measuredPhase);
+    // pass the measured phase + its confidence; the planner applies the override only at HIGH confidence
+    return planMacrocycle(goal, months * 4, usesDate ? targetDate : null, focus, days, exercises.data, measuredPhase, measuredPhase ? "HIGH" : null);
   }, [goal, months, targetDate, focus, days, exercises.data, usesDate, measuredPhase]);
 
   const planName = useMemo(() => {

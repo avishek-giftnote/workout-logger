@@ -9,18 +9,26 @@ surfaced 14 code findings.
 escaping MRV, R28/R29 CONTEST_PREP calendar overshoot, SM2 `accumulationWeeks` domain clamp, SM5
 `intensityBand` validation (`pctLow ≤ pctHigh`, `targetRir`).
 
-**Deferred — these need a product decision** (docs/coach.md says one thing, the code does another). The
-evals pin **current** behavior with a `TODO(eval-finding)` marker so the suite is green; flip the assertion
-when the decision is made.
+**Resolved** (decisions made; failing-test-first, evals flipped to the chosen behavior):
+- **D1 — confidence-gated clamp** (`periodization.ts` `planMacrocycle`): the function now takes
+  `measuredConfidence` and applies a measured-phase override ONLY at HIGH confidence (enforced in the
+  planner, not just at the UI call site). Decision: under low/unknown confidence the recipe's aspirational
+  phase stands (don't under-prescribe volume for new users). Pinned by `R25` (HIGH clamps, LOW ignored).
+- **D2 — focus floored at MEV** (`targetSets`): a focus muscle is trimmed only toward MEV, never below it
+  (capped by the block ceiling so a low-volume PEAK still holds). Pinned by `D2-focus-mev-floor`.
+- **D3 — MAINTENANCE slow gain** (`nextLoad`): maintenance must beat the top of the range by one extra rep
+  before adding load (an extra session at the top) — slower than a surplus, faster than a held deficit.
+  Pinned by `D3-maintenance-slow` / `D3-surplus-loads-at-top`.
+- **D4 — small-n t-multiplier** (`EnergyService.java`): the CI half-width uses a Student-t value keyed to
+  df = n−2 (≈2.78 at n=6) instead of a flat z=1.96. Pinned by `usesSmallSampleTMultiplierNotZ`.
+- **D5 — keep both e1RM paths** (`e1rm`): the RPE-adjusted estimate intentionally refines Epley UPWARD on a
+  sub-failure set (that shift is information, not noise); Epley is the conservative no-RPE fallback. No code
+  change; the behavior is documented and pinned by `D5-rpe-refines-up`.
 
-| # | Location | docs/coach.md intent | Current code | Decision needed |
-|---|---|---|---|---|
-| 1 | `periodization.ts:98` clampPhase | phase modifier applies only at **HIGH** confidence; default to MAINTENANCE on UNKNOWN/LOW | keeps SURPLUS unless measured phase is literally `DEFICIT`; confidence not threaded into `planMacrocycle` | thread `EnergyService.confidence` into the planner + downgrade SURPLUS unless HIGH-confidence? (signature change) |
-| 2 | `periodization.ts:72` focus path | focus muscle trimmed **toward** MEV in a deficit | driven **below** MEV (e.g. SIDE_DELT→4 vs MEV 6) | floor focus-muscle deficit volume at MEV? |
-| 3 | `prescription.ts:84` nextLoad | MAINTENANCE = "slow gain", distinct from SURPLUS "full increments" | MAINTENANCE (0.5) and SURPLUS (1.0) progress load identically (mult is only a deficit on/off switch) | make `progressMult` a real rate multiplier, or document they intentionally match? |
-| 4 | `EnergyService.java:92` | conservative CI | hardcoded z=1.96 even at n=6 (df=4, true t≈2.78) — understates CI ~30% at small n, calls are over-decisive | use small-n t-multiplier keyed to n−2? |
-| 5 | `prescription.ts:16-18` e1rm | one est-1RM | RPE-path and Epley-path diverge for the same set (315×5@RPE8 → 393.75 vs 367.5) → prescription jumps when RPE logging starts | reconcile the two paths, or accept the discontinuity? |
-| 6 | `periodization.ts:66` targetSets deload | deload steps volume DOWN | the deload floor `max(mv, round(mev·0.5))` is phase-independent (good) but for low-ceiling blocks (PEAK, STRENGTH non-focus, mv=0 muscles) it lands AT or ABOVE the accumulation target — i.e. not a real reduction | compute the deload floor relative to the block's own ceiling so low-ceiling blocks still step down? (R24 currently pins only phase-independence) |
+**Still deferred** (lower-severity, no decision needed yet):
 
-**Lower-severity, also deferred:** deadband anchored to regression-mean weight vs latest (`EnergyService.java:93`);
-no DB partial-unique index enforcing one-ACTIVE-plan-per-user (`PlanRepository.java:40`).
+| # | Location | Issue | Possible fix |
+|---|---|---|---|
+| 6 | `periodization.ts:66` targetSets deload | the deload floor `max(mv, round(mev·0.5))` is phase-independent (good) but for low-ceiling blocks (PEAK, STRENGTH non-focus, mv=0 muscles) it lands AT or ABOVE the accumulation target — not a real reduction | compute the deload floor relative to the block's own ceiling so low-ceiling blocks still step down (R24 currently pins only phase-independence) |
+| — | `EnergyService.java:93` | dead-band anchored to the regression-mean weight vs the latest weight (a couple hundred grams apart mid-trend) | pin which weight anchors the band |
+| — | `PlanRepository.java:40` | no DB partial-unique index enforcing one-ACTIVE-plan-per-user (purely code-enforced) | add a partial-unique index on `{userId, status:'ACTIVE'}` |

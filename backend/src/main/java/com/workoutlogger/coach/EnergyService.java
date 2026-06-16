@@ -31,6 +31,19 @@ public class EnergyService {
     private static final double[] PAL = {1.40, 1.55, 1.70, 1.85, 2.00};   // by ActivityLevel.ordinal()
     private static final double KCAL_PER_KG = 7700.0;
 
+    // Two-sided 95% Student-t critical value by degrees of freedom (index = df). At small n the slope's
+    // sampling distribution is t, not normal: z=1.96 understates the CI ~30% at n=6 (df=4, t≈2.78) and would
+    // make phase / HIGH-confidence calls more decisive than the data warrants. Falls back to ~1.96 for df≥30.
+    private static final double[] T95 = {
+            Double.NaN, 12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228,
+            2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086,
+            2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042,
+    };
+    static double tMultiplier(int df) {   // package-visible so the energy test can pin the table (D4)
+        if (df <= 0) return T95[1];
+        return df < T95.length ? T95[df] : 1.96;
+    }
+
     public EnergyDto estimate(User u) {
         Profile p = u.getProfile();
         List<String> missing = new ArrayList<>();
@@ -89,7 +102,7 @@ public class EnergyService {
         for (int i = 0; i < n; i++) { double r = ys[i] - (intercept + slope * xs[i]); sse += r * r; }
         double se = Math.sqrt((sse / Math.max(1, n - 2)) / sxx);   // SE of slope (kg/day)
 
-        double rateWk = slope * 7, ciWk = 1.96 * se * 7;           // weekly rate + 95% CI half-width
+        double rateWk = slope * 7, ciWk = tMultiplier(n - 2) * se * 7;   // weekly rate + 95% CI half-width (t, not z)
         double deadband = 0.001 * ybar;                            // 0.1% of the regression-central weight / week
         double lo = rateWk - ciWk, hi = rateWk + ciWk;
         String phase = lo > deadband ? "SURPLUS" : hi < -deadband ? "DEFICIT" : "MAINTENANCE";

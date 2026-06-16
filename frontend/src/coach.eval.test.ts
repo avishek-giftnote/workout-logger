@@ -152,6 +152,12 @@ function evaluate(c: Case): Violation[] {
         if (t > lm.mrv) fail("R21-mrv-cap", `${m} ${phase} wk${w} = ${t} > MRV ${lm.mrv}`);
         if (t < lm.mv) fail("R22-mv-floor", `${m} ${phase} wk${w} = ${t} < MV ${lm.mv}`);
       }
+      // D2 — a FOCUS muscle's accumulation volume is never trimmed below MEV (except a low-ceiling PEAK block)
+      if (b.focusMuscles.includes(m) && b.blockType !== "PEAK")
+        for (let w = 1; w <= n; w++) for (const phase of ["DEFICIT", "MAINTENANCE", "SURPLUS"]) {
+          const t = targetSets(m, { ...b, phase }, w);
+          if (t < lm.mev) fail("D2-focus-mev-floor", `focus ${m} ${phase} wk${w} = ${t} < MEV ${lm.mev}`);
+        }
       // R18 — phase is a bounded, monotone band-step: deficit ≤ maintenance ≤ surplus
       const ph = (phase: string) => targetSets(m, { ...b, phase }, n);
       if (!(ph("DEFICIT") <= ph("MAINTENANCE") && ph("MAINTENANCE") <= ph("SURPLUS")))
@@ -176,14 +182,19 @@ function evaluate(c: Case): Violation[] {
   const peakI = p.mesocycles.findIndex((m) => m.blockType === "PEAK");
   if (peakI >= 0 && peakI !== p.mesocycles.length - 1) fail("R20-peak-terminal", `PEAK at ${peakI}/${p.mesocycles.length - 1}`);
 
-  // R25 — measured DEFICIT clamps every recipe SURPLUS down to MAINTENANCE (never below), others unchanged.
-  // (Threading the EnergyService CONFIDENCE through the clamp is a deferred decision — see docs/eval-findings.md.)
+  // R25 — a HIGH-confidence measured DEFICIT clamps every recipe SURPLUS down to MAINTENANCE (never below),
+  // others unchanged. A LOW/UNKNOWN-confidence reading is IGNORED — the recipe's aspirational phase stands. (D1)
   {
-    const pd = planMacrocycle(c.goal, c.duration, targetDate, c.focus, c.days, FULL, "DEFICIT");
-    if (pd.mesocycles.some((m) => m.phase === "SURPLUS")) fail("R25-deficit-clamp", "a SURPLUS survived a measured DEFICIT");
+    const pd = planMacrocycle(c.goal, c.duration, targetDate, c.focus, c.days, FULL, "DEFICIT", "HIGH");
+    if (pd.mesocycles.some((m) => m.phase === "SURPLUS")) fail("R25-deficit-clamp", "a SURPLUS survived a HIGH-confidence DEFICIT");
     pd.mesocycles.forEach((m, i) => {
       const base = p.mesocycles[i]?.phase;
       if (base && base !== "SURPLUS" && m.phase !== base) fail("R25-deficit-clamp", `block ${i} ${base}→${m.phase} (non-SURPLUS changed)`);
+    });
+    // low-confidence DEFICIT must NOT clamp — the planner ignores a non-HIGH measurement
+    const pLow = planMacrocycle(c.goal, c.duration, targetDate, c.focus, c.days, FULL, "DEFICIT", "LOW");
+    pLow.mesocycles.forEach((m, i) => {
+      if (m.phase !== p.mesocycles[i]?.phase) fail("R25-low-conf-ignored", `block ${i} clamped on LOW confidence: ${p.mesocycles[i]?.phase}→${m.phase}`);
     });
   }
 

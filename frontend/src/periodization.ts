@@ -70,9 +70,13 @@ export function targetSets(muscle: Muscle, meso: MesocycleDto | MesoInput, week:
   const start = Math.min(Math.max(lm.mv, lm.mev), ceiling);             // start at MEV (unless ceiling is lower)
   const ramp = start + RAMP_PER_WEEK * (Math.min(week, n) - 1);
   const stepped = ramp + bandStep(lm) * phaseMod(meso.phase).volumeBandSign;
+  // A focus muscle is trimmed only TOWARD MEV, never below it (don't lose the muscle you're specializing in
+  // during a deficit) — floor it at MEV, capped by the block ceiling so a low-volume PEAK still holds. Non-
+  // focus floors at MV. (council D2 / docs/coach.md)
+  const floor = focus ? Math.min(ceiling, Math.max(lm.mv, lm.mev)) : lm.mv;
   // Clamp the band-stepped value to the ceiling (≤ MRV) — applying the band-step AFTER the clamp let a
-  // SURPLUS week escape the ceiling toward over-MRV junk volume. Floor at MV. (council R21)
-  return Math.max(lm.mv, Math.min(ceiling, stepped));
+  // SURPLUS week escape the ceiling toward over-MRV junk volume. (council R21)
+  return Math.max(floor, Math.min(ceiling, stepped));
 }
 
 // ── macrocycle planner ──
@@ -279,8 +283,12 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
 export function planMacrocycle(
   goal: GoalType, durationWeeks: number, targetDate: string | null,
   focusMuscles: Muscle[], daysPerWeek: number, exercises: ExerciseDto[],
-  measuredPhase: string | null = null,
+  measuredPhase: string | null = null, measuredConfidence: string | null = null,
 ): PlanPreview {
+  // A measured energy phase overrides the recipe's aspirational phase ONLY at HIGH confidence; under
+  // low/unknown confidence we ignore the reading and let the goal's recipe stand (the rule is enforced
+  // here in the planner, not just at the UI call site). (council D1 / docs/coach.md)
+  const measured = measuredConfidence === "HIGH" ? measuredPhase : null;
   let total = Math.max(5, durationWeeks);
   if (targetDate) {
     const wks = Math.round((new Date(targetDate).getTime() - Date.now()) / (7 * DAY));
@@ -299,11 +307,11 @@ export function planMacrocycle(
     while (prepWeeks - used >= 2) {
       const remaining = prepWeeks - used;
       const accum = Math.max(1, remaining >= 7 ? 4 : remaining - 1);
-      blocks.push(mkBlock({ blockType: "PREP", accum, phase: "DEFICIT" }, focus, blocks.length + 1, measuredPhase));
+      blocks.push(mkBlock({ blockType: "PREP", accum, phase: "DEFICIT" }, focus, blocks.length + 1, measured));
       used += accum + 1; i++;
       if (i > 12) break;
     }
-    blocks.push(mkBlock({ blockType: "PEAK", accum: 1, phase: "DEFICIT" }, focus, blocks.length + 1, measuredPhase));
+    blocks.push(mkBlock({ blockType: "PEAK", accum: 1, phase: "DEFICIT" }, focus, blocks.length + 1, measured));
     used += 2;
   } else {
     const unit = recipeUnit(goal);
@@ -312,11 +320,11 @@ export function planMacrocycle(
       const spec = unit[i % unit.length];
       const weeks = spec.accum + 1;
       if (used > 0 && used + weeks > total + 2) break;
-      blocks.push(mkBlock(spec, focus, blocks.length + 1, measuredPhase));
+      blocks.push(mkBlock(spec, focus, blocks.length + 1, measured));
       used += weeks; i++;
       if (i > 40) break;
     }
-    if (blocks.length === 0) blocks.push(mkBlock(unit[0], focus, 1, measuredPhase)), used += unit[0].accum + 1;
+    if (blocks.length === 0) blocks.push(mkBlock(unit[0], focus, 1, measured)), used += unit[0].accum + 1;
   }
 
   const split = generateSplit(blocks[0], daysPerWeek, exercises);
