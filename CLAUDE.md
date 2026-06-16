@@ -63,16 +63,30 @@ tests still pass.
    correctness, missed edge cases, and regressions — the same way the cardio / energy-balance / progression
    designs were vetted. Worth it when a change spans backend+frontend+data model or has safety implications.
 
-Current suite size (keep roughly current when you add tests): **backend ~51** (`mvn test` runs the pure
-classes; `RUN_MONGO_TESTS=1` adds `ApiIntegrationTest`), **frontend 49** (`npm test`) **+ 2 eval sweeps**
-(`npm run eval`).
+Current suite size (keep roughly current when you add tests): **backend ~62** (`mvn test` runs ~37 pure
+classes — incl. `EnergyServiceTest`'s dead-band/PAL boundary cases; `RUN_MONGO_TESTS=1` adds the 25-test
+`ApiIntegrationTest`, incl. the plan state-machine), **frontend 49** (`npm test`) **+ 3 eval sweeps**
+(`npm run eval`: coach planner, prescription engine, logging path).
 
-**Coaching eval harness:** `cd frontend && npm run eval` sweeps the macrocycle planner across every
-goal × days/week × duration × focus combination (240 configs) and scores the research invariants — every
-prime mover trained ≥2×/week (or warned by name), first block / contest-prep block & phase rules, focus
-muscles pinned and ≥2×, and per-session set caps. Run it after any change to `periodization.ts` (or
-`EnergyService`); it catches silent rule violations the sampled unit tests miss. It's **separate** from
-`npm test` (the unit gate) and lives in `src/*.eval.test.ts`.
+**Eval harness** (`cd frontend && npm run eval`, plus the backend boundary tests) — a council-ratified
+invariant catalog, subdivided by domain. Each rule is numbered (`L##` logging, `R##` planner+prescription,
+`E##` energy, `SM##` plan state-machine) and pinned as a failing-guard-first check:
+- **`coach.eval.test.ts`** sweeps the macrocycle planner over every goal × days × duration × focus (240
+  configs) — prime movers ≥2×/week (against BOTH the synthetic and the **real** default catalog), block
+  potentiation (no STRENGTH/PEAK before HYPERTROPHY), volume stays within [MV, MRV] for all 15 muscles every
+  week/phase, phase band-step monotone, CONTEST_PREP calendar never overshoots the show date (one terminal
+  PEAK), and the measured-DEFICIT phase clamp.
+- **`prescription.eval.test.ts`** — RIR wave, double progression, readiness supersession, e1RM/rpePct
+  monotonicity, `topWorkingSet` selection (never warmup/deload), `workingLoad` increment rounding.
+- **`logging/logging.eval.test.ts`** — placeholder→entry→serialization: bodyweight `bw±delta` with **no
+  Decimal float drift**, loadMode decomposition, placeholder coalescing, cardio km→m, `pickPrevSets`
+  template scoping, finished-block/readiness-ease helpers.
+
+Run after any change to `periodization.ts` / `prescription.ts` / `EnergyService` / the logging engine; it
+catches silent rule violations the sampled unit tests miss, and is **separate** from `npm test`. Deferred
+design decisions the council surfaced (clampPhase confidence, deload floor, MAINTENANCE slow-gain, e1RM
+RPE-vs-Epley, energy t-multiplier) are tracked in **`docs/eval-findings.md`** — those evals pin current
+behavior with a `TODO`; flip them when the decision is made.
 
 ## Architecture (big picture)
 

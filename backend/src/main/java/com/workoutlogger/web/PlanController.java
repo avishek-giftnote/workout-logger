@@ -40,6 +40,12 @@ public class PlanController {
                         throw new BadRequestException("intensityBand: %1RM must be in (0, 1.5]");
                 } catch (NumberFormatException e) { throw new BadRequestException("intensityBand: %1RM not a number"); }
             }
+            // pctLow ≤ pctHigh, and targetRir must be a number or a range like "1-2" (not a free string). (council SM5)
+            if (band.pctLow() != null && !band.pctLow().isBlank() && band.pctHigh() != null && !band.pctHigh().isBlank()
+                    && new java.math.BigDecimal(band.pctLow()).compareTo(new java.math.BigDecimal(band.pctHigh())) > 0)
+                throw new BadRequestException("intensityBand: %1RM low must be ≤ high");
+            if (band.targetRir() != null && !band.targetRir().isBlank() && !band.targetRir().trim().matches("\\d+(\\s*-\\s*\\d+)?"))
+                throw new BadRequestException("intensityBand: targetRir must be a number or a range like \"1-2\"");
         }
         return new Mesocycle(mi.name(), Math.max(1, mi.accumulationWeeks()), mi.phase(), mi.focusMuscles(),
                 mi.blockType(), band);

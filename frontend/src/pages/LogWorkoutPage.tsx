@@ -7,6 +7,7 @@ import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, findEx, isCardioEx, structureChanged,
   templateExercisesFromBlocks, toCreateSet, uid,
 } from "../logging/engine";
+import { applyEase, finishedBlocks, pickPrevSets } from "../logging/seed";
 import { useSettings } from "../settings";
 import { currentMicro, phaseMod } from "../periodization";
 import { loadIncrement, progressedSeed, readiness, rirWave, topWorkingSet } from "../prescription";
@@ -69,15 +70,8 @@ export default function LogWorkoutPage() {
     () => [...new Set(blocks.map((b) => primaryMuscleOf(b.exercise.id)).filter((m): m is Muscle => !!m))],
     [blocks, exercises.data]);
 
-  const historyFor = (exerciseId: string): SetDto[] | null => {
-    for (const w of workouts.data ?? []) {
-      // "Same template" setting: only seed from sessions of this template (when in one).
-      if (prevSource === "template" && templateId && w.templateId !== templateId) continue;
-      const b = w.exercises.find((e) => e.exerciseId === exerciseId);
-      if (b) return b.sets;
-    }
-    return null;
-  };
+  const historyFor = (exerciseId: string): SetDto[] | null =>
+    pickPrevSets(workouts.data ?? [], exerciseId, prevSource, templateId);
 
   // The living plan: a prescribed exercise seeds a progressed load (double progression off the latest
   // working set, scaled by the phase) + the meso's RIR wave. No history → load blank (fills on first log).
@@ -101,10 +95,7 @@ export default function LogWorkoutPage() {
     if (te && te.reps != null && !(ex.isBodyweight && history)) base = livingSeed(te, ex);  // prescribed → living numbers
     else base = history;                                                                     // ad-hoc / bodyweight → echo
     // readiness: ease an under-recovered muscle — drop a set + raise RIR (lower the seeded RPE)
-    if (base && base.length && easeFor(exerciseId).trim) {
-      base = base.slice(0, Math.max(1, base.length - 1)).map((s) => ({ ...s, rpe: s.rpe != null ? Math.max(1, s.rpe - 1) : s.rpe }));
-    }
-    return base;
+    return applyEase(base, easeFor(exerciseId).trim);
   };
   const easedNotes = started
     ? blocks.map((b) => ({ name: b.exercise.name, ...easeFor(b.exercise.id) })).filter((e) => e.trim)
@@ -138,12 +129,11 @@ export default function LogWorkoutPage() {
   const doneSets = blocks.reduce((n, b) => n + b.sets.filter((s) => s.done).length, 0);
   const hasIncomplete = blocks.some((b) => b.sets.some((s) => !s.done));
   // Only completed sets are saved; exercises with no completed set are dropped (and so is their template entry).
-  const finishedBlocks = () =>
-    blocks.map((b) => ({ ...b, sets: b.sets.filter((s) => s.done) })).filter((b) => b.sets.length > 0);
+  const finishedBlocksNow = () => finishedBlocks(blocks);
 
   const save = useMutation({
     mutationFn: () => {
-      const fin = finishedBlocks();
+      const fin = finishedBlocksNow();
       const body: CreateWorkoutRequest = {
         startedAt: startedAt.toISOString(),
         templateId: templateId ?? undefined,
@@ -161,7 +151,7 @@ export default function LogWorkoutPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workouts"] });
-      const fin = finishedBlocks();
+      const fin = finishedBlocksNow();
       if (!templateId && fin.length) { setTemplateName(""); setDialog("save-template"); }
       else if (sourceTemplate && structureChanged(sourceTemplate, fin)) setDialog("update-template");
       else done();
@@ -172,17 +162,17 @@ export default function LogWorkoutPage() {
   const onFinish = () => { if (hasIncomplete) setConfirmDiscard(true); else save.mutate(); };
   const discardAndFinish = () => {
     setConfirmDiscard(false);
-    if (finishedBlocks().length === 0) done(); else save.mutate();   // nothing completed → just leave
+    if (finishedBlocksNow().length === 0) done(); else save.mutate();   // nothing completed → just leave
   };
 
   const saveTemplate = useMutation({
-    mutationFn: (name: string) => Api.createTemplate({ name, exercises: templateExercisesFromBlocks(finishedBlocks()) }),
+    mutationFn: (name: string) => Api.createTemplate({ name, exercises: templateExercisesFromBlocks(finishedBlocksNow()) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); done(); },
     onError: done,
   });
   const updateTemplate = useMutation({
     mutationFn: () => Api.updateTemplate(sourceTemplate!.id,
-      { name: sourceTemplate!.name, exercises: templateExercisesFromBlocks(finishedBlocks(), sourceTemplate) }),
+      { name: sourceTemplate!.name, exercises: templateExercisesFromBlocks(finishedBlocksNow(), sourceTemplate) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); done(); },
     onError: done,
   });
@@ -293,7 +283,7 @@ export default function LogWorkoutPage() {
             {dialog === "save-template" ? (
               <>
                 <h3 style={{ fontSize: 20 }}>Save as a template?</h3>
-                <p className="muted" style={{ fontSize: 13 }}>Reuse this lineup ({finishedBlocks().length} exercises) next time.</p>
+                <p className="muted" style={{ fontSize: 13 }}>Reuse this lineup ({finishedBlocksNow().length} exercises) next time.</p>
                 <input className="input mono" placeholder="Template name (e.g. Push Day)"
                   value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
                 <button className="btn btn-volt btn-block" disabled={!templateName.trim() || saveTemplate.isPending}

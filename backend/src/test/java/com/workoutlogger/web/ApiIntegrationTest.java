@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "spring.data.mongodb.uri=mongodb://localhost:27017/workoutlogger_test")
+@TestPropertySource(properties = "spring.data.mongodb.uri=${MONGODB_TEST_URI:mongodb://localhost:27017/workoutlogger_test}")
 @EnabledIfEnvironmentVariable(named = "RUN_MONGO_TESTS", matches = "1")
 class ApiIntegrationTest {
 
@@ -407,5 +407,83 @@ class ApiIntegrationTest {
         mvc.perform(get("/api/plan").header("Authorization", bearer(b))).andExpect(status().isNoContent());     // isolation
         mvc.perform(post("/api/plan/advance").header("Authorization", bearer(b))).andExpect(status().isNotFound());
         mvc.perform(get("/api/plan").header("Authorization", bearer(a))).andExpect(status().isNoContent());     // completed ≠ active
+    }
+
+    // ── plan state-machine (council SM1–SM7) ──
+    private org.springframework.test.web.servlet.ResultActions adv(String t) throws Exception {
+        return mvc.perform(post("/api/plan/advance").header("Authorization", bearer(t)));
+    }
+    private String planBody(String name) {
+        return "{\"name\":\"" + name + "\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":2,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}";
+    }
+
+    // SM1 — advance walks week 1..accum then one deload week, rolls to the NEXT meso at week 1, and COMPLETES
+    // only after the last block's deload (the multi-mesocycle transition the single-block test never exercises).
+    @Test
+    void advanceWalksThroughMultipleMesocycles() throws Exception {
+        String t = register("planmulti@example.com");
+        String plan = "{\"name\":\"Multi\",\"mesocycles\":["
+                + "{\"name\":\"M1\",\"accumulationWeeks\":2,\"phase\":\"SURPLUS\",\"focusMuscles\":[]},"
+                + "{\"name\":\"M2\",\"accumulationWeeks\":1,\"phase\":\"MAINTENANCE\",\"focusMuscles\":[]}]}";
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(plan))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mesoIndex").value(0)).andExpect(jsonPath("$.week").value(1));
+        adv(t).andExpect(jsonPath("$.mesoIndex").value(0)).andExpect(jsonPath("$.week").value(2));
+        adv(t).andExpect(jsonPath("$.mesoIndex").value(0)).andExpect(jsonPath("$.week").value(3));  // M1 deload week
+        adv(t).andExpect(jsonPath("$.mesoIndex").value(1)).andExpect(jsonPath("$.week").value(1));  // rolled to M2
+        adv(t).andExpect(jsonPath("$.mesoIndex").value(1)).andExpect(jsonPath("$.week").value(2));  // M2 deload week
+        adv(t).andExpect(jsonPath("$.status").value("COMPLETED"));
+    }
+
+    // SM3 — POST /api/plan replaces any ACTIVE plan: at most one ACTIVE per user, the prior is COMPLETED.
+    @Test
+    void creatingAPlanReplacesTheActiveOne() throws Exception {
+        String t = register("planreplace@example.com");
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(planBody("P1"))).andExpect(status().isCreated());
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(planBody("P2"))).andExpect(status().isCreated());
+        mvc.perform(get("/api/plan").header("Authorization", bearer(t))).andExpect(jsonPath("$.name").value("P2"));
+        assertThat(mongo.getDb().getCollection("plans").countDocuments(new org.bson.Document("status", "ACTIVE"))).isEqualTo(1L);
+    }
+
+    // SM4 — every plan-mutating endpoint is tenant-scoped: user B can't append to / end / advance user A's plan.
+    @Test
+    void planMutationsAreTenantIsolated() throws Exception {
+        String a = register("planiso-a@example.com");
+        String b = register("planiso-b@example.com");
+        mvc.perform(post("/api/plan").header("Authorization", bearer(a)).contentType(MediaType.APPLICATION_JSON).content(planBody("A"))).andExpect(status().isCreated());
+        String meso = "{\"name\":\"X\",\"accumulationWeeks\":1,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}";
+        mvc.perform(post("/api/plan/mesocycle").header("Authorization", bearer(b)).contentType(MediaType.APPLICATION_JSON).content(meso)).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/plan").header("Authorization", bearer(b))).andExpect(status().isNoContent());   // ends B's (none), not A's
+        mvc.perform(get("/api/plan").header("Authorization", bearer(a))).andExpect(status().isOk()).andExpect(jsonPath("$.name").value("A"));
+    }
+
+    // SM5 — intensityBand validation: pctLow ≤ pctHigh and targetRir must be a number/range (not a free string).
+    @Test
+    void intensityBandValidationRejectsBadBands() throws Exception {
+        String t = register("planband@example.com");
+        String swap = "{\"name\":\"P\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":4,\"phase\":\"SURPLUS\",\"focusMuscles\":[],"
+                + "\"intensityBand\":{\"repLow\":8,\"repHigh\":12,\"targetRir\":\"2\",\"pctLow\":\"0.9\",\"pctHigh\":\"0.6\"}}]}";
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(swap)).andExpect(status().isBadRequest());
+        String badRir = "{\"name\":\"P\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":4,\"phase\":\"SURPLUS\",\"focusMuscles\":[],"
+                + "\"intensityBand\":{\"repLow\":8,\"repHigh\":12,\"targetRir\":\"banana\",\"pctLow\":null,\"pctHigh\":null}}]}";
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(badRir)).andExpect(status().isBadRequest());
+        String ok = "{\"name\":\"P\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":4,\"phase\":\"SURPLUS\",\"focusMuscles\":[],"
+                + "\"intensityBand\":{\"repLow\":8,\"repHigh\":12,\"targetRir\":\"1-2\",\"pctLow\":\"0.6\",\"pctHigh\":\"0.75\"}}]}";
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(ok)).andExpect(status().isCreated());
+    }
+
+    // SM7 — addMesocycle appends to the live plan and the appended block is reachable by the cursor (advance
+    // rolls INTO it instead of completing).
+    @Test
+    void addMesocycleAppendsAndIsReachable() throws Exception {
+        String t = register("planappend@example.com");
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"P\",\"mesocycles\":[{\"name\":\"M1\",\"accumulationWeeks\":1,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/plan/mesocycle").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"M2\",\"accumulationWeeks\":1,\"phase\":\"MAINTENANCE\",\"focusMuscles\":[]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.mesocycles.length()").value(2));
+        adv(t).andExpect(jsonPath("$.week").value(2));                                                  // M1 deload week
+        adv(t).andExpect(jsonPath("$.mesoIndex").value(1)).andExpect(jsonPath("$.status").value("ACTIVE"));  // rolled into the appended M2
     }
 }

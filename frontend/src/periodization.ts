@@ -68,8 +68,11 @@ export function targetSets(muscle: Muscle, meso: MesocycleDto | MesoInput, week:
   const bt = (meso.blockType ?? "HYPERTROPHY") as BlockType;
   const ceiling = blockCeiling(bt, lm, focus);
   const start = Math.min(Math.max(lm.mv, lm.mev), ceiling);             // start at MEV (unless ceiling is lower)
-  const ramp = Math.min(ceiling, start + RAMP_PER_WEEK * (Math.min(week, n) - 1));
-  return Math.max(lm.mv, ramp + bandStep(lm) * phaseMod(meso.phase).volumeBandSign);
+  const ramp = start + RAMP_PER_WEEK * (Math.min(week, n) - 1);
+  const stepped = ramp + bandStep(lm) * phaseMod(meso.phase).volumeBandSign;
+  // Clamp the band-stepped value to the ceiling (≤ MRV) — applying the band-step AFTER the clamp let a
+  // SURPLUS week escape the ceiling toward over-MRV junk volume. Floor at MV. (council R21)
+  return Math.max(lm.mv, Math.min(ceiling, stepped));
 }
 
 // ── macrocycle planner ──
@@ -288,10 +291,14 @@ export function planMacrocycle(
   let used = 0;
 
   if (goal === "CONTEST_PREP") {
-    const prepWeeks = Math.max(0, total - 2);                    // reserve 2 weeks for the peak block
+    const prepWeeks = Math.max(0, total - 2);                    // reserve 2 weeks for the peak block (accum 1 + deload)
     let i = 0;
-    while (used < prepWeeks) {
-      const accum = Math.min(4, Math.max(3, prepWeeks - used - 1));
+    // Fill prepWeeks with PREP blocks (each costs accum+1 weeks) WITHOUT overshooting the show date: a
+    // standard 4+1 block while ≥7 weeks remain, otherwise the final block absorbs the exact remainder.
+    // (The old `max(3, …)` forced accum≥3 and overran prepWeeks, pushing the immovable peak past the date.)
+    while (prepWeeks - used >= 2) {
+      const remaining = prepWeeks - used;
+      const accum = Math.max(1, remaining >= 7 ? 4 : remaining - 1);
       blocks.push(mkBlock({ blockType: "PREP", accum, phase: "DEFICIT" }, focus, blocks.length + 1, measuredPhase));
       used += accum + 1; i++;
       if (i > 12) break;

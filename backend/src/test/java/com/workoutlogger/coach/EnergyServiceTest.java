@@ -124,4 +124,89 @@ class EnergyServiceTest {
         EnergyDto e = svc.estimate(user(true, 80.0, 80.0, 8, 0));   // zero span guard
         assertThat(e.status()).isEqualTo("GATHERING_DATA");
     }
+
+    // ── E1: dead-band boundary. A weekly rate inside ±0.1%bw/wk classifies MAINTENANCE; just outside it
+    //    classifies SURPLUS/DEFICIT. (Linear series ⇒ tight CI, so the boundary is the dead-band itself.) ──
+    @Test
+    void rateInsideDeadBand_isMaintenance_outsideIsDecisive() {
+        // 80 kg ⇒ dead-band ≈ ±0.08 kg/wk. +0.04 kg/wk is inside; +0.12 kg/wk is outside.
+        assertThat(svc.estimate(user(true, 80.0, 80.16, 8, 28)).phase()).isEqualTo("MAINTENANCE"); // +0.04/wk
+        assertThat(svc.estimate(user(true, 80.0, 80.48, 8, 28)).phase()).isEqualTo("SURPLUS");     // +0.12/wk
+        assertThat(svc.estimate(user(true, 80.0, 79.52, 8, 28)).phase()).isEqualTo("DEFICIT");     // −0.12/wk
+    }
+
+    @Test
+    void positiveMeanButWideCiStraddlingTheBand_isMaintenance() {
+        User u = user(true, 80.0, 80.0, 2, 28);
+        List<BodyweightEntry> log = new ArrayList<>();
+        Instant now = Instant.now();
+        double[] ws = { 79.0, 82.0, 79.5, 81.5, 80.0, 82.5, 80.5, 82.0 };   // gently up but very scattered
+        for (int i = 0; i < ws.length; i++)
+            log.add(new BodyweightEntry(java.util.UUID.randomUUID().toString(),
+                    now.minus(Duration.ofDays(28L - i * 4)), BigDecimal.valueOf(ws[i]), false));
+        u.setBodyweightLog(log);
+        EnergyDto e = svc.estimate(u);
+        assertThat(e.status()).isEqualTo("READY");
+        assertThat(e.phase()).isEqualTo("MAINTENANCE");   // CI straddles the band ⇒ direction undecided
+    }
+
+    // ── E2: estimated and null-weight weigh-ins are excluded from both the count and the slope fit. ──
+    @Test
+    void estimatedAndNullWeighInsAreExcluded() {
+        User u = user(true, 80.0, 80.0, 6, 28);   // 6 REAL, flat ⇒ READY + MAINTENANCE
+        Instant now = Instant.now();
+        u.getBodyweightLog().add(new BodyweightEntry("est1", now, BigDecimal.valueOf(120.0), true));   // estimated, huge
+        u.getBodyweightLog().add(new BodyweightEntry("est2", now.minus(Duration.ofDays(3)), BigDecimal.valueOf(40.0), true));
+        u.getBodyweightLog().add(new BodyweightEntry("nullw", now.minus(Duration.ofDays(1)), null, false));
+        EnergyDto e = svc.estimate(u);
+        assertThat(e.weighIns()).isEqualTo(6);            // only the real ones count
+        assertThat(e.phase()).isEqualTo("MAINTENANCE");   // the wild estimated points don't move the slope
+    }
+
+    // ── E4: sign coherence — a decisive phase agrees with the rate sign and the kcal band is ordered. ──
+    @Test
+    void decisivePhaseHasCoherentSignsAndOrderedBand() {
+        EnergyDto s = svc.estimate(user(true, 80.0, 81.6, 8, 28));   // surplus
+        assertThat(s.ratePerWeekKg()).startsWith("+");
+        assertThat(s.surplusDeficitKcalLow()).isGreaterThan(0);
+        assertThat(s.surplusDeficitKcalLow()).isLessThanOrEqualTo(s.surplusDeficitKcalHigh());
+        EnergyDto d = svc.estimate(user(true, 80.0, 78.4, 8, 28));   // deficit
+        assertThat(d.ratePerWeekKg()).startsWith("-");
+        assertThat(d.surplusDeficitKcalHigh()).isLessThan(0);
+        assertThat(d.surplusDeficitKcalLow()).isLessThanOrEqualTo(d.surplusDeficitKcalHigh());
+    }
+
+    // ── E6: Mifflin × PAL — maintenance rises with activity level, and with the sex offset MALE>UNSPEC>FEMALE. ──
+    private User profiled(Sex sex, ActivityLevel a) {
+        User u = user(true, 80.0, 80.0, 1, 0);   // profile + one weigh-in ⇒ maintenance computed (gate aside)
+        u.getProfile().setSex(sex);
+        u.getProfile().setActivityLevel(a);
+        return u;
+    }
+
+    @Test
+    void maintenanceRisesWithActivityLevel() {
+        int prev = Integer.MIN_VALUE;
+        for (ActivityLevel a : ActivityLevel.values()) {
+            int high = svc.estimate(profiled(Sex.MALE, a)).maintenanceKcalHigh();
+            assertThat(high).isGreaterThan(prev);
+            prev = high;
+        }
+    }
+
+    @Test
+    void sexOffsetOrdersMaintenanceMaleOverUnspecifiedOverFemale() {
+        int male = svc.estimate(profiled(Sex.MALE, ActivityLevel.MODERATE)).maintenanceKcalHigh();
+        int unspec = svc.estimate(profiled(Sex.UNSPECIFIED, ActivityLevel.MODERATE)).maintenanceKcalHigh();
+        int female = svc.estimate(profiled(Sex.FEMALE, ActivityLevel.MODERATE)).maintenanceKcalHigh();
+        assertThat(male).isGreaterThan(unspec);
+        assertThat(unspec).isGreaterThan(female);
+    }
+
+    // ── E7: the weekly rate is formatted as a signed, 2-dp, US-locale (dot) decimal. ──
+    @Test
+    void ratePerWeekIsSignedTwoDecimalUsFormat() {
+        EnergyDto e = svc.estimate(user(true, 80.0, 81.6, 8, 28));
+        assertThat(e.ratePerWeekKg()).matches("^[+-]\\d+\\.\\d{2}$");
+    }
 }

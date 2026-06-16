@@ -63,7 +63,9 @@ public class PlanRepository {
     public Optional<Macrocycle> advance() {
         return findActive().map(m -> {
             Mesocycle cur = m.getMesocycles().get(m.getMesoIndex());
-            int deloadWeek = cur.accumulationWeeks() + 1;
+            // Clamp here too (not only at the controller edge) so a persisted/legacy/importer doc with
+            // accumulationWeeks ≤ 0 can't make deloadWeek ≤ 1 and silently skip the whole block. (council SM2)
+            int deloadWeek = Math.max(1, cur.accumulationWeeks()) + 1;
             if (m.getWeek() < deloadWeek) {
                 m.setWeek(m.getWeek() + 1);
             } else if (m.getMesoIndex() + 1 < m.getMesocycles().size()) {

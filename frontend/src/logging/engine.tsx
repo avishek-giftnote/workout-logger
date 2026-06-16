@@ -100,7 +100,7 @@ export function RestPicker({ initial, onChange }: { initial: number | null; onCh
     </div>
   );
 }
-const secToMmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+export const secToMmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 export function mmssToSec(t: string): number | null {
   const v = (t ?? "").trim();
   if (!v) return null;
@@ -199,7 +199,10 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
   if (isBw) {
     const bw = parseFloat(bodyweight || "0");
     const d = parseFloat(orPrev(s.delta, s.pDelta) || "0");
-    weight = String(s.mode === "ASSISTED" ? bw - d : bw + d);
+    const eff = s.mode === "ASSISTED" ? bw - d : bw + d;
+    // Round the grain like the cardio path above — raw `bw ± d` carries binary-float drift
+    // (e.g. 72.3 + 10.1 → 82.39999999999999) that would persist verbatim into Decimal128.
+    weight = Number.isFinite(eff) ? String(Math.round(eff * 1e6) / 1e6) : "0";
     loadMode = d === 0 ? "BODYWEIGHT" : s.mode;
     loadDelta = String(d);
   } else {
