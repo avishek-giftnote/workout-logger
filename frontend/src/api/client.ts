@@ -1,7 +1,7 @@
 import type {
   AuthResponse, CardioMetric, CreatePlanRequest, CreateWorkoutRequest, EnergyDto, Equipment, ExerciseDto,
   Laterality, LastWorkingSetDto, MacrocycleDto, Mechanic, MeDto, MesoInput, MuscleContributionDto, SaveSplitRequest,
-  SaveTemplateRequest, SplitDto, TemplateDto, UpdateProfileRequest, WorkoutDto,
+  SaveTemplateRequest, SettingsDto, SplitDto, TemplateDto, UpdateProfileRequest, WorkoutDto,
 } from "./types";
 
 const TOKEN_KEY = "wl.token";
@@ -59,6 +59,8 @@ export const Api = {
 
   // me
   me: () => api<MeDto>("/me"),
+  getSettings: () => api<SettingsDto>("/me/settings"),
+  putSettings: (dto: SettingsDto) => api<SettingsDto>("/me/settings", { method: "PUT", body: JSON.stringify(dto) }),
   setBodyweight: (weightKg: string, recordedAt?: string) =>
     api<MeDto>("/me/bodyweight", { method: "PUT", body: JSON.stringify({ weightKg, recordedAt }) }),
   updateBodyweightEntry: (id: string, patch: { weightKg?: string; recordedAt?: string }) =>

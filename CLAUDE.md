@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+*Tier 3 — project memory for workout-logger. Loads on top of Tier 2 (workspace `~/AvisheksIntelligence/CLAUDE.md`) + Tier 1 (global `.claude/CLAUDE.md`) when working inside this project. Scope: this project only.*
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backend** (`backend/`) and a
@@ -174,8 +176,14 @@ the parser — use `·`).
   `["templates"]`, `["splits"]`, `["me"]`, `["workout", id]`) and mutations invalidate them. App is online-only.
 - `App.tsx` defines routes (`/previous-workouts` is home, `/start`, `/exercise-list`, detail/edit sub-routes).
   `auth/auth.tsx` validates the token via `/api/me` on load and signs out if it's stale.
-- `src/settings.tsx` is a localStorage-backed settings context; `prevSource` (`"any"` vs `"template"`) controls
-  where logging placeholders are sourced from.
+- `src/settings.tsx` is a **local-first** settings context; `prevSource` (`"any"` vs `"template"`) controls
+  where logging placeholders are sourced from. It backs onto `src/local/LocalStore.ts` (the portability
+  **seam**: `SqliteLocalStore` over SQLite-WASM/OPFS — `src/local/sqlite.ts` — with a `LocalStorageLocalStore`
+  fallback), async-hydrates with a one-time legacy-localStorage migration, and syncs to the server
+  (`GET/PUT /api/me/settings`, tenant-scoped, last-write-wins by epoch-ms `updatedAt` on `User.settings`).
+  Cloud sync is the future **subscription** feature — the only seam is the `SYNC_ENABLED` flag (true in dev);
+  the local SQLite base is always on. The same `LocalStore` interface is how desktop/mobile offline will be
+  added (swap in `expo-sqlite`/`better-sqlite3`). See the memory note `local-first-storage`.
 - **Decimals stay strings end-to-end** in the client too; parse to `number` only for transient display math.
 
 ## Conventions

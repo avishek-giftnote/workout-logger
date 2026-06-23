@@ -472,6 +472,41 @@ class ApiIntegrationTest {
         mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON).content(ok)).andExpect(status().isCreated());
     }
 
+    // ── synced settings (local-first base + cloud sync) ──
+    @Test
+    void settingsRoundTripWithLastWriteWins() throws Exception {
+        String t = register("settings@example.com");
+        mvc.perform(get("/api/me/settings").header("Authorization", bearer(t)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settings.coachEnabled").doesNotExist())   // empty for a new user
+                .andExpect(jsonPath("$.updatedAt").value("0"));
+        // write at ts=1000
+        mvc.perform(put("/api/me/settings").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"settings\":{\"coachEnabled\":\"false\",\"prevSource\":\"template\"},\"updatedAt\":\"1000\"}"))
+                .andExpect(jsonPath("$.settings.coachEnabled").value("false")).andExpect(jsonPath("$.updatedAt").value("1000"));
+        mvc.perform(get("/api/me/settings").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.settings.prevSource").value("template"));
+        // a STALE write (older ts) must not clobber
+        mvc.perform(put("/api/me/settings").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"settings\":{\"coachEnabled\":\"true\"},\"updatedAt\":\"500\"}"))
+                .andExpect(jsonPath("$.settings.coachEnabled").value("false")).andExpect(jsonPath("$.updatedAt").value("1000"));
+        // a NEWER write wins
+        mvc.perform(put("/api/me/settings").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"settings\":{\"coachEnabled\":\"true\"},\"updatedAt\":\"2000\"}"))
+                .andExpect(jsonPath("$.settings.coachEnabled").value("true")).andExpect(jsonPath("$.updatedAt").value("2000"));
+    }
+
+    @Test
+    void settingsAreTenantIsolated() throws Exception {
+        String a = register("seta@example.com");
+        String b = register("setb@example.com");
+        mvc.perform(put("/api/me/settings").header("Authorization", bearer(a)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"settings\":{\"prevSource\":\"template\"},\"updatedAt\":\"1000\"}")).andExpect(status().isOk());
+        mvc.perform(get("/api/me/settings").header("Authorization", bearer(b)))
+                .andExpect(jsonPath("$.settings.prevSource").doesNotExist())     // B never sees A's settings
+                .andExpect(jsonPath("$.updatedAt").value("0"));
+    }
+
     // SM7 — addMesocycle appends to the live plan and the appended block is reachable by the cursor (advance
     // rolls INTO it instead of completing).
     @Test

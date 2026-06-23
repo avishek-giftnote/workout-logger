@@ -153,7 +153,23 @@ flag those rows `estimated: true`; going forward, live logs snapshot the latest 
 - **Frontend** (React + Vite + TanStack Query): Training Log (`/previous-workouts`) with detail/edit,
   Start (`/start`) — empty or template, splits grouped & collapsible + inline template builder,
   Exercise List/detail (`/exercise-list`), settings sidebar. Logging engine shared by new + edit
-  sessions; weights stay strings. **Online-only** (no offline sync yet).
+  sessions; weights stay strings. App **data** is online-only (server is the source of truth); **settings**
+  are now local-first (see §6a).
+
+### 6a. Local-first storage layer (settings slice shipped) — ✅ DECIDED
+
+Product direction: the on-device store is the **base/free tier**; cross-device **cloud sync is a future
+subscription feature** (only the `SYNC_ENABLED` seam exists — no billing logic). Engine = **SQLite
+everywhere** (the one embedded DB first-class on mobile `expo-sqlite` + desktop `better-sqlite3` *and*
+available in-browser via `@sqlite.org/sqlite-wasm` over the OPFS `opfs-sahpool` VFS), fronted by a portable
+`LocalStore` interface (`frontend/src/local/`) so native impls swap in with no call-site changes.
+
+- **Shipped:** **settings** (`settings.tsx`) back onto `LocalStore` (SQLite-WASM, localStorage fallback);
+  async hydrate + one-time legacy-localStorage migration + write-through + last-write-wins sync to
+  `GET/PUT /api/me/settings` (tenant-scoped; `User.settings` map + epoch-ms `settingsUpdatedAt`).
+- **Next phase (not built):** extend the same `LocalStore` pattern to the full data model — the real
+  offline-first re-architecture, which uses the §8 sync hooks (`updatedAt`/`deletedAt` tombstones/`version`)
+  with a delta-read + outbox, and warrants a council review.
 
 ## 7. Coaching engine — periodization + prescription + energy (Layers 4–5)
 

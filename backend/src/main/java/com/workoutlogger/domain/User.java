@@ -6,7 +6,9 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Application user. {@code bodyweightLog} drives the bodyweight-exercise effective-load math and
@@ -22,6 +24,8 @@ public class User {
     private BigDecimal currentBodyweightKg;          // convenience mirror of latest log entry
     private List<BodyweightEntry> bodyweightLog = new ArrayList<>();
     private Profile profile;                          // nullable fitness profile (see docs/coach.md)
+    private Map<String, String> settings = new HashMap<>();   // device-synced UI prefs (local-first; cloud sync premium)
+    private long settingsUpdatedAt;                   // epoch millis of the last settings write (for last-write-wins)
     private int schemaVersion = 1;
     private Instant createdAt;
     private Instant updatedAt;
@@ -30,6 +34,11 @@ public class User {
 
     public Profile getProfile() { return profile; }
     public void setProfile(Profile profile) { this.profile = profile; }
+
+    public Map<String, String> getSettings() { return settings; }
+    public void setSettings(Map<String, String> settings) { this.settings = settings; }
+    public long getSettingsUpdatedAt() { return settingsUpdatedAt; }
+    public void setSettingsUpdatedAt(long settingsUpdatedAt) { this.settingsUpdatedAt = settingsUpdatedAt; }
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }

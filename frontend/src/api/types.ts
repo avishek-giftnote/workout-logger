@@ -185,6 +185,12 @@ export interface MeDto {
   profile: ProfileDto | null;
 }
 
+/** Synced UI preferences. `updatedAt` is epoch-millis-as-string; the server keeps the newest write. */
+export interface SettingsDto {
+  settings: Record<string, string>;
+  updatedAt: string;
+}
+
 export interface EnergyDto {
   status: "GATHERING_DATA" | "READY";
   phase: "SURPLUS" | "DEFICIT" | "MAINTENANCE" | "UNKNOWN";

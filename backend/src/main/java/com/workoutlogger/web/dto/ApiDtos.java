@@ -20,6 +20,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * API request/response shapes. NOTE: all weights are exact decimals carried as STRINGS
@@ -100,6 +101,10 @@ public final class ApiDtos {
 
     public record MeDto(String id, String email, String currentBodyweightKg,
                         List<BodyweightEntryDto> bodyweightLog, ProfileDto profile) {}
+
+    /** Device-synced UI preferences. `updatedAt` = epoch-millis-as-string; the server keeps the newest
+     *  write (last-write-wins). Stored on the User doc; the local-first base lives in the client's SQLite. */
+    public record SettingsDto(Map<String, String> settings, String updatedAt) {}
 
     /** recordedAt: optional ISO date (yyyy-MM-dd) or instant; defaults to now. Lets the user backdate weigh-ins. */
     public record SetBodyweightRequest(@NotNull String weightKg, String recordedAt) {}

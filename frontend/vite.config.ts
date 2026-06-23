@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 // Dev server proxies API calls to the Spring Boot backend.
 export default defineConfig({
   plugins: [react()],
+  // sqlite-wasm ships its own worker + .wasm; don't let Vite pre-bundle it.
+  optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
   server: {
     port: 5173,
     proxy: {

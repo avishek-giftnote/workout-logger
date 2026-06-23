@@ -8,6 +8,7 @@ import com.workoutlogger.repo.UserRepository;
 import com.workoutlogger.security.Tenant;
 import com.workoutlogger.web.dto.ApiDtos.EnergyDto;
 import com.workoutlogger.web.dto.ApiDtos.MeDto;
+import com.workoutlogger.web.dto.ApiDtos.SettingsDto;
 import com.workoutlogger.web.dto.ApiDtos.SetBodyweightRequest;
 import com.workoutlogger.web.dto.ApiDtos.UpdateBodyweightEntryRequest;
 import com.workoutlogger.web.dto.ApiDtos.UpdateProfileRequest;
@@ -41,6 +42,32 @@ public class MeController {
     @GetMapping("/energy")
     public EnergyDto energy() {
         return energy.estimate(current());
+    }
+
+    /** The user's synced UI preferences (the local-first base lives in the client's SQLite). */
+    @GetMapping("/settings")
+    public SettingsDto getSettings() {
+        return DtoMapper.toSettingsDto(current());
+    }
+
+    /** Upserts settings with last-write-wins by epoch-millis `updatedAt` — a stale write never clobbers a
+     *  newer one (so a second device that synced later can't overwrite the latest change). */
+    @PutMapping("/settings")
+    public SettingsDto putSettings(@RequestBody SettingsDto req) {
+        User u = current();
+        long incoming = parseTs(req.updatedAt());
+        if (incoming >= u.getSettingsUpdatedAt()) {
+            u.setSettings(req.settings() == null ? new java.util.HashMap<>() : new java.util.HashMap<>(req.settings()));
+            u.setSettingsUpdatedAt(incoming);
+            u.setUpdatedAt(Instant.now());
+            users.save(u);
+        }
+        return DtoMapper.toSettingsDto(u);
+    }
+
+    private static long parseTs(String s) {
+        try { return (s == null || s.isBlank()) ? 0L : Long.parseLong(s.trim()); }
+        catch (NumberFormatException e) { return 0L; }
     }
 
     private User current() {

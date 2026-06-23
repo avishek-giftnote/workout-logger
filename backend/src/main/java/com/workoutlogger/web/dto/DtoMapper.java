@@ -92,6 +92,12 @@ public final class DtoMapper {
         return new MeDto(u.getId(), u.getEmail(), str(u.getCurrentBodyweightKg()), log, profile);
     }
 
+    public static ApiDtos.SettingsDto toSettingsDto(User u) {
+        return new ApiDtos.SettingsDto(
+                u.getSettings() == null ? java.util.Map.of() : u.getSettings(),
+                String.valueOf(u.getSettingsUpdatedAt()));
+    }
+
     /** Exercise blocks from a request — server mints set ids and loggedAt. Used by create + edit. */
     public static List<ExerciseBlock> toBlocks(CreateWorkoutRequest req) {
         Instant now = Instant.now();
