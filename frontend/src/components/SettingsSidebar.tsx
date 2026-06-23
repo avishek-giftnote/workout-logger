@@ -5,6 +5,7 @@ import { useAuth } from "../auth/auth";
 import { useSettings } from "../settings";
 import { EXERCISE_CHARTS, TEMPLATE_CHARTS } from "../charts";
 import { TrendChart } from "./Chart";
+import { realWeightSeries } from "../bodyweight";
 import type { ActivityLevel, BodyweightEntryDto, Goal, Sex } from "../api/types";
 
 const SEX_OPTS: { v: Sex; label: string }[] = [{ v: "MALE", label: "Male" }, { v: "FEMALE", label: "Female" }, { v: "UNSPECIFIED", label: "—" }];
@@ -45,9 +46,7 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
     setHeight(p?.heightCm ?? "");
     setKcal(p?.initialIntakeKcal != null ? String(p.initialIntakeKcal) : "");
   }, [p?.dateOfBirth, p?.heightCm, p?.initialIntakeKcal]);
-  const realWeights = (me.data?.bodyweightLog ?? [])
-    .filter((e) => !e.estimated && e.weightKg)
-    .map((e) => ({ label: e.recordedAt, value: parseFloat(e.weightKg!) }));
+  const realWeights = realWeightSeries(me.data?.bodyweightLog ?? []);   // sorted oldest→newest for the trend
 
   if (!open) return null;
 
