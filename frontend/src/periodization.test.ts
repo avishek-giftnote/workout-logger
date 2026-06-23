@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isDeload, targetSets, currentMicro, planMacrocycle, phaseMod } from "./periodization";
+import { isDeload, targetSets, currentMicro, planMacrocycle, phaseMod, daySlots } from "./periodization";
 import type { ExerciseDto, MacrocycleDto, MesoInput, Muscle, WorkoutDto } from "./api/types";
 
 const meso = (over: Partial<MesoInput> = {}): MesoInput =>
@@ -85,7 +85,7 @@ describe("planMacrocycle", () => {
 
   it("generates a split with picked exercises and warns about uncovered focus muscles", () => {
     const p = planMacrocycle("MUSCLE_FOCUS", 8, null, ["SIDE_DELT"], 3, catalog);   // catalog has no side-delt exercise
-    expect(p.templates.flatMap((t) => t.exercises).length).toBeGreaterThan(0);      // chest/lat/quad get filled
+    expect(p.templates.flatMap((t) => t.slots).length).toBeGreaterThan(0);          // chest/lat/quad slots get filled
     expect(p.warnings.some((w) => w.toLowerCase().includes("side delt"))).toBe(true);
   });
 
@@ -94,7 +94,7 @@ describe("planMacrocycle", () => {
   const full = ALL.map((m, i) => ex(`m${i}`, `${m} lift`, m));
   const exId = (m: Muscle) => full[ALL.indexOf(m)].id;
   const freqOf = (p: ReturnType<typeof planMacrocycle>, m: Muscle) =>
-    p.templates.filter((t) => t.exercises.some((e) => e.exerciseId === exId(m))).length;
+    p.templates.filter((t) => t.slots.some((s) => s.exerciseId === exId(m))).length;
 
   it("trains each prime mover at least twice a week (4-day split)", () => {
     const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], 4, full);
@@ -115,11 +115,18 @@ describe("planMacrocycle", () => {
     expect(freqOf(p, "SIDE_DELT")).toBeGreaterThanOrEqual(2);
   });
 
-  it("populates target reps + RIR on every generated exercise (load left for first log)", () => {
+  it("populates target reps + RIR on every generated slot (load left for first log)", () => {
     const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], 4, full);
-    const exs = p.templates.flatMap((t) => t.exercises);
-    expect(exs.length).toBeGreaterThan(0);
-    expect(exs.every((e) => e.reps > 0 && /^\d+$/.test(e.targetRir))).toBe(true);
+    const slots = p.templates.flatMap((t) => t.slots);
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots.every((s) => s.reps > 0 && /^\d+$/.test(s.targetRir))).toBe(true);
+  });
+
+  it("every slot's default exercise actually trains its target muscle", () => {
+    const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], 4, full);
+    for (const t of p.templates) for (const s of t.slots) {
+      expect(s.exerciseId).toBe(exId(s.muscle));   // full catalog: the only exercise for that muscle
+    }
   });
 
   it("does not schedule a prime mover on back-to-back days (4–6 day splits)", () => {
@@ -127,5 +134,46 @@ describe("planMacrocycle", () => {
       const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], days, full);
       expect(p.warnings.some((w) => /back-to-back/.test(w))).toBe(false);
     }
+  });
+});
+
+describe("daySlots — muscle-group placeholders with pre-filled defaults", () => {
+  const block = (over: Partial<MesoInput> = {}): MesoInput =>
+    ({ name: "M", accumulationWeeks: 4, phase: "MAINTENANCE", focusMuscles: [], blockType: "HYPERTROPHY", intensityBand: null, ...over });
+  const press = ex("p1", "Incline Press", "CHEST");
+  const fly = ex("p2", "Pec Deck", "CHEST");
+  const day = (muscles: Muscle[]) => ({ name: "D", muscles });
+
+  it("splits a muscle's daily volume across ≤2 distinct exercises, conserving total sets", () => {
+    // CHEST (non-focus) week-1 target = MEV 8; at freq 2 → 4 sets/day → 2 slots (incline + pec deck)
+    const { slots } = daySlots(day(["CHEST"]), block(), { CHEST: 2 }, { CHEST: [press, fly] }, {}, 8, "3");
+    expect(slots.length).toBe(2);
+    expect(slots.map((s) => s.exerciseId)).toEqual(["p2", "p1"]);     // rotated → distinct defaults
+    expect(slots.every((s) => s.muscle === "CHEST")).toBe(true);
+    expect(slots.reduce((n, s) => n + s.sets, 0)).toBe(4);            // volume conserved
+  });
+
+  it("uses a single slot when only one candidate exercise exists", () => {
+    const { slots } = daySlots(day(["CHEST"]), block(), { CHEST: 2 }, { CHEST: [press] }, {}, 8, "3");
+    expect(slots.length).toBe(1);
+    expect(slots[0]).toMatchObject({ exerciseId: "p1", sets: 4 });
+  });
+
+  it("uses a single slot for low per-day volume (≤3 sets)", () => {
+    // freq 4 → 8/4 = 2 sets/day → ⌈2/3⌉ = 1 slot even with two candidates
+    const { slots } = daySlots(day(["CHEST"]), block(), { CHEST: 4 }, { CHEST: [press, fly] }, {}, 8, "3");
+    expect(slots.length).toBe(1);
+    expect(slots[0].sets).toBe(2);
+  });
+
+  it("reports a muscle with no candidate exercise as missing, emits no slot", () => {
+    const { slots, missing } = daySlots(day(["CHEST", "SIDE_DELT"]), block(), { CHEST: 2, SIDE_DELT: 2 }, { CHEST: [press], SIDE_DELT: [] }, {}, 8, "3");
+    expect(missing).toEqual(["SIDE_DELT"]);
+    expect(slots.every((s) => s.muscle === "CHEST")).toBe(true);
+  });
+
+  it("never exceeds the per-session set cap on any single slot", () => {
+    const { slots } = daySlots(day(["CHEST"]), block(), { CHEST: 1 }, { CHEST: [press] }, {}, 8, "3");
+    expect(slots.every((s) => s.sets <= 5)).toBe(true);
   });
 });

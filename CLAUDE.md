@@ -78,17 +78,20 @@ tests still pass.
 
 Current suite size (keep roughly current when you add tests): **backend ~62** (`mvn test` runs ~37 pure
 classes — incl. `EnergyServiceTest`'s dead-band/PAL boundary cases; `RUN_MONGO_TESTS=1` adds the 25-test
-`ApiIntegrationTest`, incl. the plan state-machine), **frontend 49** (`npm test`) **+ 3 eval sweeps**
-(`npm run eval`: coach planner, prescription engine, logging path).
+`ApiIntegrationTest`, incl. the plan state-machine), **frontend 72** (`npm test`) **+ 3 eval sweeps**
+(`npm run eval`: coach planner, prescription engine, logging path). Playwright E2E (`npm run e2e`,
+`frontend/e2e/`) covers the critical journeys + the planner-slot flow (`plan-slots`, `plan-slots-mocked`).
 
 **Eval harness** (`cd frontend && npm run eval`, plus the backend boundary tests) — a council-ratified
 invariant catalog, subdivided by domain. Each rule is numbered (`L##` logging, `R##` planner+prescription,
 `E##` energy, `SM##` plan state-machine) and pinned as a failing-guard-first check:
 - **`coach.eval.test.ts`** sweeps the macrocycle planner over every goal × days × duration × focus (240
-  configs) — prime movers ≥2×/week (against BOTH the synthetic and the **real** default catalog), block
-  potentiation (no STRENGTH/PEAK before HYPERTROPHY), volume stays within [MV, MRV] for all 15 muscles every
-  week/phase, phase band-step monotone, CONTEST_PREP calendar never overshoots the show date (one terminal
-  PEAK), and the measured-DEFICIT phase clamp.
+  configs) — prime movers ≥2×/week (against BOTH the synthetic and the **real** default catalog), now
+  **frequency-by-design** (R33: every prime mover/focus muscle scheduled ≥2× by construction, not just warned)
+  and **slot integrity** (R34/R35: each muscle-group slot's default trains it, ≤2 slots/muscle/day, distinct
+  defaults when the catalog allows), block potentiation (no STRENGTH/PEAK before HYPERTROPHY), volume stays
+  within [MV, MRV] for all 15 muscles every week/phase, phase band-step monotone, CONTEST_PREP calendar never
+  overshoots the show date (one terminal PEAK), and the measured-DEFICIT phase clamp.
 - **`prescription.eval.test.ts`** — RIR wave, double progression, readiness supersession, e1RM/rpePct
   monotonicity, `topWorkingSet` selection (never warmup/deload), `workingLoad` increment rounding.
 - **`logging/logging.eval.test.ts`** — placeholder→entry→serialization: bodyweight `bw±delta` with **no
@@ -142,8 +145,12 @@ the eval), with thin additive backend persistence. Read `docs/coach.md` before t
   days, catalog, measuredPhase)` → an ordered `Mesocycle[]` (block types/phases per goal recipe, `clampPhase`
   by the Coach's measured energy phase) + a generated split. `targetSets` ramps every muscle MEV→ceiling at
   ~+2 sets/wk with a bounded **phase band-step** (`PHASE_MODIFIERS`, orthogonal to `blockType`); `generateSplit`
-  selects exercises via the shared **`trainsMuscle`/`fracOf` ≥0.5 basis** (`muscles.ts`), keeps every prime
-  mover ≥2×/week, and `orderForRecovery` spaces a muscle + synergists ≥48–72h.
+  **designs the microcycle for ≥2×/week** (any prime mover/focus muscle the base shape under-hits is added to the
+  lightest days — frequency is guaranteed, not warned), then `daySlots` emits **user-selectable muscle-group
+  slots** (a placeholder per ~3 sets, ≤2 exercises/muscle/day, pre-filled with a recommended default via the
+  shared **`trainsMuscle`/`fracOf` ≥0.5 basis** in `muscles.ts`). `PlanPage` lets the user swap each slot from a
+  per-muscle dropdown; on accept slots resolve to concrete exercises (same-exercise slots merge). `orderForRecovery`
+  spaces a muscle + synergists ≥48–72h.
 - **`src/prescription.ts`** — the **living-plan engine** (pure, tested): `rpePct` (RTS table
   `100−2.5(reps−1)−5·RIR`), `e1rm`, `workingLoad`, `topWorkingSet`, `nextLoad`/`progressedSeed` (double
   progression; bodyweight progresses on reps), `rirWave` (3→0, phase-floored), `readiness` (eases a sore /

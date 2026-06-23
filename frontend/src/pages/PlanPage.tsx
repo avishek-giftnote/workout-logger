@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
-import { LANDMARKS, MUSCLES, muscleLabel, weeklyMuscleSets } from "../muscles";
-import { blockLabel, currentMicro, planMacrocycle, targetSets } from "../periodization";
-import type { GoalType, Muscle } from "../api/types";
+import { LANDMARKS, MUSCLES, muscleLabel, trainsMuscle, weeklyMuscleSets } from "../muscles";
+import { blockLabel, currentMicro, planMacrocycle, targetSets, PER_SESSION_CAP } from "../periodization";
+import type { ExerciseDto, GoalType, Muscle } from "../api/types";
+
+/** Highest contribution fraction an exercise gives a muscle (for ranking dropdown candidates). */
+const fracOf = (e: ExerciseDto, m: Muscle): number =>
+  e.muscleContributions.reduce((f, c) => (c.muscle === m ? Math.max(f, parseFloat(c.fraction)) : f), 0);
 
 const DAY = 86_400_000;
 const round = (n: number) => Math.round(n * 2) / 2;
@@ -144,13 +148,48 @@ function MacroPlanner({ onCreated }: { onCreated: () => void }) {
     return usesDate ? `${g} — to ${targetDate}` : `${g} — ${months} mo`;
   }, [goal, months, targetDate, usesDate]);
 
+  // Catalog exercises that train each muscle (≥0.5 basis), strongest contributor first — the dropdown options
+  // per slot. Built once per catalog so each <select> isn't re-filtering the whole list.
+  const candByMuscle = useMemo(() => {
+    const m = new Map<Muscle, ExerciseDto[]>();
+    for (const mk of MUSCLES.map((x) => x.key)) {
+      m.set(mk, (exercises.data ?? [])
+        .filter((e) => e.category !== "CARDIO" && trainsMuscle(e.muscleContributions, mk))
+        .sort((a, b) => fracOf(b, mk) - fracOf(a, mk)));
+    }
+    return m;
+  }, [exercises.data]);
+  const exById = useMemo(() => new Map((exercises.data ?? []).map((e) => [e.id, e])), [exercises.data]);
+
+  // The user's per-slot exercise choice, keyed "<dayIdx>:<slotIdx>". Pre-filled from each slot's recommended
+  // default and reset whenever the preview changes (new goal/days/focus → a fresh slotted split).
+  const [picks, setPicks] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const init: Record<string, string> = {};
+    preview?.templates.forEach((t, di) => t.slots.forEach((s, si) => { if (s.exerciseId) init[`${di}:${si}`] = s.exerciseId; }));
+    setPicks(init);
+  }, [preview]);
+
   const accept = useMutation({
     mutationFn: async () => {
       const pv = preview!;
       const ids: string[] = [];
-      for (const t of pv.templates) {
-        if (!t.exercises.length) continue;
-        const created = await Api.createTemplate({ name: t.name, exercises: t.exercises.map((e, i) => ({ exerciseId: e.exerciseId, name: e.name, position: i, sets: e.sets, reps: e.reps, targetRir: e.targetRir })) });
+      for (let di = 0; di < pv.templates.length; di++) {   // index-based so slot keys match `picks`
+        const t = pv.templates[di];
+        // Resolve each slot to the user's pick (or its default) and merge slots that landed on the same
+        // exercise — summing sets, capped — so a duplicate choice doesn't create two identical template rows.
+        const merged = new Map<string, { exerciseId: string; name: string; sets: number; reps: number; targetRir: string }>();
+        t.slots.forEach((s, si) => {
+          const exId = picks[`${di}:${si}`] ?? s.exerciseId;
+          if (!exId) return;
+          const name = exById.get(exId)?.name ?? s.name ?? "";
+          const cur = merged.get(exId);
+          if (cur) cur.sets = Math.min(PER_SESSION_CAP, cur.sets + s.sets);
+          else merged.set(exId, { exerciseId: exId, name, sets: s.sets, reps: s.reps, targetRir: s.targetRir });
+        });
+        const exercises = [...merged.values()];
+        if (!exercises.length) continue;
+        const created = await Api.createTemplate({ name: t.name, exercises: exercises.map((e, i) => ({ exerciseId: e.exerciseId, name: e.name, position: i, sets: e.sets, reps: e.reps, targetRir: e.targetRir })) });
         ids.push(created.id);
       }
       if (ids.length) await Api.createSplit({ name: pv.splitName, templateIds: ids });
@@ -230,17 +269,30 @@ function MacroPlanner({ onCreated }: { onCreated: () => void }) {
           )}
 
           <p className="micro" style={{ margin: "16px 4px 8px" }}>Starter split · {preview.splitName} (block 1)</p>
+          <p className="muted" style={{ fontSize: 12, margin: "0 4px 10px" }}>Each slot is a muscle-group placeholder pre-filled with a recommended lift — swap any to your preferred exercise before accepting.</p>
           <div className="stagger">
-            {preview.templates.map((t, i) => (
-              <section key={i} className="card ex-block">
+            {preview.templates.map((t, di) => (
+              <section key={di} className="card ex-block">
                 <div className="ex-head"><h3 style={{ fontSize: 16 }}>{t.name}</h3></div>
-                {t.exercises.map((e) => (
-                  <div key={e.exerciseId} className="detail-row">
-                    <span className="readout grow">{e.name}</span>
-                    <span className="mono detail-reps">{e.sets} × {e.reps} <span className="micro">@ {e.targetRir} RIR</span></span>
-                  </div>
-                ))}
-                {t.exercises.length === 0 && <div className="set-note">No catalog exercises matched this day.</div>}
+                {t.slots.map((s, si) => {
+                  const cands = candByMuscle.get(s.muscle) ?? [];
+                  return (
+                    <div key={si} className="detail-row" style={{ gap: 8 }}>
+                      <span className="tag" style={{ fontSize: 9, flexShrink: 0 }}>{muscleLabel(s.muscle)}</span>
+                      {cands.length ? (
+                        <select className="input mono grow" style={{ padding: "6px 8px", fontSize: 13 }}
+                          value={picks[`${di}:${si}`] ?? s.exerciseId ?? ""}
+                          onChange={(e) => setPicks((p) => ({ ...p, [`${di}:${si}`]: e.target.value }))}>
+                          {cands.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      ) : (
+                        <span className="readout grow" style={{ color: "var(--ember)" }}>No {muscleLabel(s.muscle)} exercise — add one to your catalog</span>
+                      )}
+                      <span className="mono detail-reps" style={{ flexShrink: 0 }}>{s.sets} × {s.reps} <span className="micro">@ {s.targetRir} RIR</span></span>
+                    </div>
+                  );
+                })}
+                {t.slots.length === 0 && <div className="set-note">No catalog exercises matched this day.</div>}
               </section>
             ))}
           </div>

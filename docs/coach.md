@@ -178,18 +178,30 @@ Generate a split + templates **for the current (first) block only**; distal bloc
 (type/weeks/focus snapshot). The same pure function computes the **preview and the accept payload**, so
 preview == accept.
 
-**Frequency (≥2×/week per muscle).** Schoenfeld et al. 2016 (volume-equated meta-analysis): training a muscle
-**≥2×/week beats 1×** for hypertrophy. Split **shape by days/week** is chosen to honour this — **2–3d
-Full-Body, 4d Upper/Lower×2, 5d U/L + PPL, 6d PPL×2** — so every **prime mover** (chest, lats, quads,
-hamstrings, glutes, side-delts, biceps, triceps) lands in ≥2 sessions, ~48 h apart. **Focus muscles are
-force-added** to extra days until they reach 2×. A muscle's weekly target is **spread across its sessions**
-and **capped at ~5 sets/session** (junk-volume ceiling); a prime mover stuck at 1× emits a warning.
+**Frequency (≥2×/week per muscle) — by design, not by warning.** Schoenfeld et al. 2016 (volume-equated
+meta-analysis): training a muscle **≥2×/week beats 1×** for hypertrophy. Split **shape by days/week** seeds
+this — **2–3d Full-Body, 4d Upper/Lower×2, 5d U/L + PPL, 6d PPL×2** — and the planner then **guarantees it
+constructively**: any **prime mover** (chest, lats, quads, hamstrings, glutes, side-delts, biceps, triceps) or
+**focus muscle** the base shape would hit <2× is **added to the lightest day(s) that lack it** until it reaches
+2× (so e.g. side-delts on a 4-day Upper/Lower, which the old shape hit once, is now scheduled twice). A muscle's
+weekly target is **spread across its sessions** and **capped at ~5 sets/session** (junk-volume ceiling). Only a
+true **catalog gap** (no exercise for a muscle) still warns — frequency itself no longer does.
 
-**Exercise selection (goal-aware).** Pick from the **user's catalog** by muscle (`muscleContributions`,
-fallback `MuscleSeed.infer`). **STRENGTH/PEAK blocks prefer COMPOUND** movements; hypertrophy mixes
-compound + isolation. Candidates **rotate across days** for variety (e.g. barbell bench one day, incline
-dumbbell the next). **Catalog-coverage gaps are first-class output** — warn ("side-delt needs a lateral-raise
-you don't have") rather than silently under-deliver.
+**Boilerplate slots → user-selectable exercises.** Each training day is emitted as a list of **muscle-group
+slots** — placeholders carrying a prescription (sets×reps@RIR) and a **recommended default exercise the user can
+swap** (in `PlanPage`) for any catalog exercise that trains the same muscle. A muscle's per-day volume splits
+into `⌈sets / 3⌉` slots, **≤2 distinct exercises per muscle per day** and bounded by how many candidates exist —
+so a ~4-set chest day becomes two slots (e.g. an incline press + a pec deck), a 3-set lat day stays one. Pure +
+swept: `daySlots` (periodization.ts) builds them; the eval pins slot integrity and the ≥2× design guarantee
+(R33–R35). On **accept**, each slot resolves to the user's chosen `exerciseId` and persists as an ordinary
+template (slots that landed on the same exercise merge, sets summed/capped) — the slot concept is plan-time only.
+
+**Exercise selection (goal-aware).** Defaults are picked from the **user's catalog** by muscle
+(`muscleContributions`, fallback `MuscleSeed.infer`). **STRENGTH/PEAK blocks prefer COMPOUND** movements;
+hypertrophy mixes compound + isolation. Candidates **rotate across slots/days** for variety (e.g. barbell bench
+one day, incline dumbbell the next), and the per-slot dropdown lists every catalog exercise that trains that
+muscle so the user has the final say. **Catalog-coverage gaps are first-class output** — warn ("side-delt needs
+a lateral-raise you don't have") rather than silently under-deliver.
 
 ### Mesocycle → mesocycle transitions
 Each block ends in its **deload week** (volume → ~MV, intensity held); the next block **restarts volume at

@@ -26,6 +26,13 @@ _Last updated: 2026-06-23_
 
 ## Done
 
+- _2026-06-23_ — **Planner remodel — muscle-group slots + frequency-by-design**: `generateSplit` now emits
+  **user-selectable slots** (a placeholder per unit of volume, ≤2 exercises/muscle/day, pre-filled with a
+  recommended lift the user can swap from a dropdown of catalog exercises that train the muscle — `daySlots`,
+  `PlanPage`); and the microcycle is **designed** so every prime mover + focus muscle lands ≥2×/week (shortfall
+  muscles added to the lightest days), replacing the old after-the-fact warning. Guards: `daySlots` unit tests +
+  eval R33 (freq-by-design) / R34–R35 (slot integrity, distinct defaults) — 240/240 configs pass; new Playwright
+  specs (`plan-slots`, `plan-slots-mocked`). Frontend unit 72 + 3 eval sweeps. Docs: `coach.md`, `DIAGRAMS.md` #14.
 - _2026-06-23_ — **Docs synced to local-first settings**: `DIAGRAMS.md` #1/#2/#4/#12 updated (User.settings +
   SQLite/LocalStore + LWW sync) and `DIAGRAMS.pdf` regenerated (16/16); created this `PROGRESS.md`.
 - _2026-06-23_ — **CI release gate** (`.github/workflows/ci.yml`): frontend-gate (typecheck/unit/eval/build),
