@@ -29,6 +29,10 @@ async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     },
   });
   if (res.status === 401) {
+    // A 401 from the sign-in / sign-up call itself means bad credentials, not an expired session: surface a
+    // credentials message and don't clear a token we don't have. Any OTHER 401 means the stored token is
+    // stale — clear it and prompt a fresh sign-in.
+    if (path.startsWith("/auth/")) throw new ApiError(401, "Incorrect email or password.");
     tokenStore.clear();
     throw new ApiError(401, "Session expired — please sign in again.");
   }
