@@ -14,12 +14,15 @@ flowchart LR
   subgraph Client["Browser — React + Vite SPA"]
     UI["Pages + shared logging engine"]
     Q["TanStack Query cache"]
-    LS["localStorage: JWT + settings"]
+    LS["localStorage: JWT"]
+    SQ["SQLite via OPFS (LocalStore) — local-first settings"]
     UI --> Q
     UI --> LS
+    UI --> SQ
   end
 
   Client -->|"/api/* — Bearer JWT; decimals as STRINGS"| FILT
+  SQ -->|"GET/PUT /api/me/settings — last-write-wins sync"| FILT
 
   subgraph Server["Spring Boot :8080"]
     FILT["JwtAuthenticationFilter sets Tenant(userId)"]
@@ -63,6 +66,8 @@ erDiagram
     string email UK
     string passwordHash
     Decimal128 currentBodyweightKg "string on wire"
+    Map settings "synced UI prefs"
+    long settingsUpdatedAt "epoch ms — LWW"
   }
   EXERCISE {
     string id PK
@@ -167,7 +172,9 @@ flowchart TD
   main["main.tsx"] --> App["App.tsx — Router + topbar"]
   App --> Auth["auth/auth.tsx — JWT guard, /api/me"]
   App --> SS["components/SettingsSidebar"]
-  SS --> SET["settings.tsx — context (localStorage)"]
+  SS --> SET["settings.tsx — context (local-first)"]
+  SET --> LST["local/LocalStore — SQLite-WASM/OPFS (+ localStorage fallback)"]
+  SET -->|"LWW sync"| CL
 
   App --> Pages
   subgraph Pages
@@ -392,6 +399,8 @@ classDiagram
     +BigDecimal currentBodyweightKg
     +List~BodyweightEntry~ bodyweightLog
     +Profile profile
+    +Map~String,String~ settings
+    +long settingsUpdatedAt
   }
   class BodyweightEntry {
     +String id
