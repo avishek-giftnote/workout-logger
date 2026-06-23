@@ -582,11 +582,13 @@ sequenceDiagram
   MP->>EC: measured phase (HIGH-confidence only)
   MP->>PM: planMacrocycle(goal, weeks, focus, days, catalog, measuredPhase)
   PM->>PM: recipeUnit(goal) → blocks · mkBlock + clampPhase(measured)
-  PM->>PM: generateSplit → targetSets (MEV→ceiling ramp + band-step), orderForRecovery, pick exercises
-  PM-->>MP: preview (block timeline · split · warnings)
+  PM->>PM: generateSplit → frequency-by-design (prime movers/focus ≥2×) · orderForRecovery · daySlots
+  PM-->>MP: preview (timeline · muscle-group SLOTS w/ default exercise · warnings)
+  U->>MP: swap any slot's exercise (dropdown of catalog lifts that train the muscle)
   U->>MP: Accept & start
   loop each template
-    MP->>API: createTemplate(reps, targetRir, sets)
+    MP->>MP: resolve slots → chosen exerciseIds (merge same-exercise slots, cap sets)
+    MP->>API: createTemplate(exerciseId, reps, targetRir, sets)
     API->>BE: POST /api/templates
   end
   MP->>API: createSplit(templateIds)

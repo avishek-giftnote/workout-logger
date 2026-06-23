@@ -34,9 +34,14 @@ const ex = (id: string, name: string, muscle: Muscle): ExerciseDto => ({
 });
 // Full catalog: exactly one primary exercise per muscle ⇒ a muscle's weekly frequency == its day-count.
 const FULL = ALL_MUSCLES.map((m, i) => ex(`m${i}`, `${m} lift`, m));
+const fullById = new Map(FULL.map((e) => [e.id, e]));
 const exId = (m: Muscle) => FULL[ALL_MUSCLES.indexOf(m)].id;
+// resolved frequency: days whose picked default exercise IS the muscle's exercise
 const freqOf = (p: PlanPreview, m: Muscle) =>
-  p.templates.filter((t) => t.exercises.some((e) => e.exerciseId === exId(m))).length;
+  p.templates.filter((t) => t.slots.some((s) => s.exerciseId === exId(m))).length;
+// scheduled (by-design) frequency: days that carry a SLOT for the muscle, independent of which exercise is picked
+const freqByMuscle = (p: PlanPreview, m: Muscle) =>
+  p.templates.filter((t) => t.slots.some((s) => s.muscle === m)).length;
 
 // REAL catalog: the shipped 84-exercise default seed. Sweeping against this (where frequency is NOT
 // frequency==day-count by construction) is what makes R7/R6 a real guarantee, not a synthetic tautology.
@@ -51,10 +56,10 @@ const REAL: ExerciseDto[] = (DEFAULT_EXERCISES as RawEx[]).map((e, i) => ({
   loadable: e.loadable,
 }));
 const realById = new Map(REAL.map((e) => [e.id, e]));
-// a muscle's weekly frequency under the REAL catalog = days whose picked exercises train it at the ≥0.5 basis
+// a muscle's weekly frequency under the REAL catalog = days whose picked slot defaults train it at the ≥0.5 basis
 const freqReal = (p: PlanPreview, m: Muscle) =>
-  p.templates.filter((t) => t.exercises.some((e) => {
-    const rx = realById.get(e.exerciseId);
+  p.templates.filter((t) => t.slots.some((s) => {
+    const rx = s.exerciseId ? realById.get(s.exerciseId) : undefined;
     return rx ? trainsMuscle(rx.muscleContributions, m) : false;
   })).length;
 
@@ -113,24 +118,47 @@ function evaluate(c: Case): Violation[] {
     }
   }
 
-  // R8 — no single exercise exceeds the per-session set cap (junk-volume guard)
-  for (const t of p.templates) for (const e of t.exercises)
-    if (e.sets > PER_SESSION_CAP) fail("R8-session-cap", `${t.name}/${e.name}=${e.sets} sets > cap ${PER_SESSION_CAP}`);
+  // R8 — no single slot exceeds the per-session set cap (junk-volume guard)
+  for (const t of p.templates) for (const s of t.slots)
+    if (s.sets > PER_SESSION_CAP) fail("R8-session-cap", `${t.name}/${s.muscle}=${s.sets} sets > cap ${PER_SESSION_CAP}`);
 
   // R9 — generated prescription sanity: positive reps + targetRir within [phase floor, 3]
   const floor = phaseMod(p.mesocycles[0]?.phase).rirFloor;
-  for (const t of p.templates) for (const e of t.exercises) {
-    if (!(e.reps > 0)) fail("R9-reps", `${t.name}/${e.name} reps=${e.reps}`);
-    const rir = parseInt(e.targetRir, 10);
+  for (const t of p.templates) for (const s of t.slots) {
+    if (!(s.reps > 0)) fail("R9-reps", `${t.name}/${s.muscle} reps=${s.reps}`);
+    const rir = parseInt(s.targetRir, 10);
     if (!Number.isInteger(rir) || rir < floor || rir > 3)
-      fail("R9-rir", `${t.name}/${e.name} targetRir=${e.targetRir} (allowed ${floor}..3)`);
+      fail("R9-rir", `${t.name}/${s.muscle} targetRir=${s.targetRir} (allowed ${floor}..3)`);
   }
 
-  // R14 — the stored template targetRir equals the RIR wave's week-1 value under the same phase floor
+  // R14 — the slot targetRir equals the RIR wave's week-1 value under the same phase floor
   // (accept-time number == first logged session's seed)
   const wantRir = String(rirWave(1, p.mesocycles[0]?.accumulationWeeks ?? 4, floor));
-  for (const t of p.templates) for (const e of t.exercises)
-    if (e.targetRir !== wantRir) fail("R14-targetRir-wave", `${t.name}/${e.name} targetRir=${e.targetRir}, want wave wk1 ${wantRir}`);
+  for (const t of p.templates) for (const s of t.slots)
+    if (s.targetRir !== wantRir) fail("R14-targetRir-wave", `${t.name}/${s.muscle} targetRir=${s.targetRir}, want wave wk1 ${wantRir}`);
+
+  // R33 — FREQUENCY-BY-DESIGN: every prime mover (and focus muscle) is SCHEDULED ≥2×/week by construction — a
+  // slot is present on ≥2 days, regardless of which exercise the user later picks. The planner now DESIGNS this
+  // (adds shortfall muscles to extra days) instead of merely warning. Asserted on slot muscles, so it's the
+  // microcycle shape itself that's guaranteed. (Catalog is complete here ⇒ scheduled == resolvable.)
+  for (const m of PRIME_MOVERS)
+    if (freqByMuscle(p, m) < MIN_FREQ) fail("R33-freq-by-design", `${m} scheduled ${freqByMuscle(p, m)}×/wk (should be ≥2 by design)`);
+  if (c.goal === "MUSCLE_FOCUS" || c.goal === "CONTEST_PREP")
+    for (const fm of c.focus.slice(0, 3))
+      if (freqByMuscle(p, fm) < MIN_FREQ) fail("R33-focus-freq-by-design", `focus ${fm} scheduled ${freqByMuscle(p, fm)}×/wk`);
+
+  // R34 — SLOT INTEGRITY: every slot's default exercise actually trains its target muscle, and no muscle gets
+  // more than MAX_SLOTS_PER_MUSCLE (2) slots on a single day (the placeholder split is bounded, not runaway).
+  for (const t of p.templates) {
+    const perMuscle: Record<string, number> = {};
+    for (const s of t.slots) {
+      perMuscle[s.muscle] = (perMuscle[s.muscle] ?? 0) + 1;
+      const dex = s.exerciseId ? fullById.get(s.exerciseId) : undefined;
+      if (dex && !trainsMuscle(dex.muscleContributions, s.muscle))
+        fail("R34-slot-trains", `${t.name}/${s.muscle} default ${dex.name} does not train it`);
+    }
+    for (const [m, n] of Object.entries(perMuscle)) if (n > 2) fail("R34-slot-cap", `${t.name} ${m} has ${n} slots (>2)`);
+  }
 
   // R15/R16/R18/R21/R22/R23/R24 — volume ramp + bounded phase band-step, swept over ALL 15 muscles and
   // EVERY block (R23: the low-MEV muscles are where bandStep rounding + the MV floor misbehave).
@@ -212,6 +240,22 @@ function evaluate(c: Case): Violation[] {
         const warned = pr.warnings.some((w) => w.toLowerCase().includes(muscleLabel(fm).toLowerCase()));
         if (!warned) fail("R26-real-focus-2x", `focus ${fm} ${freqReal(pr, fm)}×/wk on REAL catalog, no warning`);
       }
+    }
+    // R35 — on the REAL catalog (where a muscle has multiple exercises), a day with ≥2 slots for one muscle gets
+    // DISTINCT recommended defaults (an incline press AND a pec deck, not the same lift twice), and every default
+    // trains its slot's muscle at the ≥0.5 basis.
+    const optsReal = (m: Muscle) => REAL.filter((e) => e.category !== "CARDIO" && trainsMuscle(e.muscleContributions, m)).length;
+    for (const t of pr.templates) {
+      const byMuscle: Record<string, string[]> = {};
+      for (const s of t.slots) {
+        const rx = s.exerciseId ? realById.get(s.exerciseId) : undefined;
+        if (rx && !trainsMuscle(rx.muscleContributions, s.muscle))
+          fail("R35-real-slot-trains", `${t.name}/${s.muscle} default ${rx.name} does not train it`);
+        (byMuscle[s.muscle] ??= []).push(s.exerciseId ?? "");
+      }
+      for (const [m, ids] of Object.entries(byMuscle))
+        if (ids.length >= 2 && optsReal(m as Muscle) >= 2 && new Set(ids).size !== ids.length)
+          fail("R35-distinct-defaults", `${t.name} ${m}: duplicate defaults ${JSON.stringify(ids)} with ${optsReal(m as Muscle)} options`);
     }
   }
 

@@ -115,12 +115,16 @@ function mkBlock(spec: Spec, focus: Muscle[], n: number, measured?: string | nul
   };
 }
 
-export interface PrescribedExercise { exerciseId: string; name: string; sets: number; reps: number; targetRir: string; }
+/** A boilerplate slot the planner emits: a muscle-group placeholder with a prescription and a RECOMMENDED
+ *  default exercise the user can swap (in PlanPage) for any catalog exercise that trains the same muscle.
+ *  `exerciseId`/`name` are null only when the catalog has no exercise for the muscle (a true gap). */
+export interface PlanSlot { muscle: Muscle; sets: number; reps: number; targetRir: string; exerciseId: string | null; name: string | null; }
+export interface PlanTemplate { name: string; slots: PlanSlot[]; }
 export interface PlanPreview {
   mesocycles: MesoInput[];
   totalWeeks: number;
   splitName: string;
-  templates: { name: string; exercises: PrescribedExercise[] }[];
+  templates: PlanTemplate[];
   warnings: string[];
 }
 
@@ -163,7 +167,10 @@ const SHAPES: Record<number, { name: string; muscles: Muscle[] }[]> = {
 };
 const PRIME_MOVERS: Muscle[] = ["CHEST", "LAT", "QUAD", "HAMSTRING", "GLUTE", "SIDE_DELT", "BICEP", "TRICEP"];
 const MIN_FREQ = 2;          // research-backed minimum sessions/week per muscle
-const PER_SESSION_CAP = 5;   // productive sets/muscle/session before junk volume
+export const PER_SESSION_CAP = 5;   // productive sets/muscle/session before junk volume
+const SETS_PER_EXERCISE = 3; // ~hard sets per movement before splitting a muscle's daily volume across exercises
+const MAX_SLOTS_PER_MUSCLE = 2;   // ≤2 distinct exercises per muscle per day (e.g. an incline press + a pec deck)
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
 // an exercise "trains" a muscle at the shared ≥0.5 basis (so Deadlift/glutes count, not just fraction==1)
 const primaryFor = (ex: ExerciseDto, m: Muscle) => ex.category !== "CARDIO" && trainsMuscle(ex.muscleContributions, m);
@@ -205,17 +212,57 @@ function adjacencyWarnings(days: Day[], effOf: (d: Day) => Set<Muscle>): string[
 }
 
 /**
- * Build a split + templates for one block. Each prime mover (and every focus muscle) is hit ≥2×/week;
- * exercise choice is goal-aware (compounds for strength) and rotates across days for variety; weekly
- * targets are spread across the muscle's sessions, capped per session.
+ * Build one training day's boilerplate SLOTS — a muscle-group placeholder per unit of volume, each carrying a
+ * RECOMMENDED default exercise the user can swap later. A muscle's per-day target (weekly target ÷ its weekly
+ * frequency, clamped to a productive 2…cap range) is split across ⌈sets / SETS_PER_EXERCISE⌉ slots, bounded by
+ * MAX_SLOTS_PER_MUSCLE and by how many distinct candidate exercises exist — so a 4-set chest day with several
+ * pressing options becomes two slots (an incline press + a pec deck), while a 3-set lat day stays one slot. Pure
+ * + tested (periodization.test.ts). `ptr` is the rotation cursor carried across days so defaults stay varied;
+ * it's mutated. Muscles with no candidate exercise are returned in `missing` (a catalog gap → a warning).
+ */
+export function daySlots(
+  day: Day, block: MesoInput, freq: Record<string, number>, cand: Record<string, ExerciseDto[]>,
+  ptr: Record<string, number>, reps: number, targetRir: string,
+): { slots: PlanSlot[]; missing: Muscle[] } {
+  const slots: PlanSlot[] = [];
+  const missing: Muscle[] = [];
+  for (const m of day.muscles) {
+    const weekly = targetSets(m, block, 1);
+    if (weekly <= 0) continue;
+    const list = cand[m];
+    if (!list || !list.length) { missing.push(m); continue; }
+    const setsPerDay = clamp(Math.round(weekly / (freq[m] || 1)), 2, PER_SESSION_CAP);
+    const nSlots = clamp(Math.ceil(setsPerDay / SETS_PER_EXERCISE), 1, Math.min(MAX_SLOTS_PER_MUSCLE, list.length));
+    for (let i = 0; i < nSlots; i++) {
+      const sets = Math.floor(setsPerDay / nSlots) + (i < setsPerDay % nSlots ? 1 : 0);   // even split, front-loaded
+      if (sets <= 0) continue;
+      const ex = list[(ptr[m] = (ptr[m] ?? 0) + 1) % list.length];   // rotate → distinct defaults across slots & days
+      slots.push({ muscle: m, sets, reps, targetRir, exerciseId: ex.id, name: ex.name });
+    }
+  }
+  return { slots, missing };
+}
+
+/**
+ * Build a split + slotted templates for one block. The microcycle is DESIGNED so every prime mover (and every
+ * focus muscle) lands ≥2×/week — not merely warned about after the fact: any such muscle the base shape hits
+ * <2× is added to the lightest day(s) that lack it. Exercise choice is goal-aware (compounds for strength) and
+ * rotated for variety; each day's muscles become user-swappable SLOTS (see daySlots).
  */
 function generateSplit(block: MesoInput, daysPerWeek: number, exercises: ExerciseDto[]): Omit<PlanPreview, "mesocycles" | "totalWeeks"> {
-  const base = (SHAPES[Math.min(6, Math.max(2, daysPerWeek))] ?? SHAPES[3]).map((d) => ({ name: d.name, muscles: [...d.muscles] }));
+  const base = (SHAPES[clamp(daysPerWeek, 2, 6)] ?? SHAPES[3]).map((d) => ({ name: d.name, muscles: [...d.muscles] }));
 
-  // guarantee focus muscles reach ≥2 sessions by adding them to the days that don't already include them
-  for (const fm of block.focusMuscles) {
-    let f = base.filter((d) => d.muscles.includes(fm)).length;
-    for (const d of base) { if (f >= MIN_FREQ) break; if (!d.muscles.includes(fm)) { d.muscles.push(fm); f++; } }
+  // FREQUENCY-BY-DESIGN: guarantee every prime mover AND focus muscle reaches ≥2 sessions/week by adding it to
+  // the lightest days that don't already include it (was: only focus muscles patched; prime-mover shortfalls
+  // were merely warned). Schoenfeld 2016 — ≥2×/wk beats 1× for hypertrophy, volume-equated.
+  for (const m of [...PRIME_MOVERS, ...block.focusMuscles]) {
+    const has = (d: Day) => d.muscles.includes(m);
+    let f = base.filter(has).length;
+    if (f >= MIN_FREQ) continue;
+    for (const d of base.filter((d) => !has(d)).sort((a, b) => a.muscles.length - b.muscles.length)) {
+      if (f >= MIN_FREQ) break;
+      d.muscles.push(m); f++;
+    }
   }
 
   // candidate exercises per muscle (goal-aware, best-contribution first), built once
@@ -251,27 +298,16 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
   const targetRir = String(Math.max(phaseMod(block.phase).rirFloor, 3));
 
   const missing = new Set<Muscle>();
-  const templates = days.map((d) => {
-    const picked = new Map<string, PrescribedExercise>();
-    for (const m of d.muscles) {
-      const weekly = targetSets(m, block, 1);
-      if (weekly <= 0) continue;
-      const list = cand[m];
-      if (!list || !list.length) { missing.add(m); continue; }
-      const ex = list[(ptr[m] = (ptr[m] ?? 0) + 1) % list.length];   // rotate for variety across days
-      const setsPerDay = Math.min(PER_SESSION_CAP, Math.max(2, Math.round(weekly / (freq[m] || 1))));
-      const cur = picked.get(ex.id);
-      if (!cur) picked.set(ex.id, { exerciseId: ex.id, name: ex.name, sets: setsPerDay, reps, targetRir });
-      else cur.sets = Math.min(PER_SESSION_CAP, cur.sets + setsPerDay);
-    }
-    return { name: d.name, exercises: [...picked.values()] };
+  const templates: PlanTemplate[] = days.map((d) => {
+    const { slots, missing: gap } = daySlots(d, block, freq, cand, ptr, reps, targetRir);
+    gap.forEach((m) => missing.add(m));
+    return { name: d.name, slots };
   });
 
+  // Only catalog gaps + recovery adjacency remain as warnings — frequency is now guaranteed by construction.
   const warnings: string[] = [...adjacencyWarnings(days, effOf)];
   for (const m of block.focusMuscles) if (missing.has(m)) warnings.push(`No exercise for focus muscle ${muscleLabel(m)} — add one to your catalog.`);
-  for (const m of missing) if (!block.focusMuscles.includes(m)) warnings.push(`No exercise for ${muscleLabel(m)} — that volume is unfilled.`);
-  for (const m of PRIME_MOVERS) if (!missing.has(m) && (freq[m] ?? 0) < MIN_FREQ)
-    warnings.push(`${muscleLabel(m)} is trained ${freq[m] ?? 0}×/week — add a day (or a session that hits it) to reach the 2× minimum (research-backed).`);
+  for (const m of missing) if (!block.focusMuscles.includes(m)) warnings.push(`No exercise for ${muscleLabel(m)} — that muscle's slot is unfilled.`);
 
   return { splitName: `${blockLabel(block.blockType)} split`, templates, warnings };
 }
