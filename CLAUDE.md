@@ -34,8 +34,19 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
 - `npm install`, then `npm run dev` (`:5173`, dev-proxies `/api` → `:8080`).
 - `npm run build` (`tsc && vite build`) and `npm run typecheck` — **`tsc --noEmit` (strict) is the lint gate; there is no ESLint.**
 - `npm test` — Vitest unit tests for pure functions (`src/**/*.test.ts`: logging engine, periodization).
+- `npm run e2e` — **Playwright** critical-path E2E (`e2e/*.spec.ts`): register → log a workout → persist →
+  edit, settings persistence, the login error message, etc. By default it boots the prod bundle (`vite
+  preview` :4173) + the packaged backend jar (:8080) and needs a Mongo (set `MONGODB_URI`). For fast local
+  iteration against an already-running stack: `E2E_BASE_URL=http://localhost:5173 npm run e2e`.
 - API types in `src/api/types.ts` are hand-written to match the backend DTOs; regenerate from the live
   contract with `npx openapi-typescript http://localhost:8080/v3/api-docs -o src/api/schema.ts` when they drift.
+
+**CI release gate** (`.github/workflows/ci.yml`, runs on every push/PR, no secrets — Mongo is a `mongo:7`
+service container): three jobs — **frontend-gate** (typecheck · unit · eval · build), **backend-gate**
+(`RUN_MONGO_TESTS=1 mvn test` — tenant isolation + the contract + plan/settings round-trips), and **e2e**
+(Playwright over the critical journeys against the built bundle + packaged jar). This is the Tier-1 prod
+gate; load/k6, observability, secrets rotation, Atlas backups, and a security review are separate
+prod-readiness items, not yet built.
 
 There is no MongoDB in this dev image by default; `brew` can't build `mongodb-community` here (Command Line
 Tools too old). Use MongoDB Atlas (set `MONGODB_URI`) or the official precompiled binary.

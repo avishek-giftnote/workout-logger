@@ -1,0 +1,40 @@
+import { defineConfig, devices } from "@playwright/test";
+
+// Local fast iteration: set E2E_BASE_URL (e.g. http://localhost:5173) to run against an ALREADY-running
+// stack and skip the managed servers. Otherwise (CI / clean local run) Playwright boots the prod frontend
+// bundle (`vite preview` :4173) + the packaged backend jar (:8080); Mongo must be reachable via MONGODB_URI.
+const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:4173";
+const managed = !process.env.E2E_BASE_URL;
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
+  use: { baseURL, trace: "on-first-retry" },
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  webServer: managed
+    ? [
+        {
+          command: "sh -c 'java -jar ../backend/target/workout-logger-backend-*.jar'",
+          url: "http://localhost:8080/v3/api-docs",
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+          env: {
+            MONGODB_URI: process.env.MONGODB_URI ?? "mongodb://localhost:27017/workoutlogger_e2e",
+            // blank JWT secret → the backend mints an ephemeral key; fine for a single E2E run (the
+            // backend stays up throughout, so tokens stay valid). Override via env if you need stability.
+            SECURITY_JWT_SECRET: process.env.SECURITY_JWT_SECRET ?? "",   // pragma: allowlist secret
+          },
+        },
+        {
+          command: "npm run build && npm run preview -- --port 4173 --strictPort",
+          url: "http://localhost:4173",
+          reuseExistingServer: !process.env.CI,
+          timeout: 180_000,
+        },
+      ]
+    : undefined,
+});

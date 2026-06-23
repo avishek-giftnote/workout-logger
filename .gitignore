@@ -21,6 +21,12 @@ node_modules/
 dist/
 build/
 
+# ── Playwright E2E ────────────────────────────────────────────────────────────
+playwright-report/
+test-results/
+blob-report/
+.last-run.json
+
 # ── OS / editor ───────────────────────────────────────────────────────────────
 .DS_Store
 .idea/
