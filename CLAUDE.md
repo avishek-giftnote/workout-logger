@@ -2,15 +2,13 @@
 
 *Tier 3 — project memory for workout-logger. Loads on top of Tier 2 (workspace `~/AvisheksIntelligence/CLAUDE.md`) + Tier 1 (global `.claude/CLAUDE.md`) when working inside this project. Scope: this project only.*
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backend** (`backend/`) and a
 **React/Vite/TypeScript frontend** (`frontend/`). It was bootstrapped from a real Strong-app CSV export.
 **`DESIGN.md` is the authoritative architecture record — read it before non-trivial changes.**
 
 ## Workflow rules (read me first)
 
-- **Keep the main context clean — delegate, don't dump.** For web research or large-file exploration, spawn a sub-agent (the Agent tool) and bring back only the conclusion; never fill this session with raw research. Run independent tasks in **parallel**.
+- **Run independent tasks in parallel** (Agent tool) — delegation / clean-context rules live in global memory.
 - **Decision → executable guard, same change.** The moment a design decision or council states an invariant (Decimal128-as-string, every prime mover ≥2×/week, data-sufficiency gates…), encode it as a *failing test first*, then implement. Every bug this codebase hit was a known hazard that recurred until a test pinned it.
 - **Plan before multi-file features.** Use plan mode for anything spanning backend+frontend or several modules; get the plan approved before writing code.
 - **Verify UI changes in the running app** before reporting them done — don't claim a layout/CSS fix you haven't watched render.
@@ -214,8 +212,7 @@ the parser — use `·`).
 - **Operational workflow when iterating on the running demo**: frontend changes hot-reload (just refresh);
   **new/changed backend endpoints require a server restart**; a **data-shape change requires re-importing**
   (into a fresh DB name) — only then does the user need to sign in again.
-- **Commits** end with the `Co-Authored-By` trailer; the author email is a GitHub noreply (history was
-  scrubbed of company emails). Secrets are env-only (no committed JWT secret or import credentials);
+- **Secrets** are env-only (no committed JWT secret or import credentials);
   `strong_workouts.csv` and `tools/import_preview.json` are git-ignored (personal data).
 
 ## Streamlining: skills & sub-agents (recommendations)

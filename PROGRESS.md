@@ -74,3 +74,9 @@ _Last updated: 2026-06-23_
 - **Subscription/entitlement layer** — gate cloud sync (flip `SYNC_ENABLED` per entitlement).
 - **More UI testing tiers** — component (RTL) tests, visual regression, cross-browser E2E.
 - **Tooling skills** (CLAUDE.md recommendations): `/restart-smoke`, `/diagrams`.
+
+### Claude Code tooling gaps (learned but under-used)
+- **Browser MCP** — wire Playwright MCP so UI verification is automated; "verify in the running app" is still manual.
+- **Council as a Workflow** — wrap `/council` in a Workflow to cut convene friction (skipped on small changes today).
+- **Eval regression scorer** — add an eval-sweep-style baseline diff; suites pass/fail but don't report *what* regressed.
+- **Project skills** — bottle recurring rituals (`/diagrams`, `/restart-smoke`).
