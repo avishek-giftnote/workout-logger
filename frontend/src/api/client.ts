@@ -18,16 +18,31 @@ export class ApiError extends Error {
   }
 }
 
+// Fail fast on an unresponsive backend (e.g. the DB is unreachable and a request hangs on Mongo's
+// server-selection timeout) instead of leaving the UI spinning indefinitely. status 0 = no HTTP response.
+const REQUEST_TIMEOUT_MS = 12_000;
+
 async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = tokenStore.get();
-  const res = await fetch(`/api${path}`, {
-    ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...opts.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      ...opts,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...opts.headers,
+      },
+    });
+  } catch {
+    if (controller.signal.aborted) throw new ApiError(0, "Server isn't responding — please try again.");
+    throw new ApiError(0, "Network error — check your connection and try again.");
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401) {
     // A 401 from the sign-in / sign-up call itself means bad credentials, not an expired session: surface a
     // credentials message and don't clear a token we don't have. Any OTHER 401 means the stored token is
