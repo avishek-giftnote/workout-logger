@@ -45,3 +45,28 @@ describe("api client — auth error messages", () => {
       .rejects.toMatchObject({ status: 409, message: "Email already registered" });
   });
 });
+
+describe("api client — fail-fast on an unresponsive backend", () => {
+  it("aborts a hung request after the timeout and reports the server isn't responding", async () => {
+    vi.useFakeTimers();
+    try {
+      // a fetch that never resolves but rejects on abort — mirrors a real request stuck on a dead backend
+      vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) =>
+        new Promise((_res, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        })));
+      const assertion = expect(Api.me())
+        .rejects.toMatchObject({ status: 0, message: "Server isn't responding — please try again." });
+      await vi.advanceTimersByTimeAsync(12_000);   // trip the AbortController timeout
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a network error when fetch rejects without an HTTP response", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    await expect(Api.me())
+      .rejects.toMatchObject({ status: 0, message: "Network error — check your connection and try again." });
+  });
+});

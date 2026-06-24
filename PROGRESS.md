@@ -26,6 +26,13 @@ _Last updated: 2026-06-23_
 
 ## Done
 
+- _2026-06-24_ — **Fail-fast on an unresponsive backend** (sign-in no longer hangs ~30s when MongoDB is
+  unreachable): frontend API client now caps every request at a 12s `AbortController` timeout → a clear
+  "Server isn't responding"/"Network error" `ApiError` instead of an indefinite spinner; backend
+  `MongoClientSettingsBuilderCustomizer` drops the driver's 30s server-selection + connect timeouts to 5s
+  (tunable via `mongodb.server-selection-timeout-ms`/`connect-timeout-ms`). Guards: client timeout/network
+  tests (`api/client.test.ts`) + `MongoConfigTest`. Frontend 74 unit, backend 66. (Surfaced when an Atlas IP
+  allow-list block made login hang — the connectivity cause is operational, this hardens the failure mode.)
 - _2026-06-23_ — **Planner remodel — muscle-group slots + frequency-by-design**: `generateSplit` now emits
   **user-selectable slots** (a placeholder per unit of volume, ≤2 exercises/muscle/day, pre-filled with a
   recommended lift the user can swap from a dropdown of catalog exercises that train the muscle — `daySlots`,
