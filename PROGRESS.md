@@ -26,6 +26,12 @@ _Last updated: 2026-06-23_
 
 ## Done
 
+- _2026-06-24_ — **MCP dev-loop setup (browser + Atlas)** — project `.mcp.json` wires two servers:
+  **Playwright** (`@playwright/mcp`, headless/isolated, origins locked to the dev stack) for in-loop UI
+  verification against the *running* app, and **MongoDB** (`mongodb-mcp-server`, read-only) for live DB
+  inspection + optional Atlas access-list/cluster admin. Docs in `docs/mcp/`. Creds are env-only (`${MONGODB_URI}`
+  + optional Atlas API keys in a git-ignored `.env.local`). **Pending one-time activation** (reload Claude Code +
+  set env) before the tools go live — see [[browser-mcp]] / [[atlas-mcp]].
 - _2026-06-24_ — **Fail-fast on an unresponsive backend** (sign-in no longer hangs ~30s when MongoDB is
   unreachable): frontend API client now caps every request at a 12s `AbortController` timeout → a clear
   "Server isn't responding"/"Network error" `ApiError` instead of an indefinite spinner; backend
@@ -76,7 +82,7 @@ _Last updated: 2026-06-23_
 - **Tooling skills** (CLAUDE.md recommendations): `/restart-smoke`, `/diagrams`.
 
 ### Claude Code tooling gaps (learned but under-used)
-- **Browser MCP** — wire Playwright MCP so UI verification is automated; "verify in the running app" is still manual.
+- **Browser MCP** — Playwright MCP now wired in `.mcp.json` (pending activation); once live, use it to automate "verify in the running app". Atlas/MongoDB MCP wired alongside it for live DB inspection.
 - **Council as a Workflow** — wrap `/council` in a Workflow to cut convene friction (skipped on small changes today).
 - **Eval regression scorer** — add an eval-sweep-style baseline diff; suites pass/fail but don't report *what* regressed.
 - **Project skills** — bottle recurring rituals (`/diagrams`, `/restart-smoke`).

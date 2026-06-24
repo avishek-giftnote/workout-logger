@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--browser", "chrome",
+        "--headless",
+        "--isolated",
+        "--allowed-origins", "http://localhost:5173;http://localhost:4173;http://localhost:8080"
+      ]
+    },
+    "mongodb": {
+      "command": "npx",
+      "args": ["-y", "mongodb-mcp-server@latest"],
+      "env": {
+        "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}",
+        "MDB_MCP_READ_ONLY": "true",
+        "MDB_MCP_API_CLIENT_ID": "${MDB_MCP_API_CLIENT_ID}",
+        "MDB_MCP_API_CLIENT_SECRET": "${MDB_MCP_API_CLIENT_SECRET}"
+      }
+    }
+  }
+}
