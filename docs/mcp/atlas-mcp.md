@@ -21,16 +21,24 @@ Add this under `mcpServers` in the project `.mcp.json`:
   "args": ["-y", "mongodb-mcp-server@latest"],
   "env": {
     "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}",
-    "MDB_MCP_READ_ONLY": "true",
-    "MDB_MCP_API_CLIENT_ID": "${MDB_MCP_API_CLIENT_ID}",
-    "MDB_MCP_API_CLIENT_SECRET": "${MDB_MCP_API_CLIENT_SECRET}"
+    "MDB_MCP_READ_ONLY": "true"
   }
 }
 ```
 
 `MDB_MCP_READ_ONLY=true` drops all write tools before the server registers them — they never appear
-to the client. The Atlas admin keys are optional: omit them (or leave the vars unset) and you still
-get full DB read access; set them to also get cluster/access-list tooling.
+to the client. This DB-only default needs just one env var (`MONGODB_URI`). **Don't reference env vars
+you haven't set** — Claude Code flags `${VAR}` references with no value as "Missing environment
+variables", and an unresolved connection string makes the server start as `✘ failed`.
+
+### Add Atlas admin (optional — access-list / cluster ops)
+
+Only after you've created the API keys (below), add these two lines back to the `env` block:
+
+```json
+"MDB_MCP_API_CLIENT_ID": "${MDB_MCP_API_CLIENT_ID}",
+"MDB_MCP_API_CLIENT_SECRET": "${MDB_MCP_API_CLIENT_SECRET}"
+```
 
 ---
 

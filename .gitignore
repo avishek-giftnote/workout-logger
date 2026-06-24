@@ -36,3 +36,6 @@ blob-report/
 
 # TS build info
 *.tsbuildinfo
+
+# Playwright MCP session output (screenshots/traces)
+.playwright-mcp/
