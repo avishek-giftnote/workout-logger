@@ -507,6 +507,78 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.updatedAt").value("0"));
     }
 
+    // SM8 — completing a plan via advance stamps completedAt; it appears in /plan/history but not /plan.
+    @Test
+    void completedPlanAppearsInHistoryWithTimestamp() throws Exception {
+        String t = register("hist-complete@example.com");
+        // Single mesocycle with 1 accumulation week → 2 advances to complete (week2 = deload, week3 = COMPLETED).
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"HistPlan\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":1,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}"))
+                .andExpect(status().isCreated());
+        adv(t).andExpect(jsonPath("$.week").value(2));         // deload week
+        adv(t).andExpect(jsonPath("$.status").value("COMPLETED"))
+              .andExpect(jsonPath("$.completedAt").isNotEmpty());   // completedAt stamped
+
+        // Active plan is gone.
+        mvc.perform(get("/api/plan").header("Authorization", bearer(t))).andExpect(status().isNoContent());
+
+        // History returns the completed plan.
+        mvc.perform(get("/api/plan/history").header("Authorization", bearer(t)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$[0].completedAt").isNotEmpty())
+                .andExpect(jsonPath("$[0].endedAt").doesNotExist());
+    }
+
+    // SM9 — DELETE /plan stamps endedAt and surfaces as ENDED in /plan/history.
+    @Test
+    void endedPlanAppearsInHistoryWithEndedAt() throws Exception {
+        String t = register("hist-end@example.com");
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"AbandonPlan\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":2,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}"))
+                .andExpect(status().isCreated());
+        mvc.perform(delete("/api/plan").header("Authorization", bearer(t))).andExpect(status().isNoContent());
+
+        mvc.perform(get("/api/plan").header("Authorization", bearer(t))).andExpect(status().isNoContent());
+
+        mvc.perform(get("/api/plan/history").header("Authorization", bearer(t)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].status").value("ENDED"))
+                .andExpect(jsonPath("$[0].endedAt").isNotEmpty())
+                .andExpect(jsonPath("$[0].completedAt").doesNotExist());
+    }
+
+    // SM10 — /plan/history is tenant-isolated: user B's history never contains user A's terminal plans.
+    @Test
+    void planHistoryIsTenantIsolated() throws Exception {
+        String a = register("hista@example.com");
+        String b = register("histb@example.com");
+
+        // A completes a plan.
+        mvc.perform(post("/api/plan").header("Authorization", bearer(a)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"APlan\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":1,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}"))
+                .andExpect(status().isCreated());
+        adv(a); adv(a);   // deload then complete
+
+        // A also ends a second plan early.
+        mvc.perform(post("/api/plan").header("Authorization", bearer(a)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"APlan2\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":2,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}"))
+                .andExpect(status().isCreated());
+        mvc.perform(delete("/api/plan").header("Authorization", bearer(a))).andExpect(status().isNoContent());
+
+        // A sees both entries in history.
+        mvc.perform(get("/api/plan/history").header("Authorization", bearer(a)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+
+        // B sees nothing — strict tenant isolation.
+        mvc.perform(get("/api/plan/history").header("Authorization", bearer(b)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
     // SM7 — addMesocycle appends to the live plan and the appended block is reachable by the cursor (advance
     // rolls INTO it instead of completing).
     @Test

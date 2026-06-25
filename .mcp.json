@@ -11,10 +11,12 @@
       ]
     },
     "mongodb": {
-      "command": "npx",
-      "args": ["-y", "mongodb-mcp-server@latest"],
+      "command": "bash",
+      "args": [
+        "-c",
+        "[ -f ./backend/.env.local ] && . ./backend/.env.local; export MDB_MCP_CONNECTION_STRING=\"$MONGODB_URI\"; exec npx -y mongodb-mcp-server@latest"
+      ],
       "env": {
-        "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}",
         "MDB_MCP_READ_ONLY": "true"
       }
     }

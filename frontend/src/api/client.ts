@@ -88,6 +88,7 @@ export const Api = {
 
   // plan (macro/meso/microcycle)
   getPlan: () => api<MacrocycleDto | null>("/plan").then((r) => r ?? null),
+  planHistory: () => api<MacrocycleDto[]>("/plan/history"),
   createPlan: (body: CreatePlanRequest) =>
     api<MacrocycleDto>("/plan", { method: "POST", body: JSON.stringify(body) }),
   advancePlan: () => api<MacrocycleDto>("/plan/advance", { method: "POST" }),

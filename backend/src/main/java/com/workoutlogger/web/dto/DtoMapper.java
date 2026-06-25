@@ -60,7 +60,9 @@ public final class DtoMapper {
         }).toList();
         return new ApiDtos.MacrocycleDto(m.getId(), m.getName(), m.getStartedAt(), m.getStatus(),
                 m.getMesoIndex(), m.getWeek(), mesos, m.getGoal(),
-                m.getTargetDate() == null ? null : m.getTargetDate().toString(), m.getFocusMuscles());
+                m.getTargetDate() == null ? null : m.getTargetDate().toString(), m.getFocusMuscles(),
+                m.getCompletedAt() == null ? null : m.getCompletedAt().toString(),
+                m.getEndedAt() == null ? null : m.getEndedAt().toString());
     }
 
     public static LastWorkingSetDto toDto(LastWorkingSetView v) {

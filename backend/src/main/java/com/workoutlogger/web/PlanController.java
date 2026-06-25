@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/plan")
@@ -87,5 +88,11 @@ public class PlanController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void end() {
         plans.endActive();
+    }
+
+    /** All COMPLETED and ENDED plans for the authenticated user, newest-first. */
+    @GetMapping("/history")
+    public List<MacrocycleDto> history() {
+        return plans.findTerminal().stream().map(DtoMapper::toDto).toList();
     }
 }

@@ -37,8 +37,11 @@ public class PlanRepository {
     /** Replaces any existing active plan with a new one. */
     public Macrocycle create(String name, List<Mesocycle> mesocycles, String goal,
                              java.time.LocalDate targetDate, List<com.workoutlogger.domain.Muscle> focusMuscles) {
+        // Replacing an active plan is an early end, not a completion — mark it ENDED so it doesn't
+        // surface in history as a falsely-celebrated COMPLETED plan. (terminal-state split)
         mongo.updateMulti(active(),
-                new org.springframework.data.mongodb.core.query.Update().set("status", "COMPLETED"), Macrocycle.class);
+                new org.springframework.data.mongodb.core.query.Update()
+                        .set("status", "ENDED").set("endedAt", Instant.now()), Macrocycle.class);
         Instant now = Instant.now();
         Macrocycle m = new Macrocycle();
         m.setId(new ObjectId().toHexString());
@@ -73,6 +76,7 @@ public class PlanRepository {
                 m.setWeek(1);
             } else {
                 m.setStatus("COMPLETED");
+                m.setCompletedAt(Instant.now());
             }
             return save(m);
         });
@@ -87,7 +91,18 @@ public class PlanRepository {
 
     public boolean endActive() {
         return mongo.updateMulti(active(),
-                new org.springframework.data.mongodb.core.query.Update().set("status", "COMPLETED"),
+                new org.springframework.data.mongodb.core.query.Update()
+                        .set("status", "ENDED")
+                        .set("endedAt", Instant.now()),
                 Macrocycle.class).getModifiedCount() > 0;
+    }
+
+    /** Returns all COMPLETED and ENDED plans for this tenant, sorted newest-first by startedAt. */
+    public List<Macrocycle> findTerminal() {
+        Query q = new Query(where("userId").is(tenant.userId())
+                .and("status").in("COMPLETED", "ENDED"))
+                .with(org.springframework.data.domain.Sort.by(
+                        org.springframework.data.domain.Sort.Direction.DESC, "startedAt"));
+        return mongo.find(q, Macrocycle.class);
     }
 }

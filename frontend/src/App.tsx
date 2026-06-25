@@ -12,6 +12,7 @@ import LogWorkoutPage from "./pages/LogWorkoutPage";
 import TemplateDetailPage from "./pages/TemplateDetailPage";
 import MuscleVolumePage from "./pages/MuscleVolumePage";
 import PlanPage from "./pages/PlanPage";
+import PastPlans from "./pages/PastPlans";
 
 function Brand() {
   const nav = useNavigate();
@@ -47,6 +48,7 @@ function Shell() {
         <Route path="/templates/:id" element={<TemplateDetailPage />} />
         <Route path="/muscles" element={<MuscleVolumePage />} />
         <Route path="/plan" element={<PlanPage />} />
+        <Route path="/past-plans" element={<PastPlans />} />
         <Route path="/start" element={<LogWorkoutPage />} />
         <Route path="*" element={<Navigate to="/start" replace />} />
       </Routes>
