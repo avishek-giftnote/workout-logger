@@ -75,10 +75,11 @@ tests still pass.
    designs were vetted. Worth it when a change spans backend+frontend+data model or has safety implications.
 
 Current suite size (keep roughly current when you add tests): **backend ~62** (`mvn test` runs ~37 pure
-classes — incl. `EnergyServiceTest`'s dead-band/PAL boundary cases; `RUN_MONGO_TESTS=1` adds the 25-test
-`ApiIntegrationTest`, incl. the plan state-machine), **frontend 72** (`npm test`) **+ 3 eval sweeps**
-(`npm run eval`: coach planner, prescription engine, logging path). Playwright E2E (`npm run e2e`,
-`frontend/e2e/`) covers the critical journeys + the planner-slot flow (`plan-slots`, `plan-slots-mocked`).
+classes — incl. `EnergyServiceTest`'s dead-band/PAL boundary cases; `RUN_MONGO_TESTS=1` adds the 35-test
+`ApiIntegrationTest`, incl. the plan state-machine + history + completion), **frontend 116** (`npm test`)
+**+ 3 eval sweeps** (`npm run eval`: coach planner R1–R40, prescription engine incl. block-transition guard,
+logging path). Playwright E2E (`npm run e2e`, `frontend/e2e/`) — 3 spec files, 6 test cases: critical paths
+(register/login/log+edit/settings), plan-slots, plan-slots-mocked.
 
 **Eval harness** (`cd frontend && npm run eval`, plus the backend boundary tests) — a council-ratified
 invariant catalog, subdivided by domain. Each rule is numbered (`L##` logging, `R##` planner+prescription,
@@ -89,9 +90,13 @@ invariant catalog, subdivided by domain. Each rule is numbered (`L##` logging, `
   and **slot integrity** (R34/R35: each muscle-group slot's default trains it, ≤2 slots/muscle/day, distinct
   defaults when the catalog allows), block potentiation (no STRENGTH/PEAK before HYPERTROPHY), volume stays
   within [MV, MRV] for all 15 muscles every week/phase, phase band-step monotone, CONTEST_PREP calendar never
-  overshoots the show date (one terminal PEAK), and the measured-DEFICIT phase clamp.
+  overshoots the show date (one terminal PEAK), and the measured-DEFICIT phase clamp. **R36–R40** add:
+  recovery-ordering optimality (R36), rest-day scheduling / `scheduleWeek` ≥48h (R37), no redundant
+  exercise on the real catalog (R38), intra-session spacing — no consecutive same-primary-muscle slots
+  (R39), session-total cap ≤ `SESSION_TOTAL_CAP` (R40).
 - **`prescription.eval.test.ts`** — RIR wave, double progression, readiness supersession, e1RM/rpePct
-  monotonicity, `topWorkingSet` selection (never warmup/deload), `workingLoad` increment rounding.
+  monotonicity, `topWorkingSet` selection (never warmup/deload), `workingLoad` increment rounding, and a
+  **block-transition guard (R37)**: rep-range change re-anchors load to e1RM, not double-progression.
 - **`logging/logging.eval.test.ts`** — placeholder→entry→serialization: bodyweight `bw±delta` with **no
   Decimal float drift**, loadMode decomposition, placeholder coalescing, cardio km→m, `pickPrevSets`
   template scoping, finished-block/readiness-ease helpers.
@@ -126,6 +131,8 @@ Entity relationships are many-to-many by id reference, not joins:
 - **Bodyweight model:** `sets.weight` = cumulative effective load; `loadMode`
   (`BODYWEIGHT`/`ADDED`/`ASSISTED`) + `loadDelta` preserve the decomposition; `equipment == BODYWEIGHT` ⟺
   `isBodyweight`. Effective load is recomputed from the user's *current* bodyweight.
+- **`CreateSetRequest` is Bean-Validated with cascade `@Valid`**: `@Pattern` on weight/loadDelta (decimal ≤9999), `@Min(0) @Max(1000)` on reps, `@Min(1) @Max(10)` on rpe. `CreateBlockRequest` carries `@NotNull @Valid List<CreateSetRequest>`, so bad input is rejected before it can poison e1RM. (`UpdateSetRequest` had this already; bulk-save path was the gap.)
+- **Plan terminal states**: `Macrocycle.status` is `ACTIVE | COMPLETED | ENDED` with `completedAt`/`endedAt` (both nullable Instants) and `splitId` (the split used for the schedule). `Split` carries a `weekdays` list (weekday per template slot, 0=Mon…6=Sun; nullable on old docs). New endpoint `GET /api/plan/history` returns all COMPLETED and ENDED plans for the tenant, newest-first.
 
 ### The Strong importer (`importer/`)
 `StrongImporter` is a **pure, deterministic transform** of the CSV, proven by `StrongImporterTest` and the
@@ -148,27 +155,33 @@ the eval), with thin additive backend persistence. Read `docs/coach.md` before t
   slots** (a placeholder per ~3 sets, ≤2 exercises/muscle/day, pre-filled with a recommended default via the
   shared **`trainsMuscle`/`fracOf` ≥0.5 basis** in `muscles.ts`). `PlanPage` lets the user swap each slot from a
   per-muscle dropdown; on accept slots resolve to concrete exercises (same-exercise slots merge). `orderForRecovery`
-  spaces a muscle + synergists ≥48–72h.
+  spaces a muscle + synergists ≥48–72h. `scheduleWeek` assigns training days among 7 weekday slots (rest days
+  in between); the result populates `PlanPreview.schedule`. **Intra-session ordering**: `daySlots` consolidates
+  distinct-stimulus duplicates and orders slots so no two consecutive slots share the primary muscle. A
+  `SESSION_TOTAL_CAP` (20 working sets/session) caps each day; excess sets are redistributed or trimmed.
+  Duration-truncation: the planner trims the last meso when the total would overshoot the target date.
 - **`src/prescription.ts`** — the **living-plan engine** (pure, tested): `rpePct` (RTS table
   `100−2.5(reps−1)−5·RIR`), `e1rm`, `workingLoad`, `topWorkingSet`, `nextLoad`/`progressedSeed` (double
   progression; bodyweight progresses on reps), `rirWave` (3→0, phase-floored), `readiness` (eases a sore /
-  under-recovered muscle from strictly-prior sessions). `LogWorkoutPage` seeds the next session from these.
+  under-recovered muscle from strictly-prior sessions). **Block-transition (cross-block load seed)**: when
+  rep range changes between blocks, `progressedSeed` re-anchors load from `e1rm` instead of double-progressing,
+  preventing unearned load bumps. `LogWorkoutPage` seeds the next session from these.
 - **`coach/EnergyService.java`** — read-time, gated surplus/deficit estimate: Mifflin–St Jeor × PAL +
   least-squares weight slope with a 95% CI, a ±0.1%bw/wk dead-band (anchored to ȳ), CI-derived confidence.
   Feeds the planner's `measuredPhase` clamp. Persisted plan endpoints live in `PlanController` (collection
   `plans`, one ACTIVE macrocycle, `advance()` rolls week→deload→next meso).
-- **Eval harness** (see above) — `coach.eval.test.ts` (planner R1–R18) + `prescription.eval.test.ts`
-  (engine R10–R22). **Every coaching invariant is pinned here**; add a new `R##` when you add a rule.
+- **Eval harness** (see above) — `coach.eval.test.ts` (planner R1–R40) + `prescription.eval.test.ts`
+  (engine R10–R22 + R37 block-transition). **Every coaching invariant is pinned here**; add a new `R##` when you add a rule.
 - **Default catalog**: `DefaultExerciseSeeder` seeds `resources/default-exercises.json` (84 exercises w/ muscle
   map, equipment, laterality, mechanic, loadable) into every new user at registration; `restore-defaults`
   back-fills missing ones for existing users. Exercise attributes are user-editable (`ExerciseDetailPage`).
 
 ### Diagrams
-`DIAGRAMS.md` holds 16 validated Mermaid diagrams (renders on GitHub) — structural (the domain **class
+`DIAGRAMS.md` holds the validated Mermaid set (renders on GitHub) — structural (the domain **class
 diagram** #12) + behavioural **sequence diagrams** (#13 log-a-planned-session, #14 build/accept-a-plan, #15
 energy estimate, #16 registration+seeding) plus the earlier flow charts. **Keep it current when the model
 changes** and validate (the repo has used a `mermaid.parse` node check; a `;` inside a sequence message breaks
-the parser — use `·`).
+the parser — use `·`). A plan-completion sequence diagram (#17) is being added.
 - **ALWAYS regenerate `DIAGRAMS.pdf` after editing `DIAGRAMS.md`** (it's a committed artifact, not
   git-ignored, so a stale PDF ships otherwise). Run `tools/build-diagrams-pdf.mjs` (renders each Mermaid block
   in headless Chrome → A4 PDF). It needs `marked mermaid puppeteer-core` + a local Chrome — install the deps
@@ -199,7 +212,14 @@ the parser — use `·`).
   (`GET/PUT /api/me/settings`, tenant-scoped, last-write-wins by epoch-ms `updatedAt` on `User.settings`).
   Cloud sync is the future **subscription** feature — the only seam is the `SYNC_ENABLED` flag (true in dev);
   the local SQLite base is always on. The same `LocalStore` interface is how desktop/mobile offline will be
-  added (swap in `expo-sqlite`/`better-sqlite3`). See the memory note `local-first-storage`.
+  added (swap in `expo-sqlite`/`better-sqlite3`). See the memory note `local-first-storage`. Settings gained
+  `dismissedCompletionPlanId` (tracks which plan the completion screen was already shown for, so it displays once).
+- **New frontend components this session:**
+  - `src/components/WeekCalendar.tsx` — editable weekly schedule grid; tap a cell to toggle a training day.
+  - `src/components/ErrorBoundary.tsx` + `src/components/QueryError.tsx` — reliability layer; `isError` branches in query hooks fall back to these so the app degrades gracefully instead of crashing.
+  - `src/pages/CompletionScreen.tsx` — shown once when the active plan is completed (`dismissedCompletionPlanId` prevents re-showing).
+  - `src/pages/PastPlans.tsx` + `src/pages/PlanSummaryCard.tsx` — browse completed/ended plans via `GET /api/plan/history`; `planSummary.ts` (`summarizePlan`) computes the summary stats.
+  - `LogWorkoutPage` **reliability additions**: draft persistence to `LocalStore` (survives a reload mid-session), `beforeunload` guard (browser warning on navigation away with unsaved work).
 - **Decimals stay strings end-to-end** in the client too; parse to `number` only for transient display math.
 
 ## Conventions

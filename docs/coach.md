@@ -161,7 +161,9 @@ Split them:
 ### Goal → block recipe (`planMacrocycle`, pure, tested)
 Work **backward from `targetDate`** when present (the terminal block is immovable; accumulation absorbs slack);
 else forward from now for `durationWeeks`. Every block = N accumulation (3–5, default 4) + 1 deload; snap
-fractional math to whole blocks. Enforce **phase potentiation** (no STRENGTH before ≥1 HYPERTROPHY; PEAK is
+fractional math to whole blocks. **Distinct durations yield distinct plans** — the final block's accumulation
+is truncated to exactly fit the selected duration rather than using a fixed slop, so a 3-month and a 4-month
+plan genuinely differ in length. Enforce **phase potentiation** (no STRENGTH before ≥1 HYPERTROPHY; PEAK is
 terminal-only and date-gated).
 - **GENERAL_HYPERTROPHY** — repeat `[HYP 4+1]×2 → [STRENGTH 3+1]` (the strength block doubles as periodic
   resensitization), no pinned focus; volume MEV→MAV.
@@ -185,16 +187,43 @@ constructively**: any **prime mover** (chest, lats, quads, hamstrings, glutes, s
 **focus muscle** the base shape would hit <2× is **added to the lightest day(s) that lack it** until it reaches
 2× (so e.g. side-delts on a 4-day Upper/Lower, which the old shape hit once, is now scheduled twice). A muscle's
 weekly target is **spread across its sessions** and **capped at ~5 sets/session** (junk-volume ceiling). Only a
-true **catalog gap** (no exercise for a muscle) still warns — frequency itself no longer does.
+true **catalog gap** (no exercise for a muscle) warns — frequency itself no longer does.
+
+**Rest-day scheduling (weekly calendar).** After frequency-by-design patches the day shapes, `generateSplit`
+calls `scheduleWeek(days, effOf, weekLen=7)` — it places the N training days among 7 weekday slots, inserting
+rest days to **minimize circular same-muscle adjacency** (a muscle trained on ≤⌊7/2⌋ days is guaranteed ≥48 h
+between sessions). The search is exhaustive over all placements (P(7,N) ≤ 5040 for N≤6); ties break toward the
+most even spread. The resulting `schedule: number[]` (weekday index 0=Mon…6=Sun per template) ships in
+`PlanPreview` and persists as `Split.weekdays` — the user can drag sessions to different weekdays on the
+calendar and `scheduleNotes(templates, schedule)` re-evaluates recovery warnings live. Recovery warnings now
+come **only from the scheduled week** (i.e. only fire when the frequency is too high to fully space, e.g. 6
+days/week), and are reclassified as advisory **"Recovery notes"** rather than actionable blockers. Catalog-gap
+messages remain separate.
+
+`scheduleWeek` generalizes the older `orderForRecovery` primitive (which ordered the training days among
+themselves without inserting rest days, and is still used standalone where no rest-day context is available —
+see R36 in the eval).
 
 **Boilerplate slots → user-selectable exercises.** Each training day is emitted as a list of **muscle-group
 slots** — placeholders carrying a prescription (sets×reps@RIR) and a **recommended default exercise the user can
-swap** (in `PlanPage`) for any catalog exercise that trains the same muscle. A muscle's per-day volume splits
-into `⌈sets / 3⌉` slots, **≤2 distinct exercises per muscle per day** and bounded by how many candidates exist —
-so a ~4-set chest day becomes two slots (e.g. an incline press + a pec deck), a 3-set lat day stays one. Pure +
-swept: `daySlots` (periodization.ts) builds them; the eval pins slot integrity and the ≥2× design guarantee
-(R33–R35). On **accept**, each slot resolves to the user's chosen `exerciseId` and persists as an ordinary
-template (slots that landed on the same exercise merge, sets summed/capped) — the slot concept is plan-time only.
+swap** (in `PlanPage`) for any catalog exercise that trains the same muscle. A muscle's per-day volume is
+distributed across **one exercise by default**; a second exercise is added only when (a) the day's volume for
+that muscle reaches `SPLIT_MIN_SETS=4` sets AND (b) a genuinely distinct candidate exists — specifically a
+**strong primary** (`fracOf ≥ STRONG_PRIMARY=0.75`) of a **different mechanic** than the first pick. This keeps
+a real compound+isolation pair (chest: bench + fly) but collapses two near-identical isolations (side delts:
+dumbbell lateral raise + machine lateral raise → four sets of one). The **≤2-slots-per-muscle-per-day cap**
+(`MAX_SLOTS_PER_MUSCLE`) is unchanged. Within a day, `orderSlotsForRecovery` interleaves slots so **no two
+consecutive slots train the same primary muscle** when more than one muscle is present (round-robin by muscle
+group, tiebreak on fewest shared synergists). Pure + swept: `daySlots` (periodization.ts) builds them; the
+eval pins slot integrity and the ≥2× design guarantee (R33–R39). On **accept**, each slot resolves to the
+user's chosen `exerciseId` and persists as an ordinary template (slots that landed on the same exercise merge,
+sets summed/capped) — the slot concept is plan-time only.
+
+**Session-level set cap.** `SESSION_TOTAL_CAP=20` limits **total working sets per training day** (across all
+muscle groups) to keep sessions within ~90 min. When a generated day exceeds this the planner first tries to
+**redistribute** excess sets to another day already training the same muscle (preserving weekly volume and
+≥2×/week frequency); only when redistribution has no valid target does it **trim** the lowest-priority slots
+(non-focus muscles first, fewest sets first). Pinned by eval R40.
 
 **Exercise selection (goal-aware).** Defaults are picked from the **user's catalog** by muscle
 (`muscleContributions`, fallback `MuscleSeed.infer`). **STRENGTH/PEAK blocks prefer COMPOUND** movements;
@@ -260,7 +289,9 @@ the plan never prescribes extra volume + faster progression while you're cutting
 ### ③ Recovery-aware sequencing + readiness
 - **Spacing:** order the microcycle so a muscle (and its synergists, via secondary `muscleContributions` —
   bench→triceps) isn't re-trained inside **~48–72 h**; the window grows with last session's sets/closeness to
-  failure.
+  failure. The weekly calendar (`scheduleWeek`) handles inter-session spacing; `orderForRecovery` handles
+  day-order within the training week when rest-day insertion is not available; `orderSlotsForRecovery` handles
+  intra-session slot ordering within a day (R36/R37/R39).
 - **Readiness (v1, user-chosen):** logged soreness + a performance drop (reps/e1RM down vs target) **trim the
   next same-muscle session** (−sets / +1 RIR) — autoregulation, not just static spacing.
 
@@ -269,6 +300,13 @@ the plan never prescribes extra volume + faster progression while you're cutting
   progression** (reps to top of range at target RIR → then +load: +2.5–5 kg lower / +1–2.5 kg upper, ×
   `progressMult`).
 - **RIR wave** across the meso (3→2→1→0–1), floored by `rirFloor`.
+- **Cross-block load anchor (`progressedSeed`, R37 prescription-eval).** At a block transition — when
+  `prevRepHigh` (the previous mesocycle's rep-range ceiling) differs from the current `repHigh` — double
+  progression's rep-comparison gate is skipped entirely. Instead the load is **re-anchored to an e1RM-derived
+  `workingLoad`** for the new target reps and 2 RIR. This prevents a spurious load bump when hypertrophy
+  reps (≤15) always satisfy a strength block's progression gate (repHigh ≤6), which would otherwise give an
+  unearned increment at every block boundary. `LogWorkoutPage` passes the previous meso's `repHigh`; the
+  same-range case (same `repHigh`) continues to double-progress normally.
 - **Deload triggers** (reached MRV / performance drops >2 sessions / end of block) **prompt** (don't force) the
   deload week (~½ MEV sets, +2–3 RIR).
 
@@ -277,6 +315,47 @@ Confidently-wrong *numbers* the user trusts blindly (a cold-start load way off; 
 weight; a readiness trim that masks a bad day as under-recovery). Mitigations: every number an **editable
 preview**, conservative cold-start that self-corrects in 1–2 logs, `progressMult`≈0.1 in a deficit, and
 readiness adjustments are **suggestions** shown with their reason — never silent.
+
+---
+
+## Eval harness (Layer 4 + 5 invariants)
+
+All coaching invariants are pinned as executable guards, subdivided by domain and numbered. The full sweep
+(`npm run eval` from `frontend/`) runs 240 planner configs (4 goals × 5 days × 4 durations × 3 focus sets)
+plus all prescription rules on every commit.
+
+### Layer 4 — Macrocycle planner (`coach.eval.test.ts`, R1–R40)
+
+| Rule | Invariant |
+| --- | --- |
+| R1–R9 | Non-empty plan, block sequencing, focus muscles, rep range, deload phase-independence |
+| R14–R24 | Volume ramp, phase monotone, MAV band-step bounds, deload floor |
+| R25 | HIGH-confidence measured DEFICIT clamps recipe SURPLUS → MAINTENANCE |
+| R26 | Prime-mover frequency on REAL catalog ≥2×/week |
+| R27 | Warns when a prime mover has no exercise |
+| R28–R30 | CONTEST_PREP: no date overshoot, exactly one terminal PEAK, peak intensity ≤3 reps |
+| R33 | **Frequency-by-design:** every prime mover + focus muscle scheduled ≥2×/week by construction (not warned) |
+| R34 | **Slot integrity:** each slot's default exercise trains the muscle; ≤2 slots/muscle/day |
+| R35 | Distinct-mechanic pairs on REAL catalog; each default trains its muscle |
+| R36 | **`orderForRecovery` is globally optimal:** for ≤6 days the exhaustive permutation search matches (or beats) any greedy alternative; adjacency conflicts are minimized |
+| R37 | **`scheduleWeek` minimizes <48h circular conflicts:** the 7-slot search places days with maximum rest spacing; the default 4-day Upper/Lower split produces zero recovery warnings |
+| R38 | **Distinct-mechanic guard:** a muscle receives 2 exercises/day ONLY as a compound+isolation pair (different mechanic, ≥0.75 primary contribution); near-identical isolations collapse to one |
+| R39 | **Intra-session spacing:** no two consecutive slots in a day share a primary muscle (when ≥2 muscles are present) |
+| R40 | **Session total cap:** no training day exceeds `SESSION_TOTAL_CAP=20` total working sets; excess is redistributed (preserving frequency) before trimming |
+
+### Layer 5 — Prescription engine (`prescription.eval.test.ts`, R10–R13, R20–R22, R33–R37)
+
+| Rule | Invariant |
+| --- | --- |
+| R10 | `rirWave` bounded [floor, 3], non-increasing (3→0) |
+| R11 | Double progression: deficit holds load; non-deficit progresses |
+| R12/R21 | Readiness: trim iff sore-in-window OR rep shortfall; strictly-prior; superseded by later working set |
+| R13 | `rpePct` formula + clamp [0.40, 1.0] |
+| R20 | Bodyweight exercises progress on reps (load=null) |
+| R33 | `e1rm` monotone non-decreasing in weight and reps |
+| R35 | `rpePct` monotone non-increasing in reps and RIR |
+| R36 | `workingLoad` rounds to increment, ≥0 |
+| R37 | **Block-transition guard:** when `prevRepHigh ≠ repHigh`, `progressedSeed` anchors to e1RM (`workingLoad`), not a progression bump; same-range case and no-prior-block case both continue to double-progress normally |
 
 ---
 

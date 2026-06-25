@@ -26,6 +26,14 @@ _Last updated: 2026-06-25 (reliability hardening)_
 
 ## Done
 
+- _2026-06-25_ — **Docs synced to this session's design changes** (4 parallel sub-agents, each verified vs code).
+  `DESIGN.md` (terminal plan states + `splitId`/`completedAt`/`endedAt`, `Split.weekdays`, `CreateSetRequest`
+  validation invariant, `GET /plan/history`, the completion/WeekCalendar/reliability/onboarding frontend layers),
+  `docs/coach.md` (rest-day `scheduleWeek`, distinct-stimulus slots + intra-session ordering, `SESSION_TOTAL_CAP`,
+  duration-truncation, cross-block e1RM anchor, the R36–R40 + prescription R37 catalog), `DIAGRAMS.md` (class #12 +
+  build-plan #14 + log-session #13 updated, new completion+history #17; now 17 diagrams) → `DIAGRAMS.pdf`
+  regenerated (17/17 render, validates the Mermaid), `CLAUDE.md` (suite sizes 116 unit / 35 integration / 6 e2e,
+  invariants, frontend structure). Cross-checked for consistency; stale counts cleared.
 - _2026-06-25_ — **Council UX leftovers** (2 parallel sub-agents). (1) **Strength-block advisory** (`PlanPage`):
   during a STRENGTH/PEAK block the active view now shows a card noting the split still uses hypertrophy-picked
   exercises and to swap in heavy compounds. (2) **One-handed weekly calendar** (`WeekCalendar`): replaced the
