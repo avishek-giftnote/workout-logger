@@ -39,3 +39,6 @@ blob-report/
 
 # Playwright MCP session output (screenshots/traces)
 .playwright-mcp/
+
+# direnv (may load secrets) — keep local
+.envrc
