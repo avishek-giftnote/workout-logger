@@ -26,6 +26,13 @@ _Last updated: 2026-06-25 (reliability hardening)_
 
 ## Done
 
+- _2026-06-25_ — **Council UX leftovers** (2 parallel sub-agents). (1) **Strength-block advisory** (`PlanPage`):
+  during a STRENGTH/PEAK block the active view now shows a card noting the split still uses hypertrophy-picked
+  exercises and to swap in heavy compounds. (2) **One-handed weekly calendar** (`WeekCalendar`): replaced the
+  dropdown list with tap-a-training-day → tap-a-rest-day to move sessions (picked-cell outline + drop-target cues,
+  tap-again to cancel); read-only mode + the 7-cell/rest e2e contract preserved. Gate: tsc · 116 unit · eval
+  240/240 · build · e2e 6/6. Verified live: picked Mon/Upper A → tapped Tue → moved; strength-phase caption renders.
+  (A 3rd agent's set-cap trim refinement was reverted — merged distinct pairs away; see agenda.)
 - _2026-06-25_ — **Council follow-ups, batch 2** (4 parallel sub-agents on disjoint files). (1) **Session-level set
   cap** R40 — `SESSION_TOTAL_CAP=20`; over-cap days redistribute excess to a day already training the muscle, else
   trim (Upper B: ~29→20 sets live). (2) **Duration granularity** — replaced the `+2` slop with final-block
@@ -167,10 +174,14 @@ _Last updated: 2026-06-25 (reliability hardening)_
 
 ## On the agenda (backlog, not started)
 
-- **Set-cap redistribution leaves thin slots** — the session-set-cap (R40) trims an over-capped day down to 20,
-  but the redistribute-then-trim can leave several 1-set slots (e.g. "Chest 1×8" in Upper B). Invariants stay green
-  (cap, ≥2×/wk frequency, volume bounds) but it reads oddly. Refine: prefer dropping a whole low-priority slot, or
-  merge 1-set stubs, over leaving thin stubs. Low priority (the HIGH junk-volume issue is resolved).
+- **Set-cap trim refinement (no thin slots) — deferred, needs care.** First attempt (drop/redistribute WHOLE slots
+  instead of shaving to 1-set stubs) eliminated stubs but **merged distinct-stimulus pairs away**: relocating an
+  over-cap day's isolation slot summed its sets into a *different-mechanic* slot on another day (e.g. chest fly →
+  chest bench), collapsing the compound+isolation pair (caught by the `plan-slots-mocked` e2e; reverted). The right
+  fix RELOCATES the whole exercise-slot as a *distinct* slot on a less-loaded day that trains the muscle (preserving
+  the pair + variety), and only merges when the target slot is the SAME exercise/mechanic — respecting
+  MAX_SLOTS_PER_MUSCLE + R38. Current behavior = the batch-2 cap (caps at 20 by shaving, leaves thin stubs). Low
+  priority; the HIGH junk-volume issue is already resolved by the cap.
 
 - **Council planner-simulation findings** (`docs/planner-council-simulation.{md,pdf}`, 2026-06-25). 44-agent council
   role-played "Sam" through the full lifecycle; verdict: *the coaching engine is sound, the UI doesn't explain it*.
