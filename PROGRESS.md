@@ -26,6 +26,15 @@ _Last updated: 2026-06-25 (reliability hardening)_
 
 ## Done
 
+- _2026-06-25_ — **Fixed silent reset of plan customizations** (council HIGH, `PlanPage.tsx`). The picks + weekday
+  reseed effects were keyed on `[preview]`, so ANY recompute (a background `exercises` refetch, or the async
+  energy phase resolving) wiped the user's edits even when the slot layout was identical — and they could accept a
+  reverted plan. Now keyed on a pure `planStructureKey(preview)` fingerprint (day names + per-slot muscles, ignoring
+  default exercise ids), so edits survive non-structural recomputes; when a genuine structural change (goal/days/
+  volume) does discard edits, an inline "Selections reset" notice fires. Guard: `planStructureKey` unit tests
+  (same layout → same key incl. different defaults; changed muscle/count/day-name → different). tsc · 115 unit (+2)
+  · eval 240/240 · build · plan-slots e2e. **Verified live**: customized a chest pick + a weekday, changed duration
+  6→9mo (non-structural recompute), both survived (before: reset to defaults).
 - _2026-06-25_ — **Reliability hardening — the council's 3 HIGH hazards** (`docs/planner-council-simulation.{md,pdf}`).
   Built by 3 synchronous sub-agents on disjoint files. (1) **Input validation** — mirrored `UpdateSetRequest`
   bounds onto `CreateSetRequest` (reps `@Min/@Max`, rpe, a weight `@Pattern`) + cascade `@Valid` so the bulk save

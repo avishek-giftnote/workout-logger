@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isDeload, targetSets, currentMicro, planMacrocycle, phaseMod, daySlots, scheduleWeek, scheduleConflicts } from "./periodization";
+import { isDeload, targetSets, currentMicro, planMacrocycle, phaseMod, daySlots, scheduleWeek, scheduleConflicts, planStructureKey } from "./periodization";
 import type { ExerciseDto, MacrocycleDto, MesoInput, Muscle, WorkoutDto } from "./api/types";
 
 const meso = (over: Partial<MesoInput> = {}): MesoInput =>
@@ -222,5 +222,23 @@ describe("scheduleWeek — rest-day placement for ≥48h recovery", () => {
       opt = Math.min(opt, scheduleConflicts(w, effId));
     }
     expect(scheduleConflicts(week, effId)).toBe(opt);
+  });
+});
+
+describe("planStructureKey — fingerprints the slot layout for safe re-seeding", () => {
+  const slot = (muscle: Muscle, exerciseId: string) => ({ muscle, sets: 3, reps: 8, targetRir: "2", exerciseId, name: exerciseId });
+  const tmpl = (name: string, muscles: Muscle[], ids: string[]) => ({ name, slots: muscles.map((m, i) => slot(m, ids[i])) });
+
+  it("is identical for the same layout regardless of the default exercise ids (so picks aren't reset)", () => {
+    const a = [tmpl("Upper A", ["CHEST", "LAT"], ["e1", "e2"]), tmpl("Lower A", ["QUAD"], ["e3"])];
+    const b = [tmpl("Upper A", ["CHEST", "LAT"], ["zz", "yy"]), tmpl("Lower A", ["QUAD"], ["qq"])];
+    expect(planStructureKey({ templates: a })).toBe(planStructureKey({ templates: b }));
+  });
+
+  it("changes when the slot muscles or counts change (a real structural change → reset is warranted)", () => {
+    const base = planStructureKey({ templates: [tmpl("Upper A", ["CHEST", "LAT"], ["e1", "e2"])] });
+    expect(planStructureKey({ templates: [tmpl("Upper A", ["CHEST", "LAT", "SIDE_DELT"], ["e1", "e2", "e3"])] })).not.toBe(base); // extra slot
+    expect(planStructureKey({ templates: [tmpl("Upper A", ["CHEST", "TRICEP"], ["e1", "e2"])] })).not.toBe(base);                 // diff muscle
+    expect(planStructureKey({ templates: [tmpl("Lower A", ["CHEST", "LAT"], ["e1", "e2"])] })).not.toBe(base);                    // diff day name
   });
 });
