@@ -1,5 +1,11 @@
 {
   "permissions": {
+    "deny": [
+      "Skill(daily-log)",
+      "Skill(vault-knowledge)",
+      "Skill(zest-scrape)",
+      "Skill(new-project-bootstrap)"
+    ],
     "allow": [
       "Bash(mvn:*)",
       "Bash(npm:*)",
