@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import { blockLabel } from "../periodization";
 import { muscleLabel } from "../muscles";
 import { summarizePlan } from "../planSummary";
@@ -41,6 +42,9 @@ export default function PlanSummaryCard({ plan }: Props) {
 
   if (workouts.isLoading || exercises.isLoading || me.isLoading) {
     return <div className="spinner" style={{ margin: "24px auto" }} />;
+  }
+  if (workouts.isError || exercises.isError || me.isError) {
+    return <QueryError onRetry={() => { workouts.refetch(); exercises.refetch(); me.refetch(); }} />;
   }
 
   const s = summarizePlan(

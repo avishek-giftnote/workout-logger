@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
+import QueryError from "../components/QueryError";
 import type { CreateWorkoutRequest, ExerciseDto, Muscle, WorkoutDto } from "../api/types";
 import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, filledSet, findEx, isCardioEx, toCreateSet, uid,
@@ -88,6 +89,7 @@ export default function EditWorkoutPage() {
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save changes."),
   });
 
+  if (workout.isError || exercises.isError) return <QueryError onRetry={() => { workout.refetch(); exercises.refetch(); }} />;
   if (workout.isLoading || blocks === null) return <main className="screen"><div className="spinner" /></main>;
   const totalSets = blocks.reduce((n, b) => n + b.sets.length, 0);
 

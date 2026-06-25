@@ -14,9 +14,11 @@ import com.workoutlogger.domain.Muscle;
 import com.workoutlogger.domain.Sex;
 import com.workoutlogger.domain.SetKind;
 import com.workoutlogger.domain.SetType;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.List;
@@ -59,16 +61,24 @@ public final class ApiDtos {
                              String templateId, CyclePhase cyclePhase, List<ExerciseBlockDto> exercises,
                              List<Muscle> soreMuscles, Instant createdAt, Instant updatedAt) {}
 
-    public record CreateSetRequest(int orderIndex, @NotNull SetType setType, String weight,
-                                   LoadMode loadMode, String loadDelta, Integer reps, Integer rpe, String note,
+    /** Sane decimal pattern: optional sign, 1–4 integer digits, optional 1–3 decimal places (e.g. "100.5", "-20.25"). */
+    static final String DECIMAL_PATTERN = "^-?\\d{1,4}(\\.\\d{1,3})?$";
+
+    public record CreateSetRequest(int orderIndex, @NotNull SetType setType,
+                                   @Pattern(regexp = DECIMAL_PATTERN, message = "weight must be a decimal ≤ 9999") String weight,
+                                   LoadMode loadMode,
+                                   @Pattern(regexp = DECIMAL_PATTERN, message = "loadDelta must be a decimal ≤ 9999") String loadDelta,
+                                   @Min(0) @Max(1000) Integer reps,
+                                   @Min(1) @Max(10) Integer rpe,
+                                   String note,
                                    SetKind kind, String distanceM, Integer durationS, String gradePct,
                                    String elevationGainM, Integer cadenceSpm) {}
 
     public record CreateBlockRequest(@NotNull String exerciseId, String name, int position, String note,
-                                     @NotNull List<CreateSetRequest> sets) {}
+                                     @NotNull @Valid List<CreateSetRequest> sets) {}
 
     public record CreateWorkoutRequest(@NotNull Instant startedAt, Integer durationSeconds, String templateId,
-                                       CyclePhase cyclePhase, @NotNull List<CreateBlockRequest> exercises,
+                                       CyclePhase cyclePhase, @NotNull @Valid List<CreateBlockRequest> exercises,
                                        List<Muscle> soreMuscles) {}
 
     public record UpdateSetRequest(String weight, @Min(0) @Max(1000) Integer reps, @Min(1) @Max(10) Integer rpe,

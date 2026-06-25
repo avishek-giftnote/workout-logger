@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import type { SetDto, WorkoutDto } from "../api/types";
 
 const fmtDate = (iso: string) =>
@@ -41,6 +42,7 @@ export default function WorkoutDetailPage() {
   }, [workout.data, templates.data]);
 
   if (workout.isLoading) return <main className="screen"><div className="spinner" /></main>;
+  if (workout.isError) return <QueryError onRetry={workout.refetch} />;
   if (!workout.data) return (
     <main className="screen">
       <div className="empty"><div className="big">Workout not found</div>

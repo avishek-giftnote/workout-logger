@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-06-25 (planSummary)_
+_Last updated: 2026-06-25 (reliability hardening)_
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -26,6 +26,19 @@ _Last updated: 2026-06-25 (planSummary)_
 
 ## Done
 
+- _2026-06-25_ — **Reliability hardening — the council's 3 HIGH hazards** (`docs/planner-council-simulation.{md,pdf}`).
+  Built by 3 synchronous sub-agents on disjoint files. (1) **Input validation** — mirrored `UpdateSetRequest`
+  bounds onto `CreateSetRequest` (reps `@Min/@Max`, rpe, a weight `@Pattern`) + cascade `@Valid` so the bulk save
+  path actually validates; `ApiIntegrationTest` asserts bogus reps/rpe → 400 (35/35). (2) **Error/offline states**
+  — new `ErrorBoundary` (wraps the shell) + shared `QueryError` (Retry); 10 query-gated pages now render `isError`
+  instead of spinning or seeding from `?? []`. (3) **Durable in-gym logging** — the live workout draft persists to
+  the `LocalStore` seam (debounced) with a Resume/Discard prompt on reload + a `beforeunload` guard; plus a
+  non-blocking large-jump weight warning. Gate green: tsc · 113 unit (+13) · eval 240/240 · build · backend 35/35
+  · **e2e 6/6**. Verified live: started a session → reload fired the beforeunload guard → restore prompt rendered.
+- _2026-06-25_ — **Council planner-simulation** (`docs/planner-council-simulation.{md,pdf}`, 8-page PDF) — 44-agent
+  workflow role-played "Sam" through the full lifecycle (User → Coach → Exercise Scientist conversing per stage,
+  findings fact-checked vs code). Verdict: engine sound, UI under-explains it. Top findings → the agenda below;
+  the 3 HIGH reliability hazards are now done (above).
 - _2026-06-25_ — **Planner Stages B+C — editable & persisted weekly calendar.** Backend (additive/nullable):
   `Split.weekdays` (0=Mon…6=Sun, aligned to templateIds) + `Macrocycle.splitId`; DTOs/mapper/repos/controllers
   wired; `ApiIntegrationTest` round-trips weekdays + splitId, null-safe + tenant-scoped (34/34). Frontend: new
@@ -134,6 +147,27 @@ _Last updated: 2026-06-25 (planSummary)_
   React/Vite logging engine shared by new+edit; 16 validated Mermaid diagrams. See `DESIGN.md` / `docs/coach.md`.
 
 ## On the agenda (backlog, not started)
+
+- **Council planner-simulation findings** (`docs/planner-council-simulation.{md,pdf}`, 2026-06-25). 44-agent council
+  role-played "Sam" through the full lifecycle; verdict: *the coaching engine is sound, the UI doesn't explain it*.
+  Actionable items, by priority:
+  - **Reliability hazards (HIGH):** (1) no `isError`/offline state on any query-gated page — a dropped GET mid-gym
+    spins forever or seeds from empty `?? []`; add error branches + an error boundary. (2) in-progress workout is
+    pure React state — refresh/lock/nav-tap wipes the session; persist the live draft to the existing `LocalStore`
+    seam + `beforeunload`. (3) `CreateSetRequest` has **no** validation (only `UpdateSetRequest` does) — a typo'd
+    weight poisons e1RM/progression; mirror the bounds + a client "large jump" warning.
+  - **Planner (HIGH/MED):** session-level total-set cap (Upper B prescribes ~29 sets — junk volume; `PER_SESSION_CAP`
+    is per-muscle only); silent reset of weekday/slot picks on any macro-param change (`PlanPage.tsx:260–268`) — diff
+    structurally; cross-block load bump at hypertrophy→strength (anchor to e1RM on block-type change); strength block
+    in a build-muscle plan needs a "why" caption; 3- and 4-month both yield 14 weeks (`periodization.ts:505`).
+  - **Quick wins (surfacing):** onboarding card + "Log weight" CTA on GATHERING_DATA; render the Mifflin estimate
+    during gathering; legible block-timeline text (9px→≥13px); two-step confirm on "Complete week"; duration-mismatch
+    notice. Full prioritized table + per-finding detail in the doc.
+
+- **Edit-time recovery notes use slot primary muscles only** — `scheduleNotes` (the live warning when you drag a
+  session in the builder) reads muscles off rendered slots, so it's slightly less sensitive than the synergist-aware
+  auto-scheduler (`scheduleWeek`/`effOf`). Fine for live feedback; if exact parity is wanted, feed synergist info to
+  `scheduleNotes` (e.g. pass the catalog or precompute per-template effective muscles). Small, low priority.
 
 - **Non-dismissible recovery-adjacency warning** — "Side delts lands on back-to-back days" on every builder load.
   _Root-cause day-ordering attempted 2026-06-25 (via `/pursue`); proven a dead end for this case._ Made

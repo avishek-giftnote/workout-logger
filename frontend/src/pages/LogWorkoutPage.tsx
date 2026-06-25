@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api, ApiError } from "../api/client";
@@ -6,6 +6,7 @@ import type { CreateWorkoutRequest, ExerciseDto, Muscle, SetDto, TemplateDto, Te
 import {
   DraftBlock, ExerciseBlockEditor, ExercisePicker, findEx, isCardioEx, structureChanged,
   templateExercisesFromBlocks, toCreateSet, uid,
+  type WorkoutDraft, serializeDraft, deserializeDraft,
 } from "../logging/engine";
 import { applyEase, finishedBlocks, pickPrevSets } from "../logging/seed";
 import { useSettings } from "../settings";
@@ -14,6 +15,10 @@ import { loadIncrement, progressedSeed, readiness, rirWave, topWorkingSet } from
 import { muscleLabel } from "../muscles";
 import RestTimer from "../components/RestTimer";
 import StartChooser from "./StartChooser";
+import { openLocalStore } from "../local/sqlite";
+
+const DRAFT_KEY = "wl.draft.new";
+const DRAFT_DEBOUNCE_MS = 500;
 
 const cleanName = (n: string) => n.replace(/\s*focus/i, "").trim();
 
@@ -53,6 +58,67 @@ export default function LogWorkoutPage() {
   const { prevSource, showRpe, restTarget, restTimerEnabled } = useSettings();
   const [rest, setRest] = useState<{ at: number; target: number } | null>(null);
   const [soreNow, setSoreNow] = useState<Muscle[]>([]);
+
+  // ── draft persistence ──
+  const [pendingDraft, setPendingDraft] = useState<WorkoutDraft | null>(null);
+  const [draftChecked, setDraftChecked] = useState(false);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // On mount: open the local store and check for a saved draft to restore.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const store = await openLocalStore();
+      if (cancelled) return;
+      const raw = store.get(DRAFT_KEY);
+      const draft = deserializeDraft(raw);
+      if (!cancelled) {
+        if (draft) setPendingDraft(draft);
+        setDraftChecked(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Debounced write to LocalStore whenever the active session changes.
+  const persistDraft = useCallback((draft: WorkoutDraft) => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(async () => {
+      const store = await openLocalStore();
+      store.set(DRAFT_KEY, serializeDraft(draft), Date.now());
+    }, DRAFT_DEBOUNCE_MS);
+  }, []);
+
+  const clearDraft = useCallback(async () => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    const store = await openLocalStore();
+    store.remove(DRAFT_KEY);
+  }, []);
+
+  // Whenever the session state changes (and a session is active), debounce-persist it.
+  useEffect(() => {
+    if (!started) return;
+    persistDraft({ savedAt: Date.now(), templateId, deload, blocks });
+  }, [started, templateId, deload, blocks, persistDraft]);
+
+  // beforeunload: warn the browser (best-effort on mobile) when a session is active and has work.
+  useEffect(() => {
+    if (!started) return;
+    const hasSets = blocks.some((b) => b.sets.length > 0);
+    if (!hasSets) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Modern browsers show their own generic message; setting returnValue triggers the dialog.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [started, blocks]);
+
+  // ── data-error guard ──
+  // If either exercises or workouts failed to load (data we need to seed sets), surface an error
+  // instead of silently proceeding from empty state.
+  const criticalError = exercises.isError || workouts.isError;
 
   const planMeso = plan.data ? currentMicro(plan.data)?.meso ?? null : null;
   const primaryMuscleOf = (exerciseId: string): Muscle | null =>
@@ -117,12 +183,28 @@ export default function LogWorkoutPage() {
     setBlocks((bs) => bs.some((b) => b.exercise.id === ex.id) ? bs : [...bs, { key: uid(), exercise: ex, sets: [] }]);
     setPicking(false);
   };
+
   const startEmpty = () => { setTemplateId(null); setBlocks([]); setDeload(planDeload); setStarted(true); };
   const startFromTemplate = (t: TemplateDto) => {
     setBlocks(blocksFromTemplate(t, exercises.data ?? []));
     setTemplateId(t.id);
     setDeload(planDeload);
     setStarted(true);
+  };
+
+  // Restore a saved draft (user confirmed "Resume").
+  const restoreDraft = (draft: WorkoutDraft) => {
+    setBlocks(draft.blocks);
+    setTemplateId(draft.templateId);
+    setDeload(draft.deload);
+    setStarted(true);
+    setPendingDraft(null);
+  };
+
+  // Discard the saved draft and let the user choose fresh.
+  const discardPendingDraft = () => {
+    clearDraft();
+    setPendingDraft(null);
   };
 
   const totalSets = blocks.reduce((n, b) => n + b.sets.length, 0);
@@ -150,6 +232,7 @@ export default function LogWorkoutPage() {
       return Api.createWorkout(body);
     },
     onSuccess: () => {
+      clearDraft();
       qc.invalidateQueries({ queryKey: ["workouts"] });
       const fin = finishedBlocksNow();
       if (!templateId && fin.length) { setTemplateName(""); setDialog("save-template"); }
@@ -162,8 +245,11 @@ export default function LogWorkoutPage() {
   const onFinish = () => { if (hasIncomplete) setConfirmDiscard(true); else save.mutate(); };
   const discardAndFinish = () => {
     setConfirmDiscard(false);
-    if (finishedBlocksNow().length === 0) done(); else save.mutate();   // nothing completed → just leave
+    if (finishedBlocksNow().length === 0) { clearDraft(); done(); } else save.mutate();
   };
+
+  // "Discard workout" top-level — also wipes the draft.
+  const discardWorkout = () => { clearDraft(); nav("/previous-workouts"); };
 
   const saveTemplate = useMutation({
     mutationFn: (name: string) => Api.createTemplate({ name, exercises: templateExercisesFromBlocks(finishedBlocksNow()) }),
@@ -177,6 +263,34 @@ export default function LogWorkoutPage() {
     onError: done,
   });
 
+  // Show nothing until we've checked for a persisted draft (avoids flash of StartChooser).
+  if (!draftChecked) return null;
+
+  // ── error state: data required to seed sets failed to load ──
+  if (criticalError && !started) {
+    return (
+      <main className="screen">
+        <div className="screen-head fade-up">
+          <div>
+            <h1>Start Workout</h1>
+            <p>Could not load your workout data</p>
+          </div>
+          <button className="btn btn-ghost" onClick={() => nav("/previous-workouts")}>Cancel</button>
+        </div>
+        <div className="card card-pad" style={{ marginTop: 24, textAlign: "center" }}>
+          <p className="muted" style={{ marginBottom: 16 }}>
+            {exercises.isError ? "Failed to load exercise list." : "Failed to load workout history."}{" "}
+            Check your connection and try again.
+          </p>
+          <button className="btn btn-volt" onClick={() => {
+            exercises.isError && exercises.refetch();
+            workouts.isError && workouts.refetch();
+          }}>Retry</button>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="screen">
       <div className="screen-head fade-up">
@@ -186,6 +300,21 @@ export default function LogWorkoutPage() {
         </div>
         <button className="btn btn-ghost" onClick={() => nav("/previous-workouts")}>Cancel</button>
       </div>
+
+      {/* ── resume-draft banner ── */}
+      {pendingDraft && !started && (
+        <div className="card card-pad" style={{ marginBottom: 16, borderColor: "var(--volt)" }}>
+          <span className="micro" style={{ color: "var(--volt)" }}>In-progress workout found</span>
+          <p className="muted" style={{ fontSize: 13, margin: "4px 0 12px" }}>
+            You have an unsaved workout from {new Date(pendingDraft.savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+            Resume where you left off?
+          </p>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn-volt grow" onClick={() => restoreDraft(pendingDraft)}>Resume</button>
+            <button className="btn btn-ghost grow" onClick={discardPendingDraft}>Discard</button>
+          </div>
+        </div>
+      )}
 
       {!started ? (
         <StartChooser
@@ -251,7 +380,7 @@ export default function LogWorkoutPage() {
           <RestTimer start={rest?.at ?? null} target={rest?.target ?? 0} onDismiss={() => setRest(null)} />
 
           <div className="action-bar">
-            <button className="btn btn-ghost grow" onClick={() => nav("/previous-workouts")}>Discard</button>
+            <button className="btn btn-ghost grow" onClick={discardWorkout}>Discard</button>
             <button className="btn btn-volt grow btn-lg" disabled={totalSets === 0 || save.isPending}
               onClick={onFinish}>
               {save.isPending ? "Saving…" : `Finish · ${doneSets}/${totalSets} done`}
@@ -294,7 +423,7 @@ export default function LogWorkoutPage() {
               </>
             ) : (
               <>
-                <h3 style={{ fontSize: 20 }}>Update “{cleanName(sourceTemplate?.name ?? "")}”?</h3>
+                <h3 style={{ fontSize: 20 }}>Update "{cleanName(sourceTemplate?.name ?? "")}"?</h3>
                 <p className="muted" style={{ fontSize: 13 }}>You changed exercises or set counts from the template.</p>
                 <button className="btn btn-volt btn-block" disabled={updateTemplate.isPending}
                   onClick={() => updateTemplate.mutate()}>
