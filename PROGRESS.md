@@ -26,6 +26,11 @@ _Last updated: 2026-06-23_
 
 ## Done
 
+- _2026-06-25_ — **Log unhandled 500s** (`ApiExceptionHandler`): the catch-all `@ExceptionHandler(Exception.class)`
+  returned `"Internal error"` but logged nothing, so every unexpected 500 was opaque. Added `log.error(...)`,
+  which immediately surfaced a `MongoSecurityException` (Atlas SCRAM auth rejecting a stale DB password) behind
+  a "stuck" backend. Also **verified the muscle-group-slot planner live via the Playwright MCP** against the
+  running app: 4-day split, 41 slot dropdowns, every prime mover ≥2×/week incl. Side delts on 2 days.
 - _2026-06-24_ — **MCP dev-loop setup (browser + Atlas)** — project `.mcp.json` wires two servers:
   **Playwright** (`@playwright/mcp`, headless/isolated, origins locked to the dev stack) for in-loop UI
   verification against the *running* app, and **MongoDB** (`mongodb-mcp-server`, read-only) for live DB

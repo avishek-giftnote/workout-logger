@@ -14,6 +14,8 @@ import java.util.Map;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     @ExceptionHandler(ApiExceptions.NotFoundException.class)
     public ResponseEntity<Map<String, Object>> notFound(ApiExceptions.NotFoundException e) {
         return body(HttpStatus.NOT_FOUND, e.getMessage(), null);
@@ -49,9 +51,11 @@ public class ApiExceptionHandler {
         return body(s, e.getReason() != null ? e.getReason() : s.getReasonPhrase(), null);
     }
 
-    // last-resort: never leak a stack trace / internal message to the client
+    // last-resort: never leak a stack trace / internal message to the client — but DO log it server-side,
+    // otherwise an unexpected 500 is completely opaque (no trace anywhere).
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> generic(Exception e) {
+        log.error("Unhandled exception → 500", e);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error", null);
     }
 
