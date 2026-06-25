@@ -129,6 +129,8 @@ export interface MacrocycleDto {
   // terminal-state timestamps (additive, nullable): set when a plan runs to the end (COMPLETED)
   // or is ended early (ENDED). Older plans predating this field carry null.
   completedAt?: string | null; endedAt?: string | null;
+  // the split backing this plan, so the active view can render its weekly schedule (additive, nullable).
+  splitId?: string | null;
 }
 export interface MesoInput {
   name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[];
@@ -137,6 +139,7 @@ export interface MesoInput {
 export interface CreatePlanRequest {
   name: string; mesocycles: MesoInput[];
   goal?: string | null; targetDate?: string | null; focusMuscles?: Muscle[] | null;
+  splitId?: string | null;
 }
 
 export interface LastWorkingSetDto {
@@ -156,8 +159,9 @@ export interface TemplateDto { id: string; name: string; exercises: TemplateExer
 export interface TemplateExerciseInput { exerciseId: string; name?: string | null; position: number; sets: number; reps?: number | null; targetRir?: string | null; }
 export interface SaveTemplateRequest { name: string; exercises: TemplateExerciseInput[]; }
 
-export interface SplitDto { id: string; name: string; templateIds: string[]; }
-export interface SaveSplitRequest { name: string; templateIds: string[]; }
+// weekdays[i] = the weekday (0=Mon…6=Sun) assigned to templateIds[i]; unused weekdays are rest days. Nullable.
+export interface SplitDto { id: string; name: string; templateIds: string[]; weekdays: number[] | null; }
+export interface SaveSplitRequest { name: string; templateIds: string[]; weekdays?: number[] | null; }
 
 export interface BodyweightEntryDto { id: string; recordedAt: string; weightKg: string | null; estimated: boolean; }
 

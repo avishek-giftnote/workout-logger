@@ -19,6 +19,7 @@ public class Split {
     private String userId;
     private String name;
     private List<String> templateIds = new ArrayList<>();
+    private List<Integer> weekdays;               // weekday per template slot (0=Mon…6=Sun); nullable — old docs omit it
     private int schemaVersion = 1;
     private Instant createdAt;
     private Instant updatedAt;
@@ -33,6 +34,8 @@ public class Split {
     public void setName(String name) { this.name = name; }
     public List<String> getTemplateIds() { return templateIds; }
     public void setTemplateIds(List<String> templateIds) { this.templateIds = templateIds; }
+    public List<Integer> getWeekdays() { return weekdays; }
+    public void setWeekdays(List<Integer> weekdays) { this.weekdays = weekdays; }
     public int getSchemaVersion() { return schemaVersion; }
     public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
     public Instant getCreatedAt() { return createdAt; }

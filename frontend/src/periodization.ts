@@ -296,6 +296,18 @@ function scheduleWarnings(week: (Day | null)[], effOf: (d: Day) => Set<Muscle>):
   return out;
 }
 
+/** Recovery notes for a USER-CHOSEN weekday assignment — read off the rendered templates (muscles from slots,
+ *  no exercise catalog needed): a prime mover trained on two days <48h apart (consecutive weekday slots,
+ *  circular). Used to re-warn live when the user drags sessions around the week. */
+export function scheduleNotes(templates: PlanTemplate[], schedule: number[], weekLen = 7): string[] {
+  const week: (Day | null)[] = new Array(weekLen).fill(null);
+  templates.forEach((t, i) => {
+    const wd = schedule[i];
+    if (wd >= 0 && wd < weekLen) week[wd] = { name: t.name, muscles: [...new Set(t.slots.map((s) => s.muscle))] };
+  });
+  return scheduleWarnings(week, (d) => new Set(d.muscles));
+}
+
 /**
  * Build one training day's boilerplate SLOTS — a muscle-group placeholder per unit of volume, each carrying a
  * RECOMMENDED default exercise the user can swap later. A muscle's per-day target (weekly target ÷ its weekly

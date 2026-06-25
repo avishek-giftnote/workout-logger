@@ -36,22 +36,24 @@ public class SplitRepository {
         return Optional.ofNullable(mongo.findOne(owned().addCriteria(where("_id").is(id)), Split.class));
     }
 
-    public Split create(String name, List<String> templateIds) {
+    public Split create(String name, List<String> templateIds, List<Integer> weekdays) {
         Instant now = Instant.now();
         Split s = new Split();
         s.setId(new ObjectId().toHexString());
         s.setUserId(tenant.userId());
         s.setName(name);
         s.setTemplateIds(templateIds);
+        s.setWeekdays(weekdays);
         s.setCreatedAt(now);
         s.setUpdatedAt(now);
         return mongo.insert(s);
     }
 
-    public Optional<Split> update(String id, String name, List<String> templateIds) {
+    public Optional<Split> update(String id, String name, List<String> templateIds, List<Integer> weekdays) {
         return findOne(id).map(s -> {
             s.setName(name);
             s.setTemplateIds(templateIds);
+            s.setWeekdays(weekdays);
             s.setUpdatedAt(Instant.now());
             return mongo.save(s);
         });

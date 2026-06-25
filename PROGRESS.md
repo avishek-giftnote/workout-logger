@@ -26,6 +26,17 @@ _Last updated: 2026-06-25 (planSummary)_
 
 ## Done
 
+- _2026-06-25_ — **Planner Stages B+C — editable & persisted weekly calendar.** Backend (additive/nullable):
+  `Split.weekdays` (0=Mon…6=Sun, aligned to templateIds) + `Macrocycle.splitId`; DTOs/mapper/repos/controllers
+  wired; `ApiIntegrationTest` round-trips weekdays + splitId, null-safe + tenant-scoped (34/34). Frontend: new
+  `<WeekCalendar>` (reuses `.cal-grid`); the builder shows it **editable** (reassign a session's weekday, swap on
+  collision) with **live recovery-note recompute** (`scheduleNotes`), and warnings reclassified into advisory
+  **Recovery** vs actionable **Catalog gaps**; `accept()` persists `weekdays` on the split + `splitId` on the plan;
+  the active-plan view loads its split by `splitId` and renders the calendar read-only. e2e (`plan-slots-mocked`)
+  extended to assert the 7-cell strip + rest days + the weekdays/splitId accept payload. Gate green: tsc · 100 unit
+  · eval 240/240 · build · e2e · backend 34/34. **Verified live** end-to-end: built a 4-day plan (Mon/Wed/Fri/Sat
+  + 3 rest), moved Upper B onto Tue → Recovery notes appeared instantly, moved back → cleared, accepted →
+  active view shows the persisted schedule. Fulfills the "editable & persisted" choice.
 - _2026-06-25_ — **Planner Stage A — rest-day scheduling + distinct-stimulus slots + intra-session order** (frontend,
   via `/pursue`; design in `.claude/plans/snappy-forging-scroll.md`). `periodization.ts`: new `scheduleWeek` places
   training days among 7 weekday slots with **rest days** (exhaustive, circular-adjacency-min) so a muscle on ≤3 days

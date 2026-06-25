@@ -67,7 +67,7 @@ public class PlanController {
     @ResponseStatus(HttpStatus.CREATED)
     public MacrocycleDto create(@Valid @RequestBody CreatePlanRequest req) {
         return DtoMapper.toDto(plans.create(req.name(), req.mesocycles().stream().map(PlanController::meso).toList(),
-                req.goal(), date(req.targetDate()), req.focusMuscles()));
+                req.goal(), date(req.targetDate()), req.focusMuscles(), req.splitId()));
     }
 
     /** Advances one microcycle (week → deload → next mesocycle → completed). */

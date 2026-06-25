@@ -89,9 +89,9 @@ public final class ApiDtos {
     public record SaveTemplateRequest(@NotNull String name, @NotNull List<TemplateExerciseInput> exercises) {}
 
     // ---- splits ----
-    public record SplitDto(String id, String name, List<String> templateIds) {}
+    public record SplitDto(String id, String name, List<String> templateIds, List<Integer> weekdays) {}
 
-    public record SaveSplitRequest(@NotNull String name, List<String> templateIds) {}
+    public record SaveSplitRequest(@NotNull String name, List<String> templateIds, List<Integer> weekdays) {}
 
     // ---- me / bodyweight ----
     public record BodyweightEntryDto(String id, Instant recordedAt, String weightKg, boolean estimated) {}
@@ -132,11 +132,11 @@ public final class ApiDtos {
     public record MacrocycleDto(String id, String name, Instant startedAt, String status,
                                 int mesoIndex, int week, List<MesocycleDto> mesocycles,
                                 String goal, String targetDate, List<Muscle> focusMuscles,
-                                String completedAt, String endedAt) {}
+                                String completedAt, String endedAt, String splitId) {}
 
     public record MesoInput(@NotNull String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles,
                             BlockType blockType, IntensityBandDto intensityBand) {}
 
     public record CreatePlanRequest(@NotNull String name, @NotNull List<MesoInput> mesocycles,
-                                    String goal, String targetDate, List<Muscle> focusMuscles) {}
+                                    String goal, String targetDate, List<Muscle> focusMuscles, String splitId) {}
 }
