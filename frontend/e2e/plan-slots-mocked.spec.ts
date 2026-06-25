@@ -2,8 +2,9 @@ import { test, expect, type Route } from "@playwright/test";
 
 // DB-less render verification of the planner remodel: the API is mocked at the network layer so the REAL
 // PlanPage renders deterministically (no backend/Mongo needed). Confirms slots render as dropdowns, a
-// high-volume muscle splits into 2 slots, every prime mover (Side delts here) is scheduled ≥2×/week, and the
-// user's per-slot choice flows through the accept payload.
+// high-volume muscle splits into 2 slots ONLY as a distinct-mechanic pair (chest: a compound press + an
+// isolation fly), every prime mover (Side delts here) is scheduled ≥2×/week, and the user's per-slot choice
+// flows through the accept payload.
 type Ex = { muscle: string; mechanic?: string };
 const ex = (id: string, name: string, m: string, mechanic = "COMPOUND") => ({
   id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg",
@@ -11,7 +12,7 @@ const ex = (id: string, name: string, m: string, mechanic = "COMPOUND") => ({
   laterality: null, mechanic, loadable: true,
 });
 const CATALOG = [
-  ex("c1", "Bench Press", "CHEST"), ex("c2", "Incline Press", "CHEST"),
+  ex("c1", "Bench Press", "CHEST"), ex("c2", "Cable Fly", "CHEST", "ISOLATION"),   // distinct-mechanic pair → 2 slots
   ex("lat", "Barbell Row", "LAT"), ex("ub", "Face Pull", "UPPER_BACK"),
   ex("sd", "Lateral Raise", "SIDE_DELT"), ex("fd", "Front Raise", "FRONT_DELT"), ex("rd", "Rear Fly", "REAR_DELT"),
   ex("bi", "Barbell Curl", "BICEP"), ex("tri", "Pushdown", "TRICEP"),
@@ -76,8 +77,10 @@ test("plan slots (mocked): dropdowns render, chest→2 slots, side delts ≥2×,
       return counts;
     });
   });
-  // (a) a muscle splits into 2 slots somewhere (chest: MEV 8 / freq 2 = 4 sets → 2 exercises)
+  // (a) a muscle splits into 2 slots somewhere (chest: MEV 8 / freq 2 = 4 sets → a compound + isolation pair)
   expect(Math.max(...stats.flatMap((c) => Object.values(c)))).toBeGreaterThanOrEqual(2);
+  // and a single-candidate prime mover (Side delts) stays ONE exercise — no redundant 2nd slot
+  expect(Math.max(...stats.map((c) => c["Side delts"] ?? 0))).toBe(1);
   // (b) frequency-by-design: Side delts scheduled on ≥2 days (the old 4-day 1× warning case)
   expect(stats.filter((c) => c["Side delts"]).length).toBeGreaterThanOrEqual(2);
 
