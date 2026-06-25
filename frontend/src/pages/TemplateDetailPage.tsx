@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import { ChartCard } from "../components/Chart";
 import { useSettings } from "../settings";
 import type { WorkoutDto } from "../api/types";
@@ -30,6 +31,7 @@ export default function TemplateDetailPage() {
     [sessions]);
 
   if (templates.isLoading) return <main className="screen"><div className="spinner" /></main>;
+  if (templates.isError) return <QueryError onRetry={templates.refetch} />;
   if (!tmpl) return (
     <main className="screen">
       <div className="empty"><div className="big">Template not found</div>

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import { equipmentLabel } from "../logging/engine";
 
 type Sort = "alpha" | "recent" | "frequency";
@@ -52,6 +53,8 @@ export default function ExerciseListPage() {
     else sorted.sort((a, b) => (st(b.id).last ?? "").localeCompare(st(a.id).last ?? "") || a.name.localeCompare(b.name));
     return sorted;
   }, [exercises.data, stats, q, sort]);
+
+  if (exercises.isError) return <QueryError onRetry={exercises.refetch} />;
 
   return (
     <main className="screen">

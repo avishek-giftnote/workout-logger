@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { blankSet, mmssToSec, paceSpeed, toCreateSet, structureChanged, type DraftSet } from "./engine";
+import { blankSet, isLargeJump, mmssToSec, paceSpeed, serializeDraft, deserializeDraft, toCreateSet, structureChanged, uid, type DraftSet } from "./engine";
 import type { ExerciseDto, TemplateDto } from "../api/types";
 
 const set = (o: Partial<DraftSet>): DraftSet => ({ ...blankSet("WORKING"), ...o });
@@ -41,6 +41,52 @@ describe("toCreateSet", () => {
     const r = toCreateSet(set({ distance: "5.2", time: "26:14" }), 0, false, "", true, true);
     expect(r).toMatchObject({ kind: "CARDIO", distanceM: "5200", durationS: 1574, weight: null, reps: null });
   });
+});
+
+describe("isLargeJump", () => {
+  it("returns false when no placeholder", () => expect(isLargeJump("200", undefined)).toBe(false));
+  it("returns false when entry is blank", () => expect(isLargeJump("", "100")).toBe(false));
+  it("returns false when entry equals placeholder", () => expect(isLargeJump("100", "100")).toBe(false));
+  it("returns false for a normal progression (< 1.5×)", () => expect(isLargeJump("110", "100")).toBe(false));
+  it("returns true when entry is > 1.5× the placeholder", () => expect(isLargeJump("160", "100")).toBe(true));
+  it("returns true for a > 50 kg absolute jump", () => expect(isLargeJump("160", "105")).toBe(true));
+  it("returns false for a 50 kg absolute jump that is not > 1.5×", () => {
+    // 200 → 250: +50 absolute but 250/200 = 1.25 — neither threshold fires
+    expect(isLargeJump("250", "200")).toBe(false);
+  });
+  it("returns true when a typo inflates by 10× (e.g. 1000 vs 100)", () => expect(isLargeJump("1000", "100")).toBe(true));
+  it("handles non-numeric entry gracefully", () => expect(isLargeJump("abc", "100")).toBe(false));
+});
+
+describe("serializeDraft / deserializeDraft round-trip", () => {
+  const makeDraft = () => ({
+    savedAt: 1700000000000,
+    templateId: "tmpl-1",
+    deload: false,
+    blocks: [
+      {
+        key: uid(),
+        exercise: { id: "ex-1", name: "Squat", isBodyweight: false, equipment: "BARBELL" as const,
+          category: "STRENGTH" as const, defaultUnit: "kg" as const, restSeconds: null,
+          cardioMetrics: null, muscleContributions: [], laterality: null, mechanic: null, loadable: null },
+        sets: [{ ...blankSet("WORKING"), weight: "100", reps: "5" }],
+      },
+    ],
+  });
+
+  it("round-trips a draft unchanged", () => {
+    const d = makeDraft();
+    const restored = deserializeDraft(serializeDraft(d));
+    expect(restored).not.toBeNull();
+    expect(restored!.templateId).toBe("tmpl-1");
+    expect(restored!.deload).toBe(false);
+    expect(restored!.blocks).toHaveLength(1);
+    expect(restored!.blocks[0].sets[0].weight).toBe("100");
+  });
+  it("returns null for null input", () => expect(deserializeDraft(null)).toBeNull());
+  it("returns null for malformed JSON", () => expect(deserializeDraft("not-json{")).toBeNull());
+  it("returns null when blocks array is missing", () =>
+    expect(deserializeDraft(JSON.stringify({ savedAt: 1, templateId: null, deload: false }))).toBeNull());
 });
 
 describe("structureChanged", () => {

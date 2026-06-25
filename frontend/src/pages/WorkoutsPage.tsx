@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { useSettings } from "../settings";
 import CoachCard from "../components/CoachCard";
+import QueryError from "../components/QueryError";
 import type { WorkoutDto } from "../api/types";
 
 function workingVolume(w: WorkoutDto): number {
@@ -71,6 +72,8 @@ export default function WorkoutsPage() {
     if (list.length === 1) nav(`/previous-workouts/${list[0].id}`);
     else if (list.length > 1) setPicker(list);
   };
+
+  if (workouts.isError) return <QueryError onRetry={workouts.refetch} />;
 
   const empty = workouts.data && workouts.data.length === 0;
 

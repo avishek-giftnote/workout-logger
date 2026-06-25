@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import { LANDMARKS, MUSCLES, STATUS_COLOR, STATUS_LABEL, statusOf, weeklyMuscleSets } from "../muscles";
 
 const DAY = 86_400_000;
@@ -38,6 +39,7 @@ export default function MuscleVolumePage() {
   }, {} as Record<string, number>);
 
   if (exercises.isLoading || workouts.isLoading) return <main className="screen"><div className="spinner" /></main>;
+  if (exercises.isError || workouts.isError) return <QueryError onRetry={() => { exercises.refetch(); workouts.refetch(); }} />;
 
   return (
     <main className="screen">

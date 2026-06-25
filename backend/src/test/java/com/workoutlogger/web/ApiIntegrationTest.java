@@ -594,6 +594,38 @@ class ApiIntegrationTest {
         adv(t).andExpect(jsonPath("$.mesoIndex").value(1)).andExpect(jsonPath("$.status").value("ACTIVE"));  // rolled into the appended M2
     }
 
+    // ── CreateSetRequest input validation (mirrors UpdateSetRequest bounds) ──
+
+    @Test
+    void createWorkoutValidationRejectsBogusRepsAndRpe() throws Exception {
+        String t = register("validate@example.com");
+        String ex = createExercise(t, "Validate Press", false);
+
+        // reps=99999 is above @Max(1000) — must be rejected with 400
+        String badReps = "{\"startedAt\":\"2026-06-10T10:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"Validate Press\",\"position\":0,\"sets\":["
+                + "{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"100\",\"reps\":99999}]}]}";
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(badReps))
+                .andExpect(status().isBadRequest());
+
+        // rpe=50 is above @Max(10) — must be rejected with 400
+        String badRpe = "{\"startedAt\":\"2026-06-10T10:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"Validate Press\",\"position\":0,\"sets\":["
+                + "{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"100\",\"reps\":5,\"rpe\":50}]}]}";
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(badRpe))
+                .andExpect(status().isBadRequest());
+
+        // valid workout still saves (200/201)
+        String valid = "{\"startedAt\":\"2026-06-10T10:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"Validate Press\",\"position\":0,\"sets\":["
+                + "{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"100\",\"reps\":5,\"rpe\":8}]}]}";
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(valid))
+                .andExpect(status().isCreated());
+    }
+
     // ── Split weekdays persistence ──
 
     // Split created with weekdays=[0,2,4] round-trips correctly via GET /api/splits.

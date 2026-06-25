@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import { LANDMARKS, MUSCLES, muscleLabel, trainsMuscle, weeklyMuscleSets } from "../muscles";
 import { blockLabel, currentMicro, planMacrocycle, scheduleNotes, targetSets, PER_SESSION_CAP } from "../periodization";
 import type { ExerciseDto, GoalType, Muscle } from "../api/types";
@@ -52,6 +53,7 @@ export default function PlanPage() {
   });
 
   if (plan.isLoading || history.isLoading) return <main className="screen"><div className="spinner" /></main>;
+  if (plan.isError || history.isError) return <QueryError onRetry={() => { plan.refetch(); history.refetch(); }} />;
 
   // No active plan — check for an unacknowledged COMPLETED terminal plan
   if (!plan.data) {
@@ -303,6 +305,8 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
       onCreated();
     },
   });
+
+  if (exercises.isError) return <QueryError onRetry={exercises.refetch} />;
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const coachPhase = energy.data?.status === "READY" && energy.data.phase !== "UNKNOWN" ? energy.data.phase : null;

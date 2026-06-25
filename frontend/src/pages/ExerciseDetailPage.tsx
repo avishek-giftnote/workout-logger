@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import { CARDIO_METRICS, EQUIPMENT, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
 import { ChartCard, type Point } from "../components/Chart";
 import { EXERCISE_CHARTS } from "../charts";
@@ -115,6 +116,7 @@ export default function ExerciseDetailPage() {
   }, [history]);
 
   if (exercises.isLoading) return <main className="screen"><div className="spinner" /></main>;
+  if (exercises.isError) return <QueryError onRetry={exercises.refetch} />;
   if (!ex) return (
     <main className="screen">
       <div className="empty"><div className="big">Exercise not found</div>

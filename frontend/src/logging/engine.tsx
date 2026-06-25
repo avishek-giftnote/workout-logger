@@ -4,6 +4,18 @@ import { Api } from "../api/client";
 import { useSettings } from "../settings";
 import type { CardioMetric, Equipment, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput } from "../api/types";
 
+// ── large-jump guard ──
+/** Returns true when the entered weight is an unusually large jump from the seeded placeholder.
+ *  Thresholds: either > 1.5× the previous value OR > 50 kg absolute increase (absolute cap
+ *  catches typos like "1000" when the seed is "100"). Pure function — exported for tests. */
+export function isLargeJump(entered: string, placeholder: string | undefined): boolean {
+  if (!placeholder) return false;
+  const prev = parseFloat(placeholder);
+  const cur = parseFloat(entered);
+  if (!Number.isFinite(prev) || !Number.isFinite(cur) || prev <= 0 || cur <= 0) return false;
+  return cur > prev * 1.5 || cur - prev > 50;
+}
+
 export const uid = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
@@ -162,6 +174,33 @@ export function filledSet(prev: SetDto, isBw: boolean): DraftSet {
 
 export const findEx = (catalog: ExerciseDto[], id: string, name: string): ExerciseDto =>
   catalog.find((e) => e.id === id) ?? { id, name, isBodyweight: false, equipment: null, category: "STRENGTH", defaultUnit: "kg", restSeconds: null, cardioMetrics: null, muscleContributions: [], laterality: null, mechanic: null, loadable: null };
+
+// ── draft persistence helpers ──
+/** The shape persisted to LocalStore for an in-progress session. */
+export interface WorkoutDraft {
+  savedAt: number;
+  templateId: string | null;
+  deload: boolean;
+  blocks: DraftBlock[];
+}
+
+/** Serialize a draft to a JSON string for LocalStore. */
+export function serializeDraft(d: WorkoutDraft): string {
+  return JSON.stringify(d);
+}
+
+/** Restore a draft from a JSON string. Returns null if the string is absent or malformed. */
+export function deserializeDraft(raw: string | null): WorkoutDraft | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<WorkoutDraft>;
+    // Minimal structural guard: must have a blocks array
+    if (!Array.isArray(parsed.blocks)) return null;
+    return parsed as WorkoutDraft;
+  } catch {
+    return null;
+  }
+}
 
 export const templateExercisesFromBlocks = (blocks: DraftBlock[], source?: TemplateDto | null): TemplateExerciseInput[] => {
   const rx = new Map((source?.exercises ?? []).map((e) => [e.exerciseId, e]));   // carry the prescription forward
@@ -384,6 +423,9 @@ export function ExerciseBlockEditor({ block, bodyweight, prevSets, prevReady, sh
                 <span className="micro">kg</span>
                 <input className="cell-input" inputMode="decimal" value={s.weight}
                   placeholder={s.pWeight ?? "—"} onChange={(e) => update(s.key, { weight: e.target.value })} />
+                {isLargeJump(s.weight, s.pWeight) && (
+                  <span className="set-jump-warn" title="Big jump from last time — sure?">⚠</span>
+                )}
               </div>
             )}
 

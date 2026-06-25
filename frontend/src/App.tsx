@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth/auth";
+import ErrorBoundary from "./components/ErrorBoundary";
 import SettingsSidebar from "./components/SettingsSidebar";
 import LoginPage from "./pages/LoginPage";
 import WorkoutsPage from "./pages/WorkoutsPage";
@@ -59,5 +60,9 @@ function Shell() {
 
 export default function App() {
   const { isAuthed } = useAuth();
-  return isAuthed ? <Shell /> : <LoginPage />;
+  return (
+    <ErrorBoundary>
+      {isAuthed ? <Shell /> : <LoginPage />}
+    </ErrorBoundary>
+  );
 }

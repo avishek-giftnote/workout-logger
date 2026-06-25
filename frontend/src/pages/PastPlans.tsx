@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Api } from "../api/client";
+import QueryError from "../components/QueryError";
 import type { MacrocycleDto } from "../api/types";
 import PlanSummaryCard, { goalTag } from "./PlanSummaryCard";
 
@@ -12,6 +13,7 @@ export default function PastPlans() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (history.isLoading) return <main className="screen"><div className="spinner" /></main>;
+  if (history.isError) return <QueryError onRetry={history.refetch} />;
 
   const plans = history.data ?? [];
 
