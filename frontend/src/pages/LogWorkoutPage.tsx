@@ -148,7 +148,13 @@ export default function LogWorkoutPage() {
     const repHigh = meso?.intensityBand?.repHigh ?? repLow + 4;
     const rir = rirWave(micro?.week ?? 1, meso?.accumulationWeeks ?? 4, phaseMod(meso?.phase).rirFloor);
     const prev = topWorkingSet(workouts.data ?? [], ex.id);
-    const { load, reps } = progressedSeed(prev, repLow, repHigh, phaseMod(meso?.phase).progressMult, loadIncrement(ex), ex.isBodyweight);
+    // Block-transition guard: if we are past the first meso and the previous meso had a different rep
+    // range, pass its repHigh so progressedSeed can anchor to e1RM instead of double-progressing across
+    // the boundary (e.g. hypertrophy reps ≤ 15 would always exceed STRENGTH repHigh ≤ 6, faking a bump).
+    const mesoIndex = plan.data?.mesoIndex ?? 0;
+    const prevMeso = (plan.data && mesoIndex > 0) ? plan.data.mesocycles[mesoIndex - 1] : null;
+    const prevRepHigh = prevMeso?.intensityBand?.repHigh ?? undefined;
+    const { load, reps } = progressedSeed(prev, repLow, repHigh, phaseMod(meso?.phase).progressMult, loadIncrement(ex), ex.isBodyweight, prevRepHigh);
     return Array.from({ length: Math.max(1, te.sets) }, (_, i) =>
       workingSet(i, load != null ? String(load) : null, prev ? reps : (te.reps ?? repLow), 10 - rir));
   };

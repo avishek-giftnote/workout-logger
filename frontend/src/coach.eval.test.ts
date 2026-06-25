@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 // The actual shipped 84-exercise default seed (backend resource) — see REAL below.
 import DEFAULT_EXERCISES from "../../backend/src/main/resources/default-exercises.json";
-import { blockDates, planMacrocycle, phaseMod, targetSets, orderForRecovery, adjacencyConflicts, scheduleWeek, scheduleConflicts, type Day, type PlanPreview } from "./periodization";
+import { blockDates, planMacrocycle, phaseMod, targetSets, orderForRecovery, adjacencyConflicts, scheduleWeek, scheduleConflicts, SESSION_TOTAL_CAP, type Day, type PlanPreview } from "./periodization";
 import { rirWave } from "./prescription";
 import { LANDMARKS, muscleLabel, trainsMuscle } from "./muscles";
 import type { ExerciseDto, GoalType, Muscle } from "./api/types";
@@ -121,6 +121,15 @@ function evaluate(c: Case): Violation[] {
   // R8 — no single slot exceeds the per-session set cap (junk-volume guard)
   for (const t of p.templates) for (const s of t.slots)
     if (s.sets > PER_SESSION_CAP) fail("R8-session-cap", `${t.name}/${s.muscle}=${s.sets} sets > cap ${PER_SESSION_CAP}`);
+
+  // R40 — SESSION TOTAL CAP: no single training day's total working sets exceeds SESSION_TOTAL_CAP
+  // (guards against junk-volume days like "Upper B" with ~29 sets / 90+ min; excess is redistributed
+  // to other days that already train the same muscle, or trimmed when redistribution is infeasible).
+  for (const t of p.templates) {
+    const dayTotal = t.slots.reduce((n, s) => n + s.sets, 0);
+    if (dayTotal > SESSION_TOTAL_CAP)
+      fail("R40-session-total-cap", `${t.name} total=${dayTotal} sets > SESSION_TOTAL_CAP ${SESSION_TOTAL_CAP}`);
+  }
 
   // R9 — generated prescription sanity: positive reps + targetRir within [phase floor, 3]
   const floor = phaseMod(p.mesocycles[0]?.phase).rirFloor;

@@ -7,6 +7,13 @@ import CoachCard from "../components/CoachCard";
 import QueryError from "../components/QueryError";
 import type { WorkoutDto } from "../api/types";
 
+const ONBOARDING_DISMISSED_KEY = "wl.onboardingDismissed";
+
+/** Open the Settings sidebar by clicking the gear button in the topbar. */
+function openSettings() {
+  (document.querySelector('button[title="Settings"]') as HTMLButtonElement | null)?.click();
+}
+
 function workingVolume(w: WorkoutDto): number {
   let v = 0;
   for (const b of w.exercises)
@@ -30,6 +37,14 @@ export default function WorkoutsPage() {
   const { coachEnabled } = useSettings();
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
+  const plan = useQuery({ queryKey: ["plan"], queryFn: Api.getPlan });
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "1"
+  );
+  const dismissOnboarding = () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "1");
+    setOnboardingDismissed(true);
+  };
   const [view, setView] = useState<"list" | "calendar">(() => (localStorage.getItem(VIEW_KEY) as "list" | "calendar") || "calendar");
   const setMode = (v: "list" | "calendar") => { localStorage.setItem(VIEW_KEY, v); setView(v); };
   const [month, setMonth] = useState<{ y: number; m: number } | null>(null);
@@ -76,6 +91,11 @@ export default function WorkoutsPage() {
   if (workouts.isError) return <QueryError onRetry={workouts.refetch} />;
 
   const empty = workouts.data && workouts.data.length === 0;
+  // Show the onboarding card only when: no workouts logged, no active plan, and not yet dismissed.
+  const showOnboarding = !onboardingDismissed
+    && workouts.data !== undefined
+    && workouts.data.length === 0
+    && plan.data === null;
 
   return (
     <main className="screen">
@@ -86,6 +106,41 @@ export default function WorkoutsPage() {
         </div>
         <button className="btn btn-volt" onClick={() => nav("/start")}>+ New</button>
       </div>
+
+      {showOnboarding && (
+        <div className="card card-pad fade-up" style={{ position: "relative", marginBottom: 12 }}>
+          <button
+            className="icon-btn"
+            title="Dismiss"
+            style={{ position: "absolute", top: 12, right: 12 }}
+            onClick={dismissOnboarding}
+          >×</button>
+          <span className="micro" style={{ color: "var(--volt)" }}>Getting started</span>
+          <p style={{ margin: "6px 0 12px", fontSize: 14 }}>
+            Welcome — set yourself up for accurate coaching and tracking:
+          </p>
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 2 }}>
+            <li>
+              <button className="btn btn-ghost" style={{ fontSize: 13, padding: "3px 12px", marginLeft: 8 }} onClick={openSettings}>
+                Complete your profile
+              </button>
+              <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>height, DOB, activity level</span>
+            </li>
+            <li>
+              <button className="btn btn-ghost" style={{ fontSize: 13, padding: "3px 12px", marginLeft: 8 }} onClick={openSettings}>
+                Log your first weigh-in
+              </button>
+              <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>daily weigh-ins unlock energy tracking</span>
+            </li>
+            <li>
+              <button className="btn btn-volt" style={{ fontSize: 13, padding: "3px 12px", marginLeft: 8 }} onClick={() => nav("/plan")}>
+                Build a plan
+              </button>
+              <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>macrocycle → guided sessions</span>
+            </li>
+          </ol>
+        </div>
+      )}
 
       {coachEnabled && <CoachCard />}
 

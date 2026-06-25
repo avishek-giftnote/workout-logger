@@ -26,6 +26,16 @@ _Last updated: 2026-06-25 (reliability hardening)_
 
 ## Done
 
+- _2026-06-25_ — **Council follow-ups, batch 2** (4 parallel sub-agents on disjoint files). (1) **Session-level set
+  cap** R40 — `SESSION_TOTAL_CAP=20`; over-cap days redistribute excess to a day already training the muscle, else
+  trim (Upper B: ~29→20 sets live). (2) **Duration granularity** — replaced the `+2` slop with final-block
+  truncation so distinct durations give distinct plans (3mo≠4mo). (3) **Cross-block load bump** R37 — at a
+  rep-range/block change the seed anchors to e1RM (`workingLoad(e1rm,…)`) instead of firing unearned double
+  progression. (4) **PlanPage UX** — "Strength phase" rename + per-block plain-English captions, timeline text
+  9px→13px + horizontal scroll, two-step confirm on "Complete week →". (5) **Onboarding** — CoachCard GATHERING
+  state gets a "Log weight" CTA + Mifflin estimate; a dismissible setup card on the home page for new users. Gate:
+  tsc · 116 unit · eval 240/240 (incl. R37+R40) · build · e2e 6/6. Verified live: strength caption renders, Upper B
+  capped at 20.
 - _2026-06-25_ — **Fixed silent reset of plan customizations** (council HIGH, `PlanPage.tsx`). The picks + weekday
   reseed effects were keyed on `[preview]`, so ANY recompute (a background `exercises` refetch, or the async
   energy phase resolving) wiped the user's edits even when the slot layout was identical — and they could accept a
@@ -156,6 +166,11 @@ _Last updated: 2026-06-25 (reliability hardening)_
   React/Vite logging engine shared by new+edit; 16 validated Mermaid diagrams. See `DESIGN.md` / `docs/coach.md`.
 
 ## On the agenda (backlog, not started)
+
+- **Set-cap redistribution leaves thin slots** — the session-set-cap (R40) trims an over-capped day down to 20,
+  but the redistribute-then-trim can leave several 1-set slots (e.g. "Chest 1×8" in Upper B). Invariants stay green
+  (cap, ≥2×/wk frequency, volume bounds) but it reads oddly. Refine: prefer dropping a whole low-priority slot, or
+  merge 1-set stubs, over leaving thin stubs. Low priority (the HIGH junk-volume issue is resolved).
 
 - **Council planner-simulation findings** (`docs/planner-council-simulation.{md,pdf}`, 2026-06-25). 44-agent council
   role-played "Sam" through the full lifecycle; verdict: *the coaching engine is sound, the UI doesn't explain it*.

@@ -209,13 +209,62 @@ function evalWorkingLoadRounding(): Violation[] {
   return v;
 }
 
+// ── R37: block-transition guard — a rep-range change must NOT produce an unearned load bump.
+//    When prevRepHigh ≠ repHigh, progressedSeed must anchor to e1RM (workingLoad), not add an increment.
+//    Within the same rep range, double progression is unchanged (regression guard). ──
+function evalBlockTransition(): Violation[] {
+  const v: Violation[] = [];
+  // Transition scenarios: typical block sequences with historically high hypertrophy reps
+  const transitions: { prevRepHigh: number; repLow: number; repHigh: number; prevReps: number; prevWeight: number; inc: number }[] = [
+    // HYPERTROPHY (8–15) → STRENGTH (3–6): prev reps at 12 would exceed STRENGTH repHigh=6
+    { prevRepHigh: 15, repLow: 3, repHigh: 6, prevReps: 12, prevWeight: 80, inc: 2.5 },
+    // HYPERTROPHY (8–15) → STRENGTH (3–6): prev reps exactly at old repHigh
+    { prevRepHigh: 15, repLow: 3, repHigh: 6, prevReps: 15, prevWeight: 60, inc: 2.5 },
+    // STRENGTH (3–6) → PEAK (1–3): prev reps at 6 would exceed PEAK repHigh=3
+    { prevRepHigh: 6, repLow: 1, repHigh: 3, prevReps: 6, prevWeight: 100, inc: 2.5 },
+    // RESENSITIZATION (8–12) → HYPERTROPHY (8–15): same repLow but different repHigh — still a transition
+    { prevRepHigh: 12, repLow: 8, repHigh: 15, prevReps: 12, prevWeight: 70, inc: 2.5 },
+    // Isolation exercise at a transition (1.25 increment)
+    { prevRepHigh: 15, repLow: 3, repHigh: 6, prevReps: 10, prevWeight: 40, inc: 1.25 },
+  ];
+  for (const { prevRepHigh, repLow, repHigh, prevReps, prevWeight, inc } of transitions) {
+    const prev = { weight: prevWeight, reps: prevReps, rpe: null, startedAt: "" };
+    const result = progressedSeed(prev, repLow, repHigh, 1.0, inc, false, prevRepHigh);
+    // Must NOT produce a load higher than a simple double-progression increment over prevWeight — that would
+    // be an unearned bump. The e1RM anchor will typically produce a DIFFERENT load than prevWeight+inc.
+    const spuriousBump = roundInc(prevWeight + inc, inc);
+    if (result.load === spuriousBump && prevReps >= repHigh) {
+      // If prevReps exceeded the new repHigh, double-progression would have added an increment — that's the bug.
+      // The transition guard should have fired and produced an e1RM-anchored load instead.
+      v.push({ rule: "R37-transition-no-bump", detail: `prevRepHigh=${prevRepHigh} repHigh=${repHigh} prevReps=${prevReps} prevWeight=${prevWeight} → load=${result.load} equals spurious bump ${spuriousBump}` });
+    }
+    // Must seed repLow (not some carry-over from the old block)
+    if (result.reps !== repLow) v.push({ rule: "R37-transition-resets-reps", detail: `transition → reps=${result.reps}, want repLow=${repLow}` });
+    // Load must be a valid multiple of the increment
+    if (result.load != null && Math.abs(result.load / inc - Math.round(result.load / inc)) > 1e-9)
+      v.push({ rule: "R37-transition-increment", detail: `transition → load=${result.load} not a multiple of ${inc}` });
+    // Load must be positive
+    if (result.load != null && result.load <= 0)
+      v.push({ rule: "R37-transition-nonneg", detail: `transition → load=${result.load} ≤ 0` });
+  }
+  // Regression: within the SAME rep range (prevRepHigh === repHigh), double progression is unchanged.
+  // Surplus at top of range must still add the increment.
+  const sameRange = progressedSeed({ weight: 100, reps: 12, rpe: null, startedAt: "" }, 8, 12, 1.0, 2.5, false, 12);
+  if (sameRange.load !== 102.5) v.push({ rule: "R37-same-range-still-progresses", detail: `same repHigh=12, reps=12 (at top) → load=${sameRange.load}, want 102.5 (increment added)` });
+  // No-prevRepHigh (first meso, no prior block) must also still double-progress normally.
+  const noPrevBlock = progressedSeed({ weight: 100, reps: 12, rpe: null, startedAt: "" }, 8, 12, 1.0, 2.5, false, undefined);
+  if (noPrevBlock.load !== 102.5) v.push({ rule: "R37-no-prev-block-still-progresses", detail: `undefined prevRepHigh, reps at top → load=${noPrevBlock.load}, want 102.5` });
+  return v;
+}
+
 describe("prescription engine eval — Layer 5 invariants over a full parameter sweep", () => {
-  it("scores rpePct, RIR wave, double progression, bodyweight + readiness, e1rm/topSet/workingLoad (R10–R13, R20–R22, R33–R36)", () => {
+  it("scores rpePct, RIR wave, double progression, bodyweight + readiness, e1rm/topSet/workingLoad (R10–R13, R20–R22, R33–R37)", () => {
     void phaseMod("MAINTENANCE"); void loadIncrement;   // keep the engine's exported surface referenced
     const violations = [
       ...evalRpePct(), ...evalRirWave(), ...evalNextLoad(),
       ...evalBodyweightProgression(), ...evalReadiness(), ...evalReadinessSemantics(),
       ...evalE1rmMonotone(), ...evalE1rmRpeRefinement(), ...evalTopWorkingSet(), ...evalRpePctMonotone(), ...evalWorkingLoadRounding(),
+      ...evalBlockTransition(),
     ];
 
     const byRule: Record<string, number> = {};
@@ -224,7 +273,7 @@ describe("prescription engine eval — Layer 5 invariants over a full parameter 
     /* eslint-disable no-console */
     console.log(`\n=== PRESCRIPTION ENGINE EVAL SCORECARD ===`);
     console.log(`total violations:  ${violations.length}`);
-    if (violations.length === 0) console.log(`  R13 rpePct · R10 rir-wave · R11 double-progression · R20 bodyweight · R12/R21 readiness — all clear`);
+    if (violations.length === 0) console.log(`  R13 rpePct · R10 rir-wave · R11 double-progression · R20 bodyweight · R12/R21 readiness · R37 block-transition — all clear`);
     for (const [rule, n] of Object.entries(byRule).sort((a, b) => b[1] - a[1])) console.log(`  ${rule}: ${n}`);
     for (const v of violations.slice(0, 10)) console.log(`  e.g. [${v.rule}] ${v.detail}`);
     console.log(`==========================================\n`);
