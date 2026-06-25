@@ -99,10 +99,21 @@ export function nextLoad(
 
 /** Seed the next prescription. External-load exercises use double progression (nextLoad). Bodyweight
  *  exercises progress on REPS only (load is logged as an added/assist delta on the day), climbing past the
- *  range until the lifter chooses to add weight. */
+ *  range until the lifter chooses to add weight.
+ *
+ *  Block-transition guard: if `prevRepHigh` is provided and differs from `repHigh`, the rep range has
+ *  changed (e.g. HYPERTROPHY → STRENGTH). In that case the double-progression gate is skipped entirely —
+ *  the load is re-anchored to an e1RM-derived estimate for the new rep target using `workingLoad`. This
+ *  prevents a spurious bump when hypertrophy reps (≤ 15) always exceed a strength block's repHigh (≤ 6). */
 export function progressedSeed(
   prev: TopSet | null, repLow: number, repHigh: number, progressMult: number, increment: number, isBodyweight: boolean,
+  prevRepHigh?: number,
 ): { load: number | null; reps: number } {
   if (isBodyweight) return { load: null, reps: prev ? prev.reps + 1 : repLow };
+  // Block transition detected: prev rep range differs from current → anchor to e1RM, skip double progression.
+  if (prev && prevRepHigh != null && prevRepHigh !== repHigh) {
+    const est = e1rm(prev.weight, prev.reps, prev.rpe);
+    return { load: workingLoad(est, repLow, 2, increment), reps: repLow };
+  }
   return nextLoad(prev, repLow, repHigh, progressMult, increment);
 }

@@ -14,6 +14,30 @@ import WeekCalendar from "../components/WeekCalendar";
 const fracOf = (e: ExerciseDto, m: Muscle): number =>
   e.muscleContributions.reduce((f, c) => (c.muscle === m ? Math.max(f, parseFloat(c.fraction)) : f), 0);
 
+/** Human-readable block phase name (replaces bare enum in timeline chips). */
+const blockPhaseLabel = (blockType: string | null | undefined): string => {
+  if (!blockType) return "";
+  switch (blockType) {
+    case "HYPERTROPHY": return "Hypertrophy";
+    case "STRENGTH":    return "Strength phase";
+    case "PEAK":        return "Peak";
+    case "DELOAD":      return "Deload";
+    default:            return blockType.charAt(0) + blockType.slice(1).toLowerCase();
+  }
+};
+
+/** One-line plain-English caption for each block type, shown under the timeline chip. */
+const blockCaption = (blockType: string | null | undefined): string => {
+  if (!blockType) return "";
+  switch (blockType) {
+    case "HYPERTROPHY": return "High volume — grow muscle";
+    case "STRENGTH":    return "Intensification — potentiates the next hypertrophy block";
+    case "PEAK":        return "Low volume, max intensity — express strength";
+    case "DELOAD":      return "Recovery — let adaptations set in";
+    default:            return "";
+  }
+};
+
 const DAY = 86_400_000;
 const round = (n: number) => Math.round(n * 2) / 2;
 
@@ -28,6 +52,7 @@ export default function PlanPage() {
   const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
 
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [confirmAdvance, setConfirmAdvance] = useState(false);
   const [usePlanAgainPrefill, setUsePlanAgainPrefill] = useState(false);
 
   const contribsOf = useMemo(() => {
@@ -118,14 +143,17 @@ export default function PlanPage() {
       </div>
 
       {/* whole-macro timeline */}
-      <div className="plan-timeline fade-up">
-        {p.mesocycles.map((b, i) => (
-          <div key={i} className={`plan-block${i === p.mesoIndex ? " cur" : ""}`}>
-            <span className="tag" style={{ fontSize: 9 }}>{blockLabel(b.blockType)}</span>
-            <b className="mono">{b.accumulationWeeks + 1}w</b>
-            {b.focusMuscles.length > 0 && <span className="micro" style={{ fontSize: 9 }}>{b.focusMuscles.map(muscleLabel).join("/")}</span>}
-          </div>
-        ))}
+      <div style={{ overflowX: "auto" }}>
+        <div className="plan-timeline fade-up">
+          {p.mesocycles.map((b, i) => (
+            <div key={i} className={`plan-block${i === p.mesoIndex ? " cur" : ""}`}>
+              <span className="tag" style={{ fontSize: 13 }}>{blockPhaseLabel(b.blockType)}</span>
+              <b className="mono">{b.accumulationWeeks + 1}w</b>
+              <span className="micro" style={{ fontSize: 11 }}>{blockCaption(b.blockType)}</span>
+              {b.focusMuscles.length > 0 && <span className="micro" style={{ fontSize: 11 }}>{b.focusMuscles.map(muscleLabel).join("/")}</span>}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* weekly schedule (read-only) derived from the plan's persisted split */}
@@ -174,13 +202,26 @@ export default function PlanPage() {
       </p>
 
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-        <button
-          className="btn btn-volt"
-          disabled={advance.isPending}
-          onClick={() => advance.mutate()}
-        >
-          {isLastAdvance ? "Finish plan →" : "Complete week →"}
-        </button>
+        {/* Complete week / Finish plan: two-step inline confirm — irreversible action */}
+        {confirmAdvance ? (
+          <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="muted" style={{ fontSize: 13 }}>
+              {isLastAdvance ? "Finish plan? This can't be undone." : "Advance to next week? This can't be undone."}
+            </span>
+            <button className="btn btn-volt" disabled={advance.isPending} onClick={() => { setConfirmAdvance(false); advance.mutate(); }}>
+              {advance.isPending ? "Advancing…" : "Confirm"}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setConfirmAdvance(false)}>Cancel</button>
+          </div>
+        ) : (
+          <button
+            className="btn btn-volt"
+            disabled={advance.isPending}
+            onClick={() => setConfirmAdvance(true)}
+          >
+            {isLastAdvance ? "Finish plan →" : "Complete week →"}
+          </button>
+        )}
 
         {/* End plan: two-step inline confirm — no window.confirm */}
         {confirmEnd ? (
@@ -367,15 +408,17 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
       {preview && (
         <>
           <p className="micro" style={{ margin: "20px 4px 8px" }}>Macrocycle · {preview.mesocycles.length} blocks · ~{preview.totalWeeks} weeks</p>
-          <div className="plan-timeline">
-            {preview.mesocycles.map((b, i) => (
-              <div key={i} className={`plan-block${i === 0 ? " cur" : ""}`}>
-                <span className="tag" style={{ fontSize: 9 }}>{blockLabel(b.blockType)}</span>
-                <b className="mono">{b.accumulationWeeks + 1}w</b>
-                <span className="micro" style={{ fontSize: 9 }}>{b.phase.toLowerCase()}</span>
-                {b.focusMuscles.length > 0 && <span className="micro" style={{ fontSize: 9 }}>{b.focusMuscles.map(muscleLabel).join("/")}</span>}
-              </div>
-            ))}
+          <div style={{ overflowX: "auto" }}>
+            <div className="plan-timeline">
+              {preview.mesocycles.map((b, i) => (
+                <div key={i} className={`plan-block${i === 0 ? " cur" : ""}`}>
+                  <span className="tag" style={{ fontSize: 13 }}>{blockPhaseLabel(b.blockType)}</span>
+                  <b className="mono">{b.accumulationWeeks + 1}w</b>
+                  <span className="micro" style={{ fontSize: 11 }}>{blockCaption(b.blockType)}</span>
+                  {b.focusMuscles.length > 0 && <span className="micro" style={{ fontSize: 11 }}>{b.focusMuscles.map(muscleLabel).join("/")}</span>}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* editable weekly schedule — reassign sessions across weekdays; recovery notes recompute live */}

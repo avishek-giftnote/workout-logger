@@ -135,6 +135,19 @@ describe("planMacrocycle", () => {
       expect(p.warnings.some((w) => /back-to-back/.test(w))).toBe(false);
     }
   });
+
+  // Distinct selected durations must yield distinctly-lengthed plans so e.g. a 3-month and
+  // 4-month selection don't both collapse to the same 14-week plan (duration granularity fix).
+  it("distinct durations yield distinct totalWeeks (3mo vs 4mo and 6wk vs 9wk)", () => {
+    // ~3 months (13 wk) vs ~4 months (17 wk) — previously both tiled to 14 weeks
+    const p13 = planMacrocycle("GENERAL_HYPERTROPHY", 13, null, [], 4, full);
+    const p17 = planMacrocycle("GENERAL_HYPERTROPHY", 17, null, [], 4, full);
+    expect(p13.totalWeeks).not.toBe(p17.totalWeeks);
+    // Short end: 6 weeks vs 9 weeks should also differ
+    const p6 = planMacrocycle("GENERAL_HYPERTROPHY", 6, null, [], 4, full);
+    const p9 = planMacrocycle("GENERAL_HYPERTROPHY", 9, null, [], 4, full);
+    expect(p6.totalWeeks).not.toBe(p9.totalWeeks);
+  });
 });
 
 describe("daySlots — muscle-group placeholders with pre-filled defaults", () => {

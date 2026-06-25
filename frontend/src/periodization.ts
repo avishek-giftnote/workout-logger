@@ -179,6 +179,11 @@ const SHAPES: Record<number, { name: string; muscles: Muscle[] }[]> = {
 const PRIME_MOVERS: Muscle[] = ["CHEST", "LAT", "QUAD", "HAMSTRING", "GLUTE", "SIDE_DELT", "BICEP", "TRICEP"];
 const MIN_FREQ = 2;          // research-backed minimum sessions/week per muscle
 export const PER_SESSION_CAP = 5;   // productive sets/muscle/session before junk volume
+/** Max total working sets across ALL muscle groups on a single training day (~90 min / ~20 hard sets).
+ *  When a day exceeds this we first try to redistribute surplus sets to another day that already trains
+ *  the same muscle (preserves weekly volume + ≥2×/week frequency); only trim the lowest-priority slots
+ *  when no suitable redistribution target exists. */
+export const SESSION_TOTAL_CAP = 20;
 const MAX_SLOTS_PER_MUSCLE = 2;   // ≤2 distinct exercises per muscle per day (e.g. a compound press + an isolation fly)
 const SPLIT_MIN_SETS = 4;    // only split a muscle's day across 2 exercises when it's getting ≥4 sets
 const STRONG_PRIMARY = 0.75; // a 2nd exercise must be a STRONG primary (≥0.75 contribution) of the muscle to count
@@ -458,6 +463,55 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
     gap.forEach((m) => missing.add(m));
     return { name: d.name, slots };
   });
+
+  // SESSION-TOTAL CAP: cap each day's total working sets to SESSION_TOTAL_CAP.
+  // Strategy: for each over-cap day, find excess sets and try to redistribute them to another
+  // day that already has a slot for the same muscle (preserving weekly volume + ≥2×/week).
+  // Only trim (drop sets from the lowest-priority slots — fewest sets, non-focus muscles first)
+  // when no redistribution target exists for the excess.
+  for (let di = 0; di < templates.length; di++) {
+    const t = templates[di];
+    let total = t.slots.reduce((n, s) => n + s.sets, 0);
+    if (total <= SESSION_TOTAL_CAP) continue;
+
+    // Sort slots by priority for trimming (ascending = lowest priority first): non-focus muscles,
+    // then by fewest sets. We walk from the end (lowest priority) and try to shed excess.
+    const byPriority = [...t.slots].sort((a, b) => {
+      const af = block.focusMuscles.includes(a.muscle) ? 1 : 0;
+      const bf = block.focusMuscles.includes(b.muscle) ? 1 : 0;
+      if (af !== bf) return af - bf;   // focus muscles last (highest priority = trim last)
+      return a.sets - b.sets;          // fewer sets = lower priority
+    });
+
+    for (const slot of byPriority) {
+      if (total <= SESSION_TOTAL_CAP) break;
+      const excess = total - SESSION_TOTAL_CAP;
+      const toMove = Math.min(excess, slot.sets - 1);   // keep ≥1 set so the slot isn't emptied
+      if (toMove <= 0) continue;
+
+      // Try to find another day that already has a slot for this muscle and has headroom.
+      let redistributed = 0;
+      for (let oj = 0; oj < templates.length && redistributed < toMove; oj++) {
+        if (oj === di) continue;
+        const other = templates[oj];
+        const otherTotal = other.slots.reduce((n, s) => n + s.sets, 0);
+        const headroom = SESSION_TOTAL_CAP - otherTotal;
+        if (headroom <= 0) continue;
+        const otherSlot = other.slots.find((s) => s.muscle === slot.muscle);
+        if (!otherSlot) continue;   // other day doesn't train this muscle — skip (preserves R33/frequency)
+        const canMove = Math.min(toMove - redistributed, headroom, PER_SESSION_CAP - otherSlot.sets);
+        if (canMove <= 0) continue;
+        otherSlot.sets += canMove;
+        redistributed += canMove;
+      }
+
+      // Only trim what could NOT be redistributed (trim is the fallback, not the primary strategy).
+      const trim = toMove - redistributed;
+      slot.sets -= redistributed + trim;   // the trimmed sets are simply dropped
+      total -= redistributed + trim;
+    }
+  }
+
   const schedule = scheduled.map((s) => s.slot);
 
   // Recovery notes come from the SCHEDULED week (only fire when frequency can't be spaced); plus catalog gaps.
@@ -508,12 +562,21 @@ export function planMacrocycle(
   } else {
     const unit = recipeUnit(goal);
     let i = 0;
+    // Tile recipe blocks to fill `total` weeks.  Rather than a +2 fixed slop (which collapses
+    // e.g. 3-month and 4-month into the same 14-week plan), we: (a) emit a full block when it
+    // fits; (b) truncate the LAST block's accumulation to the exact remainder so distinct
+    // durations yield distinctly-lengthed plans; (c) stop only when the remainder is too small
+    // for even a minimal block (accum ≥ 1 + 1 deload = 2 weeks).
     while (used < total) {
       const spec = unit[i % unit.length];
-      const weeks = spec.accum + 1;
-      if (used > 0 && used + weeks > total + 2) break;
-      blocks.push(mkBlock(spec, focus, blocks.length + 1, measured));
-      used += weeks; i++;
+      const fullWeeks = spec.accum + 1;
+      const remaining = total - used;
+      // A remainder of 1 week can't hold any block (need at least accum=1 + deload = 2). Stop.
+      if (used > 0 && remaining < 2) break;
+      // Truncate the final block so we snap to exactly `total` instead of overshooting.
+      const accum = (remaining < fullWeeks) ? remaining - 1 : spec.accum;
+      blocks.push(mkBlock({ ...spec, accum }, focus, blocks.length + 1, measured));
+      used += accum + 1; i++;
       if (i > 40) break;
     }
     if (blocks.length === 0) blocks.push(mkBlock(unit[0], focus, 1, measured)), used += unit[0].accum + 1;

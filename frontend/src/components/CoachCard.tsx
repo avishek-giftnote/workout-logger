@@ -6,6 +6,11 @@ const PHASE_LABEL: Record<string, string> = { SURPLUS: "Surplus", DEFICIT: "Defi
 const PHASE_COLOR: Record<string, string> = { SURPLUS: "var(--volt)", DEFICIT: "#f5b945", MAINTENANCE: "var(--ice)", UNKNOWN: "var(--muted)" };
 const kcal = (n: number) => n.toLocaleString();
 
+/** Programmatically open the Settings sidebar by clicking the gear button in the topbar. */
+function openSettings() {
+  (document.querySelector('button[title="Settings"]') as HTMLButtonElement | null)?.click();
+}
+
 /** Layer-2 energy-balance "Coach" card. Read-time estimate, gated + word-confidence. Not medical advice. */
 export default function CoachCard() {
   const { setCoachEnabled } = useSettings();
@@ -15,6 +20,7 @@ export default function CoachCard() {
 
   const ready = e.status === "READY";
   const needsProfile = e.missingProfile.length > 0;
+  const hasMaintenance = e.maintenanceKcalLow != null && e.maintenanceKcalHigh != null;
   const sd = e.surplusDeficitKcalLow != null && e.surplusDeficitKcalHigh != null
     ? [Math.min(Math.abs(e.surplusDeficitKcalLow), Math.abs(e.surplusDeficitKcalHigh)),
        Math.max(Math.abs(e.surplusDeficitKcalLow), Math.abs(e.surplusDeficitKcalHigh))]
@@ -31,11 +37,28 @@ export default function CoachCard() {
       </div>
 
       {!ready ? (
-        <p style={{ marginTop: 8, fontSize: 14 }}>
-          Gathering data — <b className="mono">{e.weighIns}/{e.minWeighIns}</b> weigh-ins over{" "}
-          <b className="mono">{e.spanDays}/{e.minSpanDays}</b> days. Log your weight regularly to estimate your energy balance.
-          {needsProfile && <> Add your profile (sex, DOB, height, activity) in Settings.</>}
-        </p>
+        <div style={{ marginTop: 8, fontSize: 14 }}>
+          <p style={{ margin: 0 }}>
+            Gathering data — <b className="mono">{e.weighIns}/{e.minWeighIns}</b> weigh-ins over{" "}
+            <b className="mono">{e.spanDays}/{e.minSpanDays}</b> days.{" "}
+            A trend needs ~2 weeks of weigh-ins to be reliable.
+          </p>
+          {hasMaintenance && (
+            <p className="muted" style={{ margin: "6px 0 0" }}>
+              Est. maintenance ≈ <b className="mono">{kcal(e.maintenanceKcalLow!)}–{kcal(e.maintenanceKcalHigh!)}</b> kcal/day
+            </p>
+          )}
+          <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button className="btn btn-volt" style={{ fontSize: 13, padding: "5px 14px" }} onClick={openSettings}>
+              Log weight
+            </button>
+            {needsProfile && (
+              <button className="btn btn-ghost" style={{ fontSize: 13, padding: "5px 14px" }} onClick={openSettings}>
+                Complete profile
+              </button>
+            )}
+          </div>
+        </div>
       ) : (
         <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.7 }}>
           <div>Trend <b className="mono" style={{ color: PHASE_COLOR[e.phase] }}>{e.ratePerWeekKg} kg/week</b> — looks like a <b>{PHASE_LABEL[e.phase].toLowerCase()}</b>.</div>
