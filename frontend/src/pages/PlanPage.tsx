@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import QueryError from "../components/QueryError";
 import { LANDMARKS, MUSCLES, muscleLabel, trainsMuscle, weeklyMuscleSets } from "../muscles";
-import { blockLabel, currentMicro, planMacrocycle, scheduleNotes, targetSets, PER_SESSION_CAP } from "../periodization";
+import { blockLabel, currentMicro, planMacrocycle, planStructureKey, scheduleNotes, targetSets, PER_SESSION_CAP } from "../periodization";
 import type { ExerciseDto, GoalType, Muscle } from "../api/types";
 import { useSettings } from "../settings";
 import CompletionScreen from "./CompletionScreen";
@@ -256,18 +256,29 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
   }, [exercises.data]);
   const exById = useMemo(() => new Map((exercises.data ?? []).map((e) => [e.id, e])), [exercises.data]);
 
-  // The user's per-slot exercise choice, keyed "<dayIdx>:<slotIdx>". Pre-filled from each slot's recommended
-  // default and reset whenever the preview changes (new goal/days/focus → a fresh slotted split).
+  // The user's per-slot exercise choice (keyed "<dayIdx>:<slotIdx>") + weekday assignment. Seeded from the
+  // planner's defaults, then RE-SEEDED only when the slot STRUCTURE changes (planStructureKey) — NOT on every
+  // `preview` recompute. A background catalog refetch or the async energy phase resolving produces a new
+  // `preview` object with the same structure; keying the reset on the structural fingerprint preserves the
+  // user's edits across those. If a real structural change (goal/days/volume) discards edits, we flag it.
   const [picks, setPicks] = useState<Record<string, string>>({});
-  useEffect(() => {
-    const init: Record<string, string> = {};
-    preview?.templates.forEach((t, di) => t.slots.forEach((s, si) => { if (s.exerciseId) init[`${di}:${si}`] = s.exerciseId; }));
-    setPicks(init);
-  }, [preview]);
-
-  // the user's weekday assignment per session, seeded from the planner's auto-schedule and editable below
   const [sched, setSched] = useState<number[]>([]);
-  useEffect(() => { setSched(preview?.schedule ?? []); }, [preview]);
+  const [resetNotice, setResetNotice] = useState(false);
+  const editedRef = useRef(false);
+  const prevKeyRef = useRef("");
+  const markEdited = () => { editedRef.current = true; setResetNotice(false); };
+  const structKey = useMemo(() => (preview ? planStructureKey(preview) : ""), [preview]);
+  useEffect(() => {
+    if (!preview) return;
+    const init: Record<string, string> = {};
+    preview.templates.forEach((t, di) => t.slots.forEach((s, si) => { if (s.exerciseId) init[`${di}:${si}`] = s.exerciseId; }));
+    setPicks(init);
+    setSched(preview.schedule ?? []);
+    if (prevKeyRef.current && prevKeyRef.current !== structKey && editedRef.current) setResetNotice(true);
+    prevKeyRef.current = structKey;
+    editedRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on structKey, not `preview`
+  }, [structKey]);
   const recoveryNotes = useMemo(() => scheduleNotes(preview?.templates ?? [], sched), [preview, sched]);
   const catalogGaps = (preview?.warnings ?? []).filter((w) => /No exercise/i.test(w));
 
@@ -368,7 +379,14 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
           </div>
 
           {/* editable weekly schedule — reassign sessions across weekdays; recovery notes recompute live */}
-          <WeekCalendar templates={preview.templates} schedule={sched.length === preview.templates.length ? sched : preview.schedule} editable onChange={setSched} />
+          <WeekCalendar templates={preview.templates} schedule={sched.length === preview.templates.length ? sched : preview.schedule} editable onChange={(next) => { markEdited(); setSched(next); }} />
+
+          {resetNotice && (
+            <div className="card card-pad" style={{ margin: "12px 0", borderColor: "var(--ember)" }}>
+              <span className="micro" style={{ color: "var(--ember)" }}>Selections reset</span>
+              <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>Your weekday + exercise choices were reset because the plan structure changed. Re-customize below before accepting.</p>
+            </div>
+          )}
 
           {recoveryNotes.length > 0 && (
             <div className="card card-pad" style={{ margin: "12px 0", borderColor: "var(--ice)" }}>
@@ -397,7 +415,7 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
                       {cands.length ? (
                         <select className="input mono grow" style={{ padding: "6px 8px", fontSize: 13 }}
                           value={picks[`${di}:${si}`] ?? s.exerciseId ?? ""}
-                          onChange={(e) => setPicks((p) => ({ ...p, [`${di}:${si}`]: e.target.value }))}>
+                          onChange={(e) => { markEdited(); setPicks((p) => ({ ...p, [`${di}:${si}`]: e.target.value })); }}>
                           {cands.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                       ) : (

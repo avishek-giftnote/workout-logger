@@ -130,6 +130,15 @@ export interface PlanPreview {
   schedule: number[];
 }
 
+/** A fingerprint of a plan's SLOT STRUCTURE — day names + each day's slot-muscle sequence. Two previews with
+ *  the same key have an identical slot layout, so the user's per-slot exercise picks + weekday schedule still
+ *  map and must NOT be reset; the key changes only when the structure genuinely changes (goal/days/volume that
+ *  adds/removes slots). Phase-clamp tweaks that don't move slots, and background catalog refetches, keep the key
+ *  stable. Excludes default exercise ids (deterministic from the structure) so a re-seed never discards edits. */
+export function planStructureKey(p: { templates: PlanTemplate[] }): string {
+  return p.templates.map((t) => `${t.name}[${t.slots.map((s) => s.muscle).join(",")}]`).join("|");
+}
+
 /**
  * Split shapes by training days/week → muscles trained each day. Designed so every prime mover is hit
  * ≥2×/week (Schoenfeld 2016: ≥2× beats 1× for hypertrophy, volume-equated): Full-Body×2–3, Upper/Lower×2
