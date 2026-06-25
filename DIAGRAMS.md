@@ -1,6 +1,6 @@
 # Workout Logger — diagrams
 
-Structural and behavioural diagrams (Mermaid, renders on GitHub). See `DESIGN.md` for the authoritative
+Structural and behavioural diagrams (Mermaid, renders on GitHub). 17 validated diagrams. See `DESIGN.md` for the authoritative
 architecture record and `CLAUDE.md` for invariants. Diagrams reflect the current code.
 
 ---
@@ -481,18 +481,22 @@ classDiagram
     +String userId
     +String name
     +List~String~ templateIds
+    +List~Integer~ weekdays "0=Mon…6=Sun · nullable (old docs)"
   }
   class Macrocycle {
     +String id
     +String userId
     +String name
-    +String status
+    +String status "ACTIVE | COMPLETED | ENDED"
     +int mesoIndex
     +int week
     +String goal
-    +LocalDate targetDate
-    +List~Muscle~ focusMuscles
+    +LocalDate targetDate "nullable"
+    +List~Muscle~ focusMuscles "nullable"
     +List~Mesocycle~ mesocycles
+    +String splitId "nullable — split used for schedule"
+    +Instant completedAt "nullable — set on last advance()"
+    +Instant endedAt "nullable — set on DELETE /api/plan"
   }
   class Mesocycle {
     +String name
@@ -522,6 +526,7 @@ classDiagram
   ExerciseBlock ..> Exercise : exerciseId
   TemplateExercise ..> Exercise : exerciseId
   Split ..> WorkoutTemplate : templateIds[]
+  Macrocycle ..> Split : splitId (nullable)
   MuscleContribution ..> Muscle
   Mesocycle ..> BlockType
 
@@ -544,24 +549,34 @@ classDiagram
 sequenceDiagram
   actor U as User
   participant LP as LogWorkoutPage
+  participant LS as LocalStore (OPFS/SQLite)
   participant RX as prescription.ts
   participant PD as periodization.ts
   participant API as Api client
   participant WC as WorkoutController
   participant WR as WorkoutRepository
   participant DB as MongoDB
+  U->>LP: navigate to /start
+  LP->>LS: loadDraft(wl.draft.new)?
+  alt draft found
+    LP-->>U: banner — Resume or Discard
+    U->>LP: Resume (restore blocks) or Discard (clear draft)
+  end
   U->>LP: start from template
   LP->>PD: currentMicro(plan) → meso, week
   LP->>PD: phaseMod(meso.phase) → rirFloor, progressMult
   LP->>RX: topWorkingSet(workouts, exerciseId)
   LP->>RX: rirWave(week, accumWeeks, rirFloor)
-  LP->>RX: progressedSeed(prev, repLow, repHigh, …)
+  Note over LP,RX: block-transition guard — if prevMeso.repHigh ≠ current repHigh·<br/>progressedSeed anchors to e1RM for new rep target (skips double-progression bump)
+  LP->>RX: progressedSeed(prev, repLow, repHigh, prevRepHigh?)
   LP->>RX: readiness(workouts, muscle, target) → trim?
   RX-->>LP: seeded sets (load · reps · RPE), eased if sore/short
+  LP->>LS: saveDraft(blocks) [debounced 500 ms on each edit]
   U->>LP: log sets, mark sore muscles, Finish
+  LP->>LS: clearDraft()
   LP->>API: createWorkout(req incl. cyclePhase, soreMuscles)
   API->>WC: POST /api/workouts
-  WC->>WC: DtoMapper.toWorkout (mints setIds)
+  WC->>WC: DtoMapper.toWorkout (mints setIds · validates set fields)
   WC->>WR: insert (tenant userId)
   WR->>DB: insert workouts doc (embedded blocks/sets)
   DB-->>LP: WorkoutDto → invalidate ["workouts"]
@@ -575,6 +590,8 @@ sequenceDiagram
   participant MP as PlanPage / MacroPlanner
   participant EC as Energy query
   participant PM as planMacrocycle
+  participant SW as scheduleWeek
+  participant WC as WeekCalendar
   participant API as Api client
   participant BE as Plan/Template/Split controllers
   participant DB as MongoDB
@@ -583,7 +600,12 @@ sequenceDiagram
   MP->>PM: planMacrocycle(goal, weeks, focus, days, catalog, measuredPhase)
   PM->>PM: recipeUnit(goal) → blocks · mkBlock + clampPhase(measured)
   PM->>PM: generateSplit → frequency-by-design (prime movers/focus ≥2×) · orderForRecovery · daySlots
-  PM-->>MP: preview (timeline · muscle-group SLOTS w/ default exercise · warnings)
+  PM->>SW: scheduleWeek(days, effOf) → schedule: number[] (0=Mon…6=Sun per template slot)
+  SW-->>PM: weekday assignment · null slots = rest days
+  PM-->>MP: PlanPreview (timeline · muscle-group SLOTS w/ defaults · warnings · schedule[])
+  MP->>WC: render WeekCalendar(schedule, editable=true)
+  U->>WC: drag/swap training day assignments
+  WC-->>MP: updated schedule[]
   U->>MP: swap any slot's exercise (dropdown of catalog lifts that train the muscle)
   U->>MP: Accept & start
   loop each template
@@ -591,10 +613,10 @@ sequenceDiagram
     MP->>API: createTemplate(exerciseId, reps, targetRir, sets)
     API->>BE: POST /api/templates
   end
-  MP->>API: createSplit(templateIds)
-  MP->>API: createPlan(mesocycles, goal, targetDate, focusMuscles)
-  API->>BE: POST /api/splits, /api/plan
-  BE->>DB: insert templates, split, plan (ACTIVE, week 1)
+  MP->>API: createSplit(name, templateIds, weekdays[])
+  MP->>API: createPlan(mesocycles, goal, targetDate, focusMuscles, splitId)
+  API->>BE: POST /api/splits · POST /api/plan
+  BE->>DB: insert templates · split (w/ weekdays) · plan (ACTIVE · week 1 · splitId)
   DB-->>MP: invalidate ["templates","splits","plan"] → active-plan view
 ```
 
@@ -640,4 +662,38 @@ sequenceDiagram
   DS->>DS: load default-exercises.json (84 exercises)
   DS->>DB: insert catalog (muscle map · equipment · laterality · mechanic · loadable)
   AC-->>U: JWT token (+ a ready-to-use exercise catalog)
+```
+
+### 17. Sequence — plan completion + history
+
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant PP as PlanPage
+  participant API as Api client
+  participant PC as PlanController
+  participant PR as PlanRepository (tenant)
+  participant DB as MongoDB
+  Note over PP,DB: normal week-by-week progression via POST /api/plan/advance
+  PP->>API: advancePlan() — last week of last mesocycle
+  API->>PC: POST /api/plan/advance
+  PC->>PR: advance() — mesoIndex · week at end
+  PR->>DB: status → COMPLETED · completedAt = now()
+  DB-->>PP: MacrocycleDto (status=COMPLETED) → invalidate ["plan"]
+  PP->>API: GET /api/plan
+  API->>PC: getActivePlan()
+  PC-->>PP: 204 No Content (no active plan)
+  PP->>PP: query plan history for newest terminal plan
+  PP->>API: GET /api/plan/history
+  API->>PC: history()
+  PC->>PR: findByUserId (COMPLETED + ENDED · newest first)
+  PR-->>PP: List~MacrocycleDto~
+  PP->>PP: show CompletionScreen (plan name · goal · summary actions)
+  Note over PP: actions: Start new plan · Plan again (prefill) · View past plans · Dismiss
+  U->>PP: "End plan" (any time — not just at completion)
+  PP->>API: endPlan() → DELETE /api/plan
+  API->>PC: end()
+  PC->>PR: status → ENDED · endedAt = now()
+  PR->>DB: update plan doc
+  DB-->>PP: 204 → invalidate ["plan"] · PastPlans shows "Ended early" tag
 ```
