@@ -178,6 +178,14 @@ export default function PlanPage() {
         return null;
       })()}
 
+      {/* strength/peak exercise advisory — split was frozen at hypertrophy-block accept time */}
+      {meso && (meso.blockType === "STRENGTH" || meso.blockType === "PEAK") && (
+        <div className="card card-pad" style={{ marginBottom: 14, borderColor: "var(--volt)" }}>
+          <span className="micro" style={{ color: "var(--volt)" }}>{meso.blockType === "PEAK" ? "Peak block" : "Strength block"}</span>
+          <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>This block trains heavy in low rep ranges. Your split still uses the exercises picked during the hypertrophy phase — consider swapping any isolations for heavy compounds (barbell press / squat / row / deadlift) on the big lifts via the Exercises page or when you Start a session.</p>
+        </div>
+      )}
+
       {meso && (
         <div className="card" style={{ marginBottom: 14 }}>
           {shownMuscles.map((mk, i) => {
