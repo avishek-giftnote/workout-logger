@@ -593,4 +593,97 @@ class ApiIntegrationTest {
         adv(t).andExpect(jsonPath("$.week").value(2));                                                  // M1 deload week
         adv(t).andExpect(jsonPath("$.mesoIndex").value(1)).andExpect(jsonPath("$.status").value("ACTIVE"));  // rolled into the appended M2
     }
+
+    // ── Split weekdays persistence ──
+
+    // Split created with weekdays=[0,2,4] round-trips correctly via GET /api/splits.
+    @Test
+    void splitWithWeekdaysRoundTrips() throws Exception {
+        String t = register("weekdays@example.com");
+        String ex = createExercise(t, "Press", false);
+        String t1 = createTemplate(t, "Day1", ex);
+        String t2 = createTemplate(t, "Day2", ex);
+        String t3 = createTemplate(t, "Day3", ex);
+        String sid = id(mvc.perform(post("/api/splits").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"MWF\",\"templateIds\":[\"" + t1 + "\",\"" + t2 + "\",\"" + t3 + "\"],\"weekdays\":[0,2,4]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.weekdays.length()").value(3))
+                .andExpect(jsonPath("$.weekdays[0]").value(0))
+                .andExpect(jsonPath("$.weekdays[1]").value(2))
+                .andExpect(jsonPath("$.weekdays[2]").value(4))
+                .andReturn().getResponse().getContentAsString());
+        // Verify via GET list
+        mvc.perform(get("/api/splits").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].weekdays.length()").value(3))
+                .andExpect(jsonPath("$[0].weekdays[1]").value(2));
+        // Update and re-check
+        mvc.perform(put("/api/splits/" + sid).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"MWF\",\"templateIds\":[\"" + t1 + "\",\"" + t2 + "\",\"" + t3 + "\"],\"weekdays\":[1,3,5]}"))
+                .andExpect(jsonPath("$.weekdays[0]").value(1))
+                .andExpect(jsonPath("$.weekdays[2]").value(5));
+    }
+
+    // Split created without weekdays (null) round-trips as null — back-compat for old docs.
+    @Test
+    void splitWithoutWeekdaysRoundTripsAsNull() throws Exception {
+        String t = register("noweekdays@example.com");
+        String ex = createExercise(t, "Row", false);
+        String t1 = createTemplate(t, "Pull", ex);
+        mvc.perform(post("/api/splits").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Legacy\",\"templateIds\":[\"" + t1 + "\"]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.weekdays").doesNotExist());
+        mvc.perform(get("/api/splits").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$[0].weekdays").doesNotExist());
+    }
+
+    // Plan created with a splitId round-trips via GET /api/plan and /api/plan/history.
+    @Test
+    void planWithSplitIdRoundTrips() throws Exception {
+        String t = register("plansplit@example.com");
+        String ex = createExercise(t, "Squat X", false);
+        String tmpl = createTemplate(t, "Legs", ex);
+        String sid = id(mvc.perform(post("/api/splits").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"WkSplit\",\"templateIds\":[\"" + tmpl + "\"],\"weekdays\":[0]}"))
+                .andReturn().getResponse().getContentAsString());
+
+        // Create plan referencing the split
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"ScheduledPlan\",\"splitId\":\"" + sid + "\","
+                                + "\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":1,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.splitId").value(sid));
+
+        // GET active plan returns splitId
+        mvc.perform(get("/api/plan").header("Authorization", bearer(t)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.splitId").value(sid));
+
+        // Complete plan and verify splitId appears in history
+        adv(t);  // deload week
+        adv(t);  // COMPLETED
+        mvc.perform(get("/api/plan/history").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$[0].splitId").value(sid));
+    }
+
+    // Tenant isolation still holds for splits with weekdays: user B never sees user A's split.
+    @Test
+    void splitWeekdaysAreTenantIsolated() throws Exception {
+        String a = register("wda@example.com");
+        String b = register("wdb@example.com");
+        String ex = createExercise(a, "PressX", false);
+        String t1 = createTemplate(a, "T", ex);
+        mvc.perform(post("/api/splits").header("Authorization", bearer(a))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"ASplit\",\"templateIds\":[\"" + t1 + "\"],\"weekdays\":[0,2]}"))
+                .andExpect(status().isCreated());
+        // B sees an empty split list
+        mvc.perform(get("/api/splits").header("Authorization", bearer(b)))
+                .andExpect(jsonPath("$.length()").value(0));
+    }
 }

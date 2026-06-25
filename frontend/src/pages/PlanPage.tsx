@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { LANDMARKS, MUSCLES, muscleLabel, trainsMuscle, weeklyMuscleSets } from "../muscles";
-import { blockLabel, currentMicro, planMacrocycle, targetSets, PER_SESSION_CAP } from "../periodization";
+import { blockLabel, currentMicro, planMacrocycle, scheduleNotes, targetSets, PER_SESSION_CAP } from "../periodization";
 import type { ExerciseDto, GoalType, Muscle } from "../api/types";
 import { useSettings } from "../settings";
 import CompletionScreen from "./CompletionScreen";
+import WeekCalendar from "../components/WeekCalendar";
 
 /** Highest contribution fraction an exercise gives a muscle (for ranking dropdown candidates). */
 const fracOf = (e: ExerciseDto, m: Muscle): number =>
@@ -22,6 +23,8 @@ export default function PlanPage() {
   const history = useQuery({ queryKey: ["plan", "history"], queryFn: Api.planHistory });
   const exercises = useQuery({ queryKey: ["exercises"], queryFn: Api.listExercises });
   const workouts = useQuery({ queryKey: ["workouts"], queryFn: Api.listWorkouts });
+  const splits = useQuery({ queryKey: ["splits"], queryFn: Api.listSplits });
+  const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
 
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [usePlanAgainPrefill, setUsePlanAgainPrefill] = useState(false);
@@ -122,6 +125,15 @@ export default function PlanPage() {
           </div>
         ))}
       </div>
+
+      {/* weekly schedule (read-only) derived from the plan's persisted split */}
+      {(() => {
+        const split = (splits.data ?? []).find((s) => s.id === p.splitId);
+        if (!split?.weekdays?.length) return null;
+        const nameById = new Map((templates.data ?? []).map((t) => [t.id, t.name]));
+        const tmpls = split.templateIds.map((id) => ({ name: nameById.get(id) ?? "Session" }));
+        return <WeekCalendar templates={tmpls} schedule={split.weekdays} />;
+      })()}
 
       {/* deload prompt (suggest, don't force) */}
       {(() => {
@@ -251,10 +263,17 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
     setPicks(init);
   }, [preview]);
 
+  // the user's weekday assignment per session, seeded from the planner's auto-schedule and editable below
+  const [sched, setSched] = useState<number[]>([]);
+  useEffect(() => { setSched(preview?.schedule ?? []); }, [preview]);
+  const recoveryNotes = useMemo(() => scheduleNotes(preview?.templates ?? [], sched), [preview, sched]);
+  const catalogGaps = (preview?.warnings ?? []).filter((w) => /No exercise/i.test(w));
+
   const accept = useMutation({
     mutationFn: async () => {
       const pv = preview!;
       const ids: string[] = [];
+      const weekdays: number[] = [];
       for (let di = 0; di < pv.templates.length; di++) {   // index-based so slot keys match `picks`
         const t = pv.templates[di];
         // Resolve each slot to the user's pick (or its default) and merge slots that landed on the same
@@ -272,9 +291,11 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
         if (!exercises.length) continue;
         const created = await Api.createTemplate({ name: t.name, exercises: exercises.map((e, i) => ({ exerciseId: e.exerciseId, name: e.name, position: i, sets: e.sets, reps: e.reps, targetRir: e.targetRir })) });
         ids.push(created.id);
+        weekdays.push(sched[di] ?? di);   // keep weekdays aligned to the templates we actually created
       }
-      if (ids.length) await Api.createSplit({ name: pv.splitName, templateIds: ids });
-      await Api.createPlan({ name: planName, mesocycles: pv.mesocycles, goal, targetDate: usesDate ? targetDate : undefined, focusMuscles: needsFocus ? focus : undefined });
+      let splitId: string | undefined;
+      if (ids.length) splitId = (await Api.createSplit({ name: pv.splitName, templateIds: ids, weekdays })).id;
+      await Api.createPlan({ name: planName, mesocycles: pv.mesocycles, goal, targetDate: usesDate ? targetDate : undefined, focusMuscles: needsFocus ? focus : undefined, splitId });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["templates"] });
@@ -342,10 +363,19 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
             ))}
           </div>
 
-          {preview.warnings.length > 0 && (
+          {/* editable weekly schedule — reassign sessions across weekdays; recovery notes recompute live */}
+          <WeekCalendar templates={preview.templates} schedule={sched.length === preview.templates.length ? sched : preview.schedule} editable onChange={setSched} />
+
+          {recoveryNotes.length > 0 && (
+            <div className="card card-pad" style={{ margin: "12px 0", borderColor: "var(--ice)" }}>
+              <span className="micro" style={{ color: "var(--ice)" }}>Recovery</span>
+              {recoveryNotes.slice(0, 5).map((w, i) => <p key={i} className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{w}</p>)}
+            </div>
+          )}
+          {catalogGaps.length > 0 && (
             <div className="card card-pad" style={{ margin: "12px 0", borderColor: "var(--ember)" }}>
               <span className="micro" style={{ color: "var(--ember)" }}>Catalog gaps</span>
-              {preview.warnings.slice(0, 5).map((w, i) => <p key={i} className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{w}</p>)}
+              {catalogGaps.slice(0, 5).map((w, i) => <p key={i} className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{w}</p>)}
             </div>
           )}
 

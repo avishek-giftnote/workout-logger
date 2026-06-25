@@ -33,12 +33,12 @@ public class SplitController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public SplitDto create(@Valid @RequestBody SaveSplitRequest req) {
-        return DtoMapper.toDto(splits.create(req.name(), ids(req)));
+        return DtoMapper.toDto(splits.create(req.name(), ids(req), req.weekdays()));
     }
 
     @PutMapping("/{id}")
     public SplitDto update(@PathVariable String id, @Valid @RequestBody SaveSplitRequest req) {
-        return splits.update(id, req.name(), ids(req)).map(DtoMapper::toDto)
+        return splits.update(id, req.name(), ids(req), req.weekdays()).map(DtoMapper::toDto)
                 .orElseThrow(() -> new NotFoundException("Split " + id + " not found"));
     }
 

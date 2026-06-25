@@ -32,6 +32,8 @@ const ACTIVE_PLAN = {
 
 test("plan slots (mocked): dropdowns render, chest→2 slots, side delts ≥2×, choice flows to accept payload", async ({ page }) => {
   const postedTemplates: { name: string; exercises: { exerciseId: string }[] }[] = [];
+  let postedSplit: { name: string; templateIds: string[]; weekdays: number[] } | null = null;
+  let postedPlan: { name: string; splitId?: string } | null = null;
   let planCreated = false;
 
   // Match only true backend calls (pathname /api/…), NOT Vite's own source modules under /src/api/.
@@ -46,13 +48,16 @@ test("plan slots (mocked): dropdowns render, chest→2 slots, side delts ≥2×,
     if (p === "/exercises") return json(CATALOG);
     if (p === "/workouts") return json([]);
     if (p === "/plan" && method === "GET") return json(planCreated ? ACTIVE_PLAN : null);
-    if (p === "/plan" && method === "POST") { planCreated = true; return json(ACTIVE_PLAN); }
+    if (p === "/plan" && method === "POST") { postedPlan = JSON.parse(route.request().postData() || "{}"); planCreated = true; return json(ACTIVE_PLAN); }
     if (p === "/templates" && method === "POST") {
       const body = JSON.parse(route.request().postData() || "{}");
       postedTemplates.push(body);
       return json({ id: `t${postedTemplates.length}`, name: body.name, exercises: body.exercises });
     }
-    if (p === "/splits" && method === "POST") return json({ id: "s1", name: "split", templateIds: [] });
+    if (p === "/splits" && method === "POST") {
+      postedSplit = JSON.parse(route.request().postData() || "{}");
+      return json({ id: "s1", name: postedSplit!.name, templateIds: postedSplit!.templateIds, weekdays: postedSplit!.weekdays });
+    }
     if (p === "/templates" || p === "/splits") return json([]);
     return json(null);
   });
@@ -84,7 +89,13 @@ test("plan slots (mocked): dropdowns render, chest→2 slots, side delts ≥2×,
   // (b) frequency-by-design: Side delts scheduled on ≥2 days (the old 4-day 1× warning case)
   expect(stats.filter((c) => c["Side delts"]).length).toBeGreaterThanOrEqual(2);
 
-  // (c) swap the first dropdown, accept, and confirm the chosen exercise lands in the POSTed templates
+  // (c) the weekly calendar renders 7 cells with rest days inserted (4 training in 7 → ≥3 rest)
+  expect(await page.locator(".cal-grid .cal-cell").count()).toBe(7);
+  const restCells = await page.locator(".cal-grid .cal-cell")
+    .evaluateAll((cells) => cells.filter((c) => /rest/i.test(c.textContent ?? "")).length);
+  expect(restCells).toBeGreaterThanOrEqual(3);
+
+  // (d) swap the first dropdown, accept, and confirm the chosen exercise lands in the POSTed templates
   const first = page.locator("section.ex-block select").first();
   await first.selectOption({ index: 1 });
   const chosen = await first.inputValue();
@@ -97,4 +108,10 @@ test("plan slots (mocked): dropdowns render, chest→2 slots, side delts ≥2×,
   // a chest day persisted two distinct chest exercises (the 2-slot split, defaults un-merged)
   expect(postedTemplates.some((t) => t.exercises.filter((e) => e.exerciseId === "c1" || e.exerciseId === "c2").length >= 2
     || (t.exercises.some((e) => e.exerciseId === "c1") && t.exercises.some((e) => e.exerciseId === "c2")))).toBe(true);
+
+  // (e) the weekday schedule + split link persisted: split carries one weekday per template, plan carries splitId
+  expect(postedSplit).not.toBeNull();
+  expect(postedSplit!.weekdays.length).toBe(postedSplit!.templateIds.length);
+  expect(postedSplit!.weekdays.every((w) => w >= 0 && w <= 6)).toBe(true);
+  expect(postedPlan!.splitId).toBeTruthy();
 });

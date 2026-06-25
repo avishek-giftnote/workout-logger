@@ -62,7 +62,8 @@ public final class DtoMapper {
                 m.getMesoIndex(), m.getWeek(), mesos, m.getGoal(),
                 m.getTargetDate() == null ? null : m.getTargetDate().toString(), m.getFocusMuscles(),
                 m.getCompletedAt() == null ? null : m.getCompletedAt().toString(),
-                m.getEndedAt() == null ? null : m.getEndedAt().toString());
+                m.getEndedAt() == null ? null : m.getEndedAt().toString(),
+                m.getSplitId());
     }
 
     public static LastWorkingSetDto toDto(LastWorkingSetView v) {
@@ -129,6 +130,7 @@ public final class DtoMapper {
     }
 
     public static SplitDto toDto(Split s) {
-        return new SplitDto(s.getId(), s.getName(), List.copyOf(s.getTemplateIds()));
+        return new SplitDto(s.getId(), s.getName(), List.copyOf(s.getTemplateIds()),
+                s.getWeekdays() == null ? null : List.copyOf(s.getWeekdays()));
     }
 }

@@ -36,7 +36,8 @@ public class PlanRepository {
 
     /** Replaces any existing active plan with a new one. */
     public Macrocycle create(String name, List<Mesocycle> mesocycles, String goal,
-                             java.time.LocalDate targetDate, List<com.workoutlogger.domain.Muscle> focusMuscles) {
+                             java.time.LocalDate targetDate, List<com.workoutlogger.domain.Muscle> focusMuscles,
+                             String splitId) {
         // Replacing an active plan is an early end, not a completion — mark it ENDED so it doesn't
         // surface in history as a falsely-celebrated COMPLETED plan. (terminal-state split)
         mongo.updateMulti(active(),
@@ -51,6 +52,7 @@ public class PlanRepository {
         m.setGoal(goal);
         m.setTargetDate(targetDate);
         m.setFocusMuscles(focusMuscles);
+        m.setSplitId(splitId);
         m.setStartedAt(now);
         m.setCreatedAt(now);
         m.setUpdatedAt(now);

@@ -23,6 +23,7 @@ public class Macrocycle {
     private Instant startedAt;
     private Instant completedAt;             // set when status transitions to COMPLETED (nullable)
     private Instant endedAt;                 // set when status transitions to ENDED (nullable)
+    private String splitId;                  // the split used for this macrocycle's schedule (nullable)
     private String status = "ACTIVE";        // ACTIVE | COMPLETED | ENDED
     private int mesoIndex = 0;               // current mesocycle (0-based)
     private int week = 1;                    // current week within that mesocycle (1-based)
@@ -47,6 +48,8 @@ public class Macrocycle {
     public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
     public Instant getEndedAt() { return endedAt; }
     public void setEndedAt(Instant endedAt) { this.endedAt = endedAt; }
+    public String getSplitId() { return splitId; }
+    public void setSplitId(String splitId) { this.splitId = splitId; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public int getMesoIndex() { return mesoIndex; }
