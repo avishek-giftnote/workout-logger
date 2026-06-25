@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 // The actual shipped 84-exercise default seed (backend resource) — see REAL below.
 import DEFAULT_EXERCISES from "../../backend/src/main/resources/default-exercises.json";
-import { blockDates, planMacrocycle, phaseMod, targetSets, type PlanPreview } from "./periodization";
+import { blockDates, planMacrocycle, phaseMod, targetSets, orderForRecovery, adjacencyConflicts, scheduleWeek, scheduleConflicts, type Day, type PlanPreview } from "./periodization";
 import { rirWave } from "./prescription";
 import { LANDMARKS, muscleLabel, trainsMuscle } from "./muscles";
 import type { ExerciseDto, GoalType, Muscle } from "./api/types";
@@ -298,6 +298,100 @@ describe("coach eval — macrocycle planner invariants over a full config sweep"
   it.skip("R31 — CONTEST_PREP without a target date should warn/refuse a peak (deferred)", () => {
     const p = planMacrocycle("CONTEST_PREP", 8, null, ["SIDE_DELT"], 4, FULL);
     expect(p.warnings.some((w) => /date|show/i.test(w)) || !p.mesocycles.some((b) => b.blockType === "PEAK")).toBe(true);
+  });
+
+  // R36 — RECOVERY ORDERING IS OPTIMAL: orderForRecovery returns a day order whose back-to-back
+  // effective-muscle conflicts equal the GLOBAL minimum over all orderings (day count ≤6 ⇒ exhaustive is
+  // exact). A greedy nearest-neighbour from a fixed start is NOT optimal — it can't undo an early pick or
+  // choose a better first day. Root-cause guard for the "X lands on back-to-back days" warning noise.
+  it("R36 — orderForRecovery minimizes back-to-back muscle conflicts (matches the global optimum)", () => {
+    const mk = (name: string, muscles: Muscle[]): Day => ({ name, muscles });
+    const idEff = (d: Day) => new Set(d.muscles);
+    const perms = <T>(a: T[]): T[][] =>
+      a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((r) => [x, ...r]));
+    const minConflicts = (days: Day[]) => Math.min(...perms(days).map((p) => adjacencyConflicts(p, idEff)));
+
+    const sets: Day[][] = [
+      // adversarial path graph CHEST–(CHEST,LAT)–(LAT,QUAD)–QUAD: greedy from the fixed first day yields 1
+      // conflict, but an ordering starting elsewhere achieves 0.
+      [mk("A", ["CHEST"]), mk("B", ["CHEST", "LAT"]), mk("C", ["LAT", "QUAD"]), mk("D", ["QUAD"])],
+      // a realistic 4-day upper/lower overlap (GLUTE shared across both lower days)
+      [mk("U1", ["CHEST", "TRICEP", "FRONT_DELT"]), mk("L1", ["QUAD", "GLUTE"]), mk("U2", ["LAT", "BICEP", "REAR_DELT"]), mk("L2", ["HAMSTRING", "GLUTE", "CALF"])],
+      // a 5-day spread
+      [mk("a", ["CHEST"]), mk("b", ["LAT"]), mk("c", ["CHEST", "LAT"]), mk("d", ["QUAD"]), mk("e", ["QUAD", "HAMSTRING"])],
+    ];
+    // plus a deterministic random battery (seeded LCG → reproducible) over 3..6-day sets
+    let seed = 0x9e3779b1;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let t = 0; t < 40; t++) {
+      const n = 3 + Math.floor(rnd() * 4);
+      sets.push(Array.from({ length: n }, (_, i) => mk(`d${i}`, ALL_MUSCLES.filter(() => rnd() < 0.4))));
+    }
+
+    for (const days of sets) {
+      const got = adjacencyConflicts(orderForRecovery(days, idEff), idEff);
+      const opt = minConflicts(days);
+      expect(got, `orderForRecovery left ${got} conflicts; ${opt} is achievable for ${JSON.stringify(days.map((d) => d.muscles))}`).toBe(opt);
+    }
+  });
+
+  // R37 — REST-DAY SCHEDULING: scheduleWeek places sessions among 7 weekday slots with rest days so the circular
+  // <48h conflict count is the GLOBAL minimum; and the realistic 4-day split now spaces a 3×/wk muscle ≥48h — the
+  // side-delts case that was an "unavoidable back-to-back" before rest days existed.
+  it("R37 — scheduleWeek minimizes <48h conflicts; default 4-day split has no recovery warning", () => {
+    const mk = (name: string, muscles: Muscle[]) => ({ name, muscles });
+    const effId = (d: { muscles: Muscle[] }) => new Set(d.muscles);
+    const perms = <T>(a: T[]): T[][] =>
+      a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((r) => [x, ...r]));
+    let seed = 0x1234567;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let t = 0; t < 30; t++) {
+      const n = 2 + Math.floor(rnd() * 5);   // 2..6 training days
+      const days = Array.from({ length: n }, (_, i) => mk(`d${i}`, ALL_MUSCLES.filter(() => rnd() < 0.4)));
+      const week = scheduleWeek(days, effId, 7);
+      let opt = Infinity;
+      for (const perm of perms([0, 1, 2, 3, 4, 5, 6])) {
+        const w: (Day | null)[] = new Array(7).fill(null);
+        for (let k = 0; k < n; k++) w[perm[k]] = days[k];
+        opt = Math.min(opt, scheduleConflicts(w, effId));
+      }
+      expect(scheduleConflicts(week, effId)).toBe(opt);
+    }
+    // the motivating case: default 4-day REAL split → no prime mover trained <48h apart (warning gone, by spacing)
+    const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], 4, REAL);
+    expect(p.warnings.some((w) => /<48h|back-to-back/i.test(w)), `recovery warning present: ${p.warnings.join(" | ")}`).toBe(false);
+  });
+
+  // R38 — NO REDUNDANT EXERCISE: on the REAL catalog a muscle gets 2 slots/day ONLY as a distinct-mechanic pair
+  // (compound + isolation); two same-type variants collapse to one. Pins the side-delts "machine vs dumbbell" fix.
+  it("R38 — 2 exercises/muscle/day only as a distinct-mechanic pair (REAL catalog)", () => {
+    for (const days of [3, 4, 5, 6]) {
+      const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], days, REAL);
+      for (const t of p.templates) {
+        const byMuscle: Record<string, string[]> = {};
+        for (const s of t.slots) (byMuscle[s.muscle] ??= []).push(s.exerciseId!);
+        for (const [m, ids] of Object.entries(byMuscle)) {
+          expect(ids.length, `${t.name}/${m} has ${ids.length} slots`).toBeLessThanOrEqual(2);
+          if (ids.length === 2) {
+            const mechs = ids.map((id) => realById.get(id)?.mechanic);
+            expect(mechs[0], `${t.name}/${m} same-mechanic pair ${ids}`).not.toBe(mechs[1]);
+          }
+        }
+      }
+    }
+  });
+
+  // R39 — INTRA-SESSION SPACING: within a day, no two CONSECUTIVE slots train the same primary muscle (when the
+  // day has ≥2 distinct muscles) — don't run two movements for one muscle back-to-back.
+  it("R39 — no two consecutive slots in a day share the primary muscle", () => {
+    for (const cat of [FULL, REAL]) for (const days of [3, 4, 5, 6]) {
+      const p = planMacrocycle("GENERAL_HYPERTROPHY", 8, null, [], days, cat);
+      for (const t of p.templates) {
+        if (new Set(t.slots.map((s) => s.muscle)).size < 2) continue;
+        for (let i = 1; i < t.slots.length; i++)
+          expect(t.slots[i].muscle, `${t.name}: slots ${i - 1},${i} both ${t.slots[i].muscle}`).not.toBe(t.slots[i - 1].muscle);
+      }
+    }
   });
 
   it("scores every goal × days × duration × focus combination", () => {

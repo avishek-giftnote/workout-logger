@@ -126,6 +126,8 @@ export interface PlanPreview {
   splitName: string;
   templates: PlanTemplate[];
   warnings: string[];
+  /** Weekday slot (0=Mon…6=Sun) assigned to each template; unused slots are rest days. Aligned to `templates`. */
+  schedule: number[];
 }
 
 /**
@@ -168,8 +170,10 @@ const SHAPES: Record<number, { name: string; muscles: Muscle[] }[]> = {
 const PRIME_MOVERS: Muscle[] = ["CHEST", "LAT", "QUAD", "HAMSTRING", "GLUTE", "SIDE_DELT", "BICEP", "TRICEP"];
 const MIN_FREQ = 2;          // research-backed minimum sessions/week per muscle
 export const PER_SESSION_CAP = 5;   // productive sets/muscle/session before junk volume
-const SETS_PER_EXERCISE = 3; // ~hard sets per movement before splitting a muscle's daily volume across exercises
-const MAX_SLOTS_PER_MUSCLE = 2;   // ≤2 distinct exercises per muscle per day (e.g. an incline press + a pec deck)
+const MAX_SLOTS_PER_MUSCLE = 2;   // ≤2 distinct exercises per muscle per day (e.g. a compound press + an isolation fly)
+const SPLIT_MIN_SETS = 4;    // only split a muscle's day across 2 exercises when it's getting ≥4 sets
+const STRONG_PRIMARY = 0.75; // a 2nd exercise must be a STRONG primary (≥0.75 contribution) of the muscle to count
+                             // as a distinct stimulus — blocks 2 near-identical isolation variants (DB+machine raise)
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
 // an exercise "trains" a muscle at the shared ≥0.5 basis (so Deadlift/glutes count, not just fraction==1)
@@ -177,12 +181,35 @@ const primaryFor = (ex: ExerciseDto, m: Muscle) => ex.category !== "CARDIO" && t
 const fracOf = (ex: ExerciseDto, m: Muscle): number =>
   ex.muscleContributions.reduce((f, c) => (c.muscle === m ? Math.max(f, parseFloat(c.fraction)) : f), 0);
 
-type Day = { name: string; muscles: Muscle[] };
-/** Greedily order days so each is followed by the remaining day that shares the fewest EFFECTIVE muscles
- *  (primaries + the ≥0.5 synergists of its exercises) — keeps a muscle and its synergists off back-to-back
- *  days for ~48–72h recovery. */
-function orderForRecovery(days: Day[], effOf: (d: Day) => Set<Muscle>): Day[] {
+export type Day = { name: string; muscles: Muscle[] };
+
+/** Total back-to-back EFFECTIVE-muscle incidences across consecutive days — the recovery objective
+ *  `orderForRecovery` minimizes (each shared muscle on an adjacent pair counts once). */
+export function adjacencyConflicts(days: Day[], effOf: (d: Day) => Set<Muscle>): number {
+  const eff = days.map(effOf);
+  let n = 0;
+  for (let i = 1; i < days.length; i++) for (const m of eff[i]) if (eff[i - 1].has(m)) n++;
+  return n;
+}
+
+/** Order days to MINIMIZE back-to-back training of the same EFFECTIVE muscle (primaries + the ≥0.5
+ *  synergists of its exercises) for ~48–72h recovery. Day count is tiny (≤6), so we search ALL orderings
+ *  exhaustively and return the global minimum — a greedy nearest-neighbour from a fixed start is not
+ *  optimal (it can't undo an early choice, nor pick a better first day). Permutations are generated in
+ *  lexicographic index order and we keep the FIRST ordering that hits the min, so ties break toward the
+ *  original day order (no gratuitous reshuffle). Falls back to greedy only above 8 days (never reached). */
+export function orderForRecovery(days: Day[], effOf: (d: Day) => Set<Muscle>): Day[] {
   if (days.length <= 2) return days;
+  if (days.length > 8) return greedyOrder(days, effOf);   // 9!+ perms — unreachable guard
+  let best = days, bestScore = adjacencyConflicts(days, effOf);
+  for (const perm of permutations(days)) {
+    const score = adjacencyConflicts(perm, effOf);
+    if (score < bestScore) { bestScore = score; best = perm; }
+  }
+  return best;
+}
+/** Greedy nearest-neighbour — fallback above the exhaustive cap only. */
+function greedyOrder(days: Day[], effOf: (d: Day) => Set<Muscle>): Day[] {
   const rest = [...days];
   const out: Day[] = [rest.shift()!];
   while (rest.length) {
@@ -196,14 +223,72 @@ function orderForRecovery(days: Day[], effOf: (d: Day) => Set<Muscle>): Day[] {
   }
   return out;
 }
-/** Prime movers (incl. synergists) trained on adjacent days (recovery risk) — surfaced as warnings. */
-function adjacencyWarnings(days: Day[], effOf: (d: Day) => Set<Muscle>): string[] {
+/** All permutations of an array in lexicographic index order. */
+function* permutations<T>(arr: T[]): Generator<T[]> {
+  if (arr.length <= 1) { yield [...arr]; return; }
+  for (let i = 0; i < arr.length; i++)
+    for (const rest of permutations([...arr.slice(0, i), ...arr.slice(i + 1)]))
+      yield [arr[i], ...rest];
+}
+/** Count <48h adjacencies in a `weekLen`-slot week: shared EFFECTIVE muscles between training days in CONSECUTIVE
+ *  slots (circular — the week repeats). A rest slot (null) between two sessions breaks the adjacency. */
+export function scheduleConflicts(week: (Day | null)[], effOf: (d: Day) => Set<Muscle>): number {
+  let n = 0;
+  for (let i = 0; i < week.length; i++) {
+    const a = week[i], b = week[(i + 1) % week.length];
+    if (!a || !b) continue;   // a rest day breaks back-to-back
+    const ea = effOf(a), eb = effOf(b);
+    for (const m of eb) if (ea.has(m)) n++;
+  }
+  return n;
+}
+/** Place N training days into a `weekLen`-slot week (null = rest day) to MINIMIZE <48h same-muscle adjacencies
+ *  (circular). When days/week < weekLen there's slack to insert rest days, so a muscle trained on ≤⌊weekLen/2⌋
+ *  days gets ≥48h. Exhaustive over placements (P(7,N) ≤ 5040 for N≤6). Ties break toward the most even spread
+ *  (largest min gap). Generalizes orderForRecovery (which had no rest days). */
+export function scheduleWeek(days: Day[], effOf: (d: Day) => Set<Muscle>, weekLen = 7): (Day | null)[] {
+  const n = days.length;
+  if (n === 0) return new Array(weekLen).fill(null);
+  if (n >= weekLen) return days.slice();   // no slack — adjacency unavoidable, keep order
+  const eff = days.map(effOf);   // precompute once — the inner loop scores by index, never re-calls effOf
+  const score = (slotDay: (number | null)[]): number => {
+    let c = 0;
+    for (let i = 0; i < weekLen; i++) {
+      const a = slotDay[i], b = slotDay[(i + 1) % weekLen];
+      if (a === null || b === null) continue;
+      for (const m of eff[b]) if (eff[a].has(m)) c++;
+    }
+    return c;
+  };
+  const gap = (slotDay: (number | null)[]): number => {
+    const at: number[] = []; slotDay.forEach((d, i) => { if (d !== null) at.push(i); });
+    if (at.length <= 1) return weekLen;
+    let min = weekLen;
+    for (let i = 0; i < at.length; i++) min = Math.min(min, (at[(i + 1) % at.length] - at[i] + weekLen) % weekLen || weekLen);
+    return min;
+  };
+  let bestPos = days.map((_, i) => i), bestScore = Infinity, bestSpread = -1;
+  for (const perm of permutations(Array.from({ length: weekLen }, (_, i) => i))) {
+    const slotDay: (number | null)[] = new Array(weekLen).fill(null);
+    for (let k = 0; k < n; k++) slotDay[perm[k]] = k;
+    const s = score(slotDay);
+    if (s > bestScore) continue;
+    const sp = gap(slotDay);
+    if (s < bestScore || sp > bestSpread) { bestPos = perm.slice(0, n); bestScore = s; bestSpread = sp; }
+  }
+  const week: (Day | null)[] = new Array(weekLen).fill(null);
+  bestPos.forEach((slot, k) => { week[slot] = days[k]; });
+  return week;
+}
+/** Recovery warnings from the SCHEDULED week: a prime mover trained on two training days <48h apart (consecutive
+ *  slots, circular). Only fires when the frequency is too high to fully space (e.g. 6 days/week). */
+function scheduleWarnings(week: (Day | null)[], effOf: (d: Day) => Set<Muscle>): string[] {
   const out: string[] = [];
-  const eff = days.map(effOf);
-  for (const m of PRIME_MOVERS) {
-    for (let i = 1; i < days.length; i++) {
-      if (eff[i].has(m) && eff[i - 1].has(m)) {
-        out.push(`${muscleLabel(m)} lands on back-to-back days (${days[i - 1].name} → ${days[i].name}) — add a rest day between them.`);
+  for (const mover of PRIME_MOVERS) {
+    for (let i = 0; i < week.length; i++) {
+      const a = week[i], b = week[(i + 1) % week.length];
+      if (a && b && effOf(a).has(mover) && effOf(b).has(mover)) {
+        out.push(`${muscleLabel(mover)} is trained <48h apart (${a.name} → ${b.name}) — too many sessions to fully space at this frequency.`);
         break;
       }
     }
@@ -232,15 +317,60 @@ export function daySlots(
     const list = cand[m];
     if (!list || !list.length) { missing.push(m); continue; }
     const setsPerDay = clamp(Math.round(weekly / (freq[m] || 1)), 2, PER_SESSION_CAP);
-    const nSlots = clamp(Math.ceil(setsPerDay / SETS_PER_EXERCISE), 1, Math.min(MAX_SLOTS_PER_MUSCLE, list.length));
-    for (let i = 0; i < nSlots; i++) {
-      const sets = Math.floor(setsPerDay / nSlots) + (i < setsPerDay % nSlots ? 1 : 0);   // even split, front-loaded
-      if (sets <= 0) continue;
-      const ex = list[(ptr[m] = (ptr[m] ?? 0) + 1) % list.length];   // rotate → distinct defaults across slots & days
+    const picks = pickDayExercises(list, m, setsPerDay, ptr);   // 1 exercise, or 2 only if distinct stimulus
+    picks.forEach((ex, i) => {
+      const sets = Math.floor(setsPerDay / picks.length) + (i < setsPerDay % picks.length ? 1 : 0);   // even split
+      if (sets <= 0) return;
       slots.push({ muscle: m, sets, reps, targetRir, exerciseId: ex.id, name: ex.name });
-    }
+    });
   }
-  return { slots, missing };
+  // intra-session order: spread same-muscle / shared-synergist work so no two consecutive slots fatigue the
+  // same muscle when avoidable (e.g. don't run two chest movements back-to-back).
+  const exById = new Map<string, ExerciseDto>();
+  for (const l of Object.values(cand)) for (const e of l) exById.set(e.id, e);
+  return { slots: orderSlotsForRecovery(slots, exById), missing };
+}
+
+/** Pick the exercise(s) for one muscle's day. ONE by default (rotated across days for variety); a SECOND only
+ *  when the day's volume justifies it (≥SPLIT_MIN_SETS) AND a genuinely distinct movement exists — a STRONG
+ *  primary (≥STRONG_PRIMARY contribution) of a DIFFERENT mechanic than the first pick. This keeps a real
+ *  compound+isolation pair (chest: bench + fly) but collapses two near-identical isolations (side delts:
+ *  dumbbell + machine lateral raise → 4 sets of one). `list` is pre-sorted by contribution desc. */
+function pickDayExercises(list: ExerciseDto[], m: Muscle, setsPerDay: number, ptr: Record<string, number>): ExerciseDto[] {
+  const primary = list[(ptr[m] = (ptr[m] ?? 0) + 1) % list.length];   // rotate → cross-day variety
+  if (setsPerDay < SPLIT_MIN_SETS || MAX_SLOTS_PER_MUSCLE < 2) return [primary];
+  const second = list.find((e) => e.id !== primary.id && e.mechanic !== primary.mechanic && fracOf(e, m) >= STRONG_PRIMARY);
+  return second ? [primary, second] : [primary];
+}
+
+/** Reorder a day's slots so no two CONSECUTIVE slots train the same primary muscle (when ≥2 muscles are present),
+ *  spreading shared-synergist work too. Round-robin interleave (largest muscle-group first, never repeating the
+ *  last muscle while another group remains — the standard "reorganize so identical items aren't adjacent"), with
+ *  a tiebreak toward the fewest shared EFFECTIVE muscles (slot muscle + ≥0.5 synergists of its exercise). */
+function orderSlotsForRecovery(slots: PlanSlot[], exById: Map<string, ExerciseDto>): PlanSlot[] {
+  if (slots.length <= 2) return slots;
+  const eff = (s: PlanSlot): Set<Muscle> => {
+    const set = new Set<Muscle>([s.muscle]);
+    const ex = s.exerciseId ? exById.get(s.exerciseId) : null;
+    for (const c of ex?.muscleContributions ?? []) if (parseFloat(c.fraction) >= TRAINS_THRESHOLD) set.add(c.muscle);
+    return set;
+  };
+  const shared = (a: PlanSlot, b: PlanSlot | undefined): number => {
+    if (!b) return 0;
+    const eb = eff(b); let n = 0; for (const m of eff(a)) if (eb.has(m)) n++; return n;
+  };
+  const byMuscle = new Map<Muscle, PlanSlot[]>();
+  for (const s of slots) { const g = byMuscle.get(s.muscle); if (g) g.push(s); else byMuscle.set(s.muscle, [s]); }
+  const out: PlanSlot[] = [];
+  while (out.length < slots.length) {
+    const last = out[out.length - 1];
+    const groups = [...byMuscle.values()].filter((g) => g.length);
+    let elig = groups.filter((g) => !last || g[0].muscle !== last.muscle);
+    if (!elig.length) elig = groups;   // only same-muscle slots remain — unavoidable
+    elig.sort((a, b) => b.length - a.length || shared(a[0], last) - shared(b[0], last));
+    out.push(elig[0].shift()!);
+  }
+  return out;
 }
 
 /**
@@ -286,8 +416,12 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
     return s;
   };
 
-  // order days so the same muscle (+ synergists) isn't trained on back-to-back days (≥48–72h recovery)
-  const days = orderForRecovery(base, effOf);
+  // schedule the week: place the training days among 7 weekday slots with rest days between them so each
+  // muscle gets ≥48h where the frequency allows (generalizes back-to-back ordering — see scheduleWeek).
+  const week = scheduleWeek(base, effOf, 7);
+  const scheduled: { day: Day; slot: number }[] = [];
+  week.forEach((d, slot) => { if (d) scheduled.push({ day: d, slot }); });
+  const days = scheduled.map((s) => s.day);
 
   const freq: Record<string, number> = {};
   for (const d of days) for (const m of d.muscles) freq[m] = (freq[m] ?? 0) + 1;
@@ -303,13 +437,14 @@ function generateSplit(block: MesoInput, daysPerWeek: number, exercises: Exercis
     gap.forEach((m) => missing.add(m));
     return { name: d.name, slots };
   });
+  const schedule = scheduled.map((s) => s.slot);
 
-  // Only catalog gaps + recovery adjacency remain as warnings — frequency is now guaranteed by construction.
-  const warnings: string[] = [...adjacencyWarnings(days, effOf)];
+  // Recovery notes come from the SCHEDULED week (only fire when frequency can't be spaced); plus catalog gaps.
+  const warnings: string[] = [...scheduleWarnings(week, effOf)];
   for (const m of block.focusMuscles) if (missing.has(m)) warnings.push(`No exercise for focus muscle ${muscleLabel(m)} — add one to your catalog.`);
   for (const m of missing) if (!block.focusMuscles.includes(m)) warnings.push(`No exercise for ${muscleLabel(m)} — that muscle's slot is unfilled.`);
 
-  return { splitName: `${blockLabel(block.blockType)} split`, templates, warnings };
+  return { splitName: `${blockLabel(block.blockType)} split`, templates, warnings, schedule };
 }
 
 /**

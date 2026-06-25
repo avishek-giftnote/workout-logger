@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isDeload, targetSets, currentMicro, planMacrocycle, phaseMod, daySlots } from "./periodization";
+import { isDeload, targetSets, currentMicro, planMacrocycle, phaseMod, daySlots, scheduleWeek, scheduleConflicts } from "./periodization";
 import type { ExerciseDto, MacrocycleDto, MesoInput, Muscle, WorkoutDto } from "./api/types";
 
 const meso = (over: Partial<MesoInput> = {}): MesoInput =>
@@ -140,17 +140,28 @@ describe("planMacrocycle", () => {
 describe("daySlots — muscle-group placeholders with pre-filled defaults", () => {
   const block = (over: Partial<MesoInput> = {}): MesoInput =>
     ({ name: "M", accumulationWeeks: 4, phase: "MAINTENANCE", focusMuscles: [], blockType: "HYPERTROPHY", intensityBand: null, ...over });
-  const press = ex("p1", "Incline Press", "CHEST");
-  const fly = ex("p2", "Pec Deck", "CHEST");
+  const press = { ...ex("p1", "Incline Press", "CHEST"), mechanic: "COMPOUND" as ExerciseDto["mechanic"] };
+  const fly = { ...ex("p2", "Pec Deck", "CHEST"), mechanic: "ISOLATION" as ExerciseDto["mechanic"] };
   const day = (muscles: Muscle[]) => ({ name: "D", muscles });
 
-  it("splits a muscle's daily volume across ≤2 distinct exercises, conserving total sets", () => {
-    // CHEST (non-focus) week-1 target = MEV 8; at freq 2 → 4 sets/day → 2 slots (incline + pec deck)
+  it("keeps 2 exercises only for a DISTINCT-stimulus pair (compound + isolation), conserving total sets", () => {
+    // CHEST (non-focus) week-1 target = MEV 8; at freq 2 → 4 sets/day. press=COMPOUND, fly=ISOLATION (both strong
+    // primaries, different mechanic) ⇒ a genuinely distinct pair → 2 slots.
     const { slots } = daySlots(day(["CHEST"]), block(), { CHEST: 2 }, { CHEST: [press, fly] }, {}, 8, "3");
     expect(slots.length).toBe(2);
-    expect(slots.map((s) => s.exerciseId)).toEqual(["p2", "p1"]);     // rotated → distinct defaults
     expect(slots.every((s) => s.muscle === "CHEST")).toBe(true);
+    expect(new Set(slots.map((s) => s.exerciseId))).toEqual(new Set(["p1", "p2"]));   // both movements, distinct
     expect(slots.reduce((n, s) => n + s.sets, 0)).toBe(4);            // volume conserved
+  });
+
+  it("consolidates two SAME-mechanic variants into one exercise (no redundant 2nd slot)", () => {
+    // two isolation lateral-raise-style variants for CHEST — same stimulus → 4 sets of ONE, not 2×2 (the
+    // side-delts "machine vs dumbbell" case the planner used to over-split).
+    const flyA = { ...ex("c1", "Cable Fly", "CHEST"), mechanic: "ISOLATION" as ExerciseDto["mechanic"] };
+    const flyB = { ...ex("c2", "Pec Deck", "CHEST"), mechanic: "ISOLATION" as ExerciseDto["mechanic"] };
+    const { slots } = daySlots(day(["CHEST"]), block(), { CHEST: 2 }, { CHEST: [flyA, flyB] }, {}, 8, "3");
+    expect(slots.length).toBe(1);                 // same mechanic ⇒ 1 exercise, not 2 near-identical
+    expect(slots[0].sets).toBe(4);                // all the day's sets on the one movement
   });
 
   it("uses a single slot when only one candidate exercise exists", () => {
@@ -175,5 +186,41 @@ describe("daySlots — muscle-group placeholders with pre-filled defaults", () =
   it("never exceeds the per-session set cap on any single slot", () => {
     const { slots } = daySlots(day(["CHEST"]), block(), { CHEST: 1 }, { CHEST: [press] }, {}, 8, "3");
     expect(slots.every((s) => s.sets <= 5)).toBe(true);
+  });
+
+  it("orders a day's slots so no two consecutive train the same primary muscle", () => {
+    // CHEST + BICEP day with 2 CHEST slots (distinct pair) → they must be split by the BICEP slot, not adjacent
+    const curl = { ...ex("b1", "Curl", "BICEP"), mechanic: "ISOLATION" as ExerciseDto["mechanic"] };
+    const { slots } = daySlots(day(["CHEST", "BICEP"]), block(), { CHEST: 2, BICEP: 2 }, { CHEST: [press, fly], BICEP: [curl] }, {}, 8, "3");
+    const chestIdx = slots.map((s, i) => (s.muscle === "CHEST" ? i : -1)).filter((i) => i >= 0);
+    expect(chestIdx.length).toBe(2);
+    expect(Math.abs(chestIdx[0] - chestIdx[1])).toBeGreaterThan(1);   // not back-to-back
+  });
+});
+
+describe("scheduleWeek — rest-day placement for ≥48h recovery", () => {
+  const mk = (name: string, muscles: Muscle[]) => ({ name, muscles });
+  const effId = (d: { muscles: Muscle[] }) => new Set(d.muscles);
+
+  it("spaces a muscle trained on 3 of 4 days so none are back-to-back (rest days inserted)", () => {
+    const days = [mk("A", ["CHEST", "SIDE_DELT"]), mk("B", ["QUAD"]), mk("C", ["LAT", "SIDE_DELT"]), mk("D", ["GLUTE", "SIDE_DELT"])];
+    const week = scheduleWeek(days, effId, 7);
+    expect(week.filter(Boolean).length).toBe(4);          // 4 training days
+    expect(week.filter((d) => !d).length).toBe(3);         // 3 rest days
+    expect(scheduleConflicts(week, effId)).toBe(0);        // SIDE_DELT sessions all ≥48h apart
+  });
+
+  it("returns the global-minimum circular conflicts over all placements", () => {
+    const days = [mk("A", ["CHEST"]), mk("B", ["CHEST"]), mk("C", ["LAT"]), mk("D", ["LAT"]), mk("E", ["QUAD"])];
+    const week = scheduleWeek(days, effId, 7);
+    // brute-force the optimum independently
+    const perms = <T>(a: T[]): T[][] => a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((r) => [x, ...r]));
+    let opt = Infinity;
+    for (const perm of perms([0, 1, 2, 3, 4, 5, 6])) {
+      const w: (typeof days[number] | null)[] = new Array(7).fill(null);
+      for (let k = 0; k < days.length; k++) w[perm[k]] = days[k];
+      opt = Math.min(opt, scheduleConflicts(w, effId));
+    }
+    expect(scheduleConflicts(week, effId)).toBe(opt);
   });
 });

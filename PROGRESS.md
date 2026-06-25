@@ -26,6 +26,18 @@ _Last updated: 2026-06-25 (planSummary)_
 
 ## Done
 
+- _2026-06-25_ — **Planner Stage A — rest-day scheduling + distinct-stimulus slots + intra-session order** (frontend,
+  via `/pursue`; design in `.claude/plans/snappy-forging-scroll.md`). `periodization.ts`: new `scheduleWeek` places
+  training days among 7 weekday slots with **rest days** (exhaustive, circular-adjacency-min) so a muscle on ≤3 days
+  gets ≥48h — *this is what actually killed the "Side delts back-to-back" warning* (proven unavoidable by reordering
+  alone). `daySlots` now consolidates to **one exercise/muscle/day** unless a 2nd is a strong primary of a different
+  mechanic (chest bench+fly stays; side-delts machine+dumbbell → 4 sets of one), and **interleaves** slots so no two
+  consecutive train the same primary muscle. `PlanPreview.schedule` (weekday per template) computed but not yet shown.
+  Guards **R37** (scheduleWeek optimal + 4-day split has no recovery warning), **R38** (2 exercises/muscle only as a
+  distinct-mechanic pair), **R39** (no same-primary back-to-back). Gate green: tsc · 100 unit · eval 240/240 + R36–R39
+  · build. **Verified live** in the builder: warning gone, side delts 1×(4×8), chest keeps the pair, order interleaved.
+  **Remaining (user chose editable & persisted):** Stage B backend `Split.weekdays`+`Macrocycle.splitId`, Stage C the
+  editable WeekCalendar UI + active-plan display.
 - _2026-06-25_ — **Plan completion UX — shipped & verified live.** Root cause was that `PlanRepository.baseQuery()`
   filtered `status="ACTIVE"`, so a `COMPLETED` plan vanished from `GET /plan` → 204 → builder, making `PlanPage`'s
   `done` branch dead code. Built via a parallel agent team (backend track ∥ pure-summary track on Sonnet, then UI
@@ -44,8 +56,13 @@ _Last updated: 2026-06-25 (planSummary)_
     screen renders with clean title, 5-block timeline, "24 sessions · 442 hard sets · 5 deloads", a strength gain, and
     the bodyweight line correctly omitted (weigh-ins predate the window); `/past-plans` lists + expands the shared card.
     Polish fix found & applied: suppress the redundant goal label when the plan name already contains it.
-  - **Not watched live (test-covered only):** the active-plan "Finish plan →" label + inline End-plan confirm (tester
-    has no active plan; backend transitions are covered by the 3 integration tests, the UI bits are pure + tsc-checked).
+  - **Verified live (Playwright, throwaway 1-meso plan):** the active-plan "Finish plan →" label (final microcycle)
+    vs "Complete week →" (non-final), and the inline two-step End-plan confirm (Confirm/Cancel, no `window.confirm`);
+    Confirm persisted `ENDED`+`endedAt` and fell through to the builder (not the celebration). All 5 checks green.
+- _2026-06-25_ — **Added `/pursue` command** (`.claude/commands/pursue.md`) — autonomous build-to-green loop: encodes a
+  goal as objective checks (failing-guard-first), then loops implement→gate→verify until green or a 6-iteration cap,
+  with honest-exit guardrails (never fake/weaken a check). Composes with the built-in `/loop` for self-pacing.
+  Demoed live on the active-plan UI verification above (converged iteration 1, no fixes needed).
 - _2026-06-25_ — **`src/planSummary.ts` + `src/planSummary.test.ts`** — pure `summarizePlan()` function and 22-test Vitest suite for the plan-completion summary screen. Computes weeks, blocks, sessions, hardSets, deloads, top-5 strength gains (e1RM first vs last non-deload session per exercise), bodyweight delta, and endedAt fallback. tsc + npm test green (96 tests total).
 
 - _2026-06-25_ — **Fixed mongodb MCP "fails to connect"** — root cause was env propagation, not a bad URI:
@@ -107,7 +124,19 @@ _Last updated: 2026-06-25 (planSummary)_
 
 ## On the agenda (backlog, not started)
 
-- **Non-dismissible catalog-gap warning** — "Side delts lands on back-to-back days" appears on every `/plan` load with no way to acknowledge or suppress it; in the default 4-day split this is structurally always true, making it permanent noise. Fix: acknowledgeable/suppressible warning, or resolve the gap at the split-generation level.
+- **Non-dismissible recovery-adjacency warning** — "Side delts lands on back-to-back days" on every builder load.
+  _Root-cause day-ordering attempted 2026-06-25 (via `/pursue`); proven a dead end for this case._ Made
+  `orderForRecovery` **provably adjacency-optimal** (exhaustive over ≤6 days, replacing the greedy nearest-neighbour
+  that's optimal-blind to its fixed start) + pinned with eval **R36** (failing-guard-first: greedy left 1 conflict
+  where 0 was achievable; now matches the global optimum across an adversarial + 40-case random battery). Gate green
+  (tsc · 96 unit · eval 240/240 + R36 · build). **But the Side-delts warning is mathematically unavoidable:** side
+  delts is effectively trained on **3 of 4 days** (Upper A + Lower A explicit, Upper B via press synergy), and 3
+  training days can't be mutually non-adjacent in a 4-slot week → ≥1 back-to-back is forced. The optimal order hits
+  that minimum (1), so reordering can't remove it; the default 4-day split was already optimally ordered (no visible
+  change there — R36's value is the correctness proof + regression guard + fixing suboptimal *other* configs).
+  **Still open — to actually kill the noise needs a different lever:** (A) reclassify "Catalog gaps" → split
+  actionable gaps from advisory **recovery notes** + make the latter dismissible (persisted); or (B) reduce side-delt
+  effective frequency (training-design change). Awaiting the call.
 - **Cardio logging** — additive `distanceM`/`durationS` + CARDIO category (DESIGN.md-deferred; 0% in Strong data).
 - **Offline-first for the full data model** — extend the `LocalStore` pattern from settings to
   workouts/exercises/templates/plans with the planned delta-sync (`updatedSince` + `deletedAt` tombstones +
