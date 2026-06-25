@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-06-23_
+_Last updated: 2026-06-25 (planSummary)_
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -26,6 +26,39 @@ _Last updated: 2026-06-23_
 
 ## Done
 
+- _2026-06-25_ — **Plan completion UX — shipped & verified live.** Root cause was that `PlanRepository.baseQuery()`
+  filtered `status="ACTIVE"`, so a `COMPLETED` plan vanished from `GET /plan` → 204 → builder, making `PlanPage`'s
+  `done` branch dead code. Built via a parallel agent team (backend track ∥ pure-summary track on Sonnet, then UI
+  track, then live verify on Opus).
+  - **Backend:** split terminal state `COMPLETED` (ran to end) vs `ENDED` (ended early / replaced); added nullable
+    `completedAt`/`endedAt`; `advance()` stamps `completedAt`, `endActive()` → `ENDED`+`endedAt`, `create()`'s
+    replace-path → `ENDED` (was falsely `COMPLETED`); new `GET /plan/history` (terminal plans, newest-first,
+    tenant-scoped). 3 new `ApiIntegrationTest` cases (history-with-timestamp, ended-early, **tenant isolation**) —
+    30/30 pass against the isolated Atlas `workoutlogger_test` db.
+  - **Frontend:** pure `summarizePlan()` + 22 tests; `<CompletionScreen>` (celebration + stats + top-5 e1RM gains +
+    bodyweight delta, graceful zero/null states); `<PastPlans>` route + shared `<PlanSummaryCard>`; `PlanPage`
+    no-active-plan branch now shows the completion screen (once, gated by local `dismissedCompletionPlanId`) else the
+    builder; deleted the dead `done` branch; "Finish plan →" on the final microcycle; inline two-step End-plan confirm
+    (no `window.confirm`); "Plan again, same settings" prefill. tsc + 96 tests + build green.
+  - **Verified live** (Playwright MCP, tester account's real completed 24-wk plan, `completedAt:null`): completion
+    screen renders with clean title, 5-block timeline, "24 sessions · 442 hard sets · 5 deloads", a strength gain, and
+    the bodyweight line correctly omitted (weigh-ins predate the window); `/past-plans` lists + expands the shared card.
+    Polish fix found & applied: suppress the redundant goal label when the plan name already contains it.
+  - **Not watched live (test-covered only):** the active-plan "Finish plan →" label + inline End-plan confirm (tester
+    has no active plan; backend transitions are covered by the 3 integration tests, the UI bits are pure + tsc-checked).
+- _2026-06-25_ — **`src/planSummary.ts` + `src/planSummary.test.ts`** — pure `summarizePlan()` function and 22-test Vitest suite for the plan-completion summary screen. Computes weeks, blocks, sessions, hardSets, deloads, top-5 strength gains (e1RM first vs last non-deload session per exercise), bodyweight delta, and endedAt fallback. tsc + npm test green (96 tests total).
+
+- _2026-06-25_ — **Fixed mongodb MCP "fails to connect"** — root cause was env propagation, not a bad URI:
+  `MONGODB_URI` was empty in claude's launch environment (no `direnv hook zsh` in `~/.zshrc`, `.envrc` never
+  `direnv allow`ed), so `${MONGODB_URI}` in `.mcp.json` interpolated to nothing. Made the mongodb server
+  **self-sufficient**: its command now sources `backend/.env.local` itself (`bash -c '… . ./backend/.env.local;
+  export MDB_MCP_CONNECTION_STRING="$MONGODB_URI"; exec npx …'`), so it connects from any launch context
+  (direnv / fresh terminal / cron) with the secret still out of the committed file. Also finished the direnv
+  setup (added the zsh hook + `direnv allow`; `direnv export` confirms `MONGODB_URI` loads on `cd`) for the
+  dev-server workflow. **Manual step left: `/mcp` → approve `mongodb`** (editing `.mcp.json` resets approval).
+- _2026-06-25_ — **HANDOFF.md completed** — brought fully up to date with the 24-week simulation run: tester account credentials (`tester@workoutlogger.com` / `TesterPass123!`), seeded data (23 sessions + 18 bodyweight entries), plan structure, all verified invariants (RIR wave, 5 deloads, 5 meso transitions, prescription engine, energy service clamping, plan completion), strength gains, and `docs/simulation_diagram.pdf` noted as intentional. TL;DR and To Resume sections corrected (servers were UP at session end, not down). PR #7 skill-disable attributed correctly to this session.
+- _2026-06-25_ — **24-week Build-Muscle simulation** — registered `tester@workoutlogger.com` via UI, seeded 2 months of workout history + 18 bodyweight entries (energy service → READY/SURPLUS/HIGH), built a 6-month Build Muscle plan via the planner, simulated all 24 weeks via API, advanced through 5 mesocycles and 5 deload weeks to `status=COMPLETED`. All coaching invariants verified (see HANDOFF.md for full results). `docs/simulation_diagram.pdf` generated and committed.
+- _2026-06-25_ — **Disabled project-irrelevant skills** (`daily-log`, `vault-knowledge`, `zest-scrape`, `new-project-bootstrap`) via `permissions.deny` in `.claude/settings.json`. Merged as PR #7. Effective for all Claude sessions in this project dir.
 - _2026-06-25_ — **Log unhandled 500s** (`ApiExceptionHandler`): the catch-all `@ExceptionHandler(Exception.class)`
   returned `"Internal error"` but logged nothing, so every unexpected 500 was opaque. Added `log.error(...)`,
   which immediately surfaced a `MongoSecurityException` (Atlas SCRAM auth rejecting a stale DB password) behind
@@ -74,6 +107,7 @@ _Last updated: 2026-06-23_
 
 ## On the agenda (backlog, not started)
 
+- **Non-dismissible catalog-gap warning** — "Side delts lands on back-to-back days" appears on every `/plan` load with no way to acknowledge or suppress it; in the default 4-day split this is structurally always true, making it permanent noise. Fix: acknowledgeable/suppressible warning, or resolve the gap at the split-generation level.
 - **Cardio logging** — additive `distanceM`/`durationS` + CARDIO category (DESIGN.md-deferred; 0% in Strong data).
 - **Offline-first for the full data model** — extend the `LocalStore` pattern from settings to
   workouts/exercises/templates/plans with the planned delta-sync (`updatedSince` + `deletedAt` tombstones +

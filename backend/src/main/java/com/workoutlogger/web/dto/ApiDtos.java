@@ -131,7 +131,8 @@ public final class ApiDtos {
 
     public record MacrocycleDto(String id, String name, Instant startedAt, String status,
                                 int mesoIndex, int week, List<MesocycleDto> mesocycles,
-                                String goal, String targetDate, List<Muscle> focusMuscles) {}
+                                String goal, String targetDate, List<Muscle> focusMuscles,
+                                String completedAt, String endedAt) {}
 
     public record MesoInput(@NotNull String name, int accumulationWeeks, String phase, List<Muscle> focusMuscles,
                             BlockType blockType, IntensityBandDto intensityBand) {}

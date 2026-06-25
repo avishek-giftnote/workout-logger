@@ -126,6 +126,9 @@ export interface MacrocycleDto {
   id: string; name: string; startedAt: string; status: string;
   mesoIndex: number; week: number; mesocycles: MesocycleDto[];
   goal: string | null; targetDate: string | null; focusMuscles: Muscle[] | null;
+  // terminal-state timestamps (additive, nullable): set when a plan runs to the end (COMPLETED)
+  // or is ended early (ENDED). Older plans predating this field carry null.
+  completedAt?: string | null; endedAt?: string | null;
 }
 export interface MesoInput {
   name: string; accumulationWeeks: number; phase: string; focusMuscles: Muscle[];

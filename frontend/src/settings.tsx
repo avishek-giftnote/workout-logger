@@ -25,16 +25,19 @@ interface SettingsCtx {
   toggleChart: (key: string) => void;
   coachEnabled: boolean;               // show the energy-balance Coach card
   setCoachEnabled: (v: boolean) => void;
+  dismissedCompletionPlanId: string | null;  // plan id the user already acknowledged; shows completion screen once
+  setDismissedCompletionPlanId: (v: string | null) => void;
 }
 
 // ── pure settings <-> string serialization (the kv store + the wire are both string→string) ──
 export interface SettingsState {
   prevSource: PrevSource; showRpe: boolean; restTarget: number;
   restTimerEnabled: boolean; charts: string[]; coachEnabled: boolean;
+  dismissedCompletionPlanId: string | null;
 }
 export const DEFAULTS: SettingsState = {
   prevSource: "any", showRpe: true, restTarget: 90, restTimerEnabled: true,
-  charts: ALL_CHART_KEYS, coachEnabled: true,
+  charts: ALL_CHART_KEYS, coachEnabled: true, dismissedCompletionPlanId: null,
 };
 
 export function serializeAll(s: SettingsState): Record<string, string> {
@@ -45,6 +48,7 @@ export function serializeAll(s: SettingsState): Record<string, string> {
     restTimerEnabled: String(s.restTimerEnabled),
     charts: JSON.stringify(s.charts),
     coachEnabled: String(s.coachEnabled),
+    dismissedCompletionPlanId: s.dismissedCompletionPlanId ?? "",
   };
 }
 
@@ -57,6 +61,7 @@ export function deserialize(raw: Record<string, string>): Partial<SettingsState>
   if (raw.restTimerEnabled != null) out.restTimerEnabled = raw.restTimerEnabled !== "false";
   if (raw.charts != null) { try { const a = JSON.parse(raw.charts); if (Array.isArray(a)) out.charts = a; } catch { /* keep default */ } }
   if (raw.coachEnabled != null) out.coachEnabled = raw.coachEnabled !== "false";
+  if (raw.dismissedCompletionPlanId != null) out.dismissedCompletionPlanId = raw.dismissedCompletionPlanId || null;
   return out;
 }
 
@@ -68,6 +73,7 @@ export const LEGACY_KEYS: Record<string, keyof SettingsState> = {
   "wl.settings.restTimerEnabled": "restTimerEnabled",
   "wl.settings.charts": "charts",
   "wl.settings.coachEnabled": "coachEnabled",
+  // dismissedCompletionPlanId has no legacy key (new field)
 };
 
 /** One-time import of legacy localStorage prefs into the local store (no-op once the store has data). The
@@ -152,6 +158,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     charts: state.charts,
     toggleChart: (key) => update({ charts: state.charts.includes(key) ? state.charts.filter((k) => k !== key) : [...state.charts, key] }),
     coachEnabled: state.coachEnabled, setCoachEnabled: (v) => update({ coachEnabled: v }),
+    dismissedCompletionPlanId: state.dismissedCompletionPlanId,
+    setDismissedCompletionPlanId: (v) => update({ dismissedCompletionPlanId: v }),
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

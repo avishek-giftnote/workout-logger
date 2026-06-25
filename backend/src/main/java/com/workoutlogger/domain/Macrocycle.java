@@ -21,7 +21,9 @@ public class Macrocycle {
     private String userId;
     private String name;
     private Instant startedAt;
-    private String status = "ACTIVE";        // ACTIVE | COMPLETED
+    private Instant completedAt;             // set when status transitions to COMPLETED (nullable)
+    private Instant endedAt;                 // set when status transitions to ENDED (nullable)
+    private String status = "ACTIVE";        // ACTIVE | COMPLETED | ENDED
     private int mesoIndex = 0;               // current mesocycle (0-based)
     private int week = 1;                    // current week within that mesocycle (1-based)
     private List<Mesocycle> mesocycles = new ArrayList<>();
@@ -41,6 +43,10 @@ public class Macrocycle {
     public void setName(String name) { this.name = name; }
     public Instant getStartedAt() { return startedAt; }
     public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
+    public Instant getCompletedAt() { return completedAt; }
+    public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
+    public Instant getEndedAt() { return endedAt; }
+    public void setEndedAt(Instant endedAt) { this.endedAt = endedAt; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public int getMesoIndex() { return mesoIndex; }

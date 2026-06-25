@@ -22,6 +22,7 @@ describe("settings serialization", () => {
     const s: SettingsState = {
       prevSource: "template", showRpe: false, restTarget: 120,
       restTimerEnabled: false, charts: ["a", "b"], coachEnabled: false,
+      dismissedCompletionPlanId: null,
     };
     expect({ ...DEFAULTS, ...deserialize(serializeAll(s)) }).toEqual(s);
   });
