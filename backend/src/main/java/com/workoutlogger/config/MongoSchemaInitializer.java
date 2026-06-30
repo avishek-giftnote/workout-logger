@@ -34,6 +34,8 @@ public class MongoSchemaInitializer {
         createIfAbsent(db, existing, "exercises", exercisesSchema());
         createIfAbsent(db, existing, "templates", null);
         createIfAbsent(db, existing, "users", null);
+        createIfAbsent(db, existing, "splits", null);
+        createIfAbsent(db, existing, "plans", null);
 
         // Indexes (DESIGN §2).
         db.getCollection("workouts").createIndex(
@@ -56,6 +58,15 @@ public class MongoSchemaInitializer {
 
         db.getCollection("users").createIndex(
                 new Document("email", 1), new IndexOptions().unique(true).name("uniq_email"));
+
+        // plans: at most ONE ACTIVE macrocycle per user (council H1). Partial-unique on userId scoped to
+        // status==ACTIVE — many terminal (COMPLETED/ENDED) plans per user are fine, but two simultaneous
+        // ACTIVE inserts (the non-atomic updateMulti-then-insert race in PlanRepository.create) collide on
+        // this index and the loser gets DuplicateKey → 409, instead of leaving the user with two ACTIVE plans.
+        db.getCollection("plans").createIndex(
+                new Document("userId", 1),
+                new IndexOptions().unique(true).name("uniq_user_active_plan")
+                        .partialFilterExpression(new Document("status", "ACTIVE")));
     }
 
     private void createIfAbsent(MongoDatabase db, List<String> existing, String name, Document schema) {

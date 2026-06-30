@@ -13,6 +13,15 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -701,6 +710,73 @@ class ApiIntegrationTest {
         adv(t);  // COMPLETED
         mvc.perform(get("/api/plan/history").header("Authorization", bearer(t)))
                 .andExpect(jsonPath("$[0].splitId").value(sid));
+    }
+
+    // ── concurrency invariants (prod-readiness audit 2026-06-30) ──
+    // Fire `n` identical actions simultaneously (released by a single latch for maximum contention) and
+    // return each one's HTTP status. Drives the register / createPlan races below.
+    private List<Integer> fireConcurrently(int n, Callable<Integer> action) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(n);
+        try {
+            CountDownLatch ready = new CountDownLatch(n);
+            CountDownLatch go = new CountDownLatch(1);
+            List<Future<Integer>> futures = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();          // all threads block here, then fire together
+                    return action.call();
+                }));
+            }
+            ready.await();
+            go.countDown();
+            List<Integer> codes = new ArrayList<>();
+            for (Future<Integer> f : futures) codes.add(f.get());
+            return codes;
+        } finally {
+            pool.shutdown();
+            pool.awaitTermination(30, TimeUnit.SECONDS);
+        }
+    }
+
+    // C1 — the register TOCTOU (existsByEmail then save) must not create duplicate accounts under
+    // concurrency. The DB-level unique users.email index is the real guard; the friendly pre-check isn't
+    // enough. A duplicate would also permanently break login (findByEmail → IncorrectResultSize → 500).
+    @Test
+    void concurrentRegisterOfSameEmailCreatesExactlyOneAccount() throws Exception {
+        String body = "{\"email\":\"race@example.com\",\"password\":\"password123\"}";
+        List<Integer> codes = fireConcurrently(12, () ->
+                mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
+                        .andReturn().getResponse().getStatus());
+
+        long accounts = mongo.getDb().getCollection("users")
+                .countDocuments(new org.bson.Document("email", "race@example.com"));
+        long created = codes.stream().filter(c -> c == 201).count();
+        assertThat(accounts).as("exactly one account persisted for the email").isEqualTo(1L);
+        assertThat(created).as("exactly one register returned 201").isEqualTo(1L);
+        assertThat(codes).as("race losers get 409, never 500").allMatch(c -> c == 201 || c == 409);
+
+        // The survivor can still log in — i.e. no duplicate split findByEmail into an IncorrectResultSize 500.
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
+    }
+
+    // H1 — "exactly one ACTIVE macrocycle per user" must survive concurrent createPlan. create() does a
+    // non-atomic updateMulti(ACTIVE→ENDED)+insert; only a partial-unique index {userId} where status=ACTIVE
+    // keeps two simultaneous inserts from both landing ACTIVE.
+    @Test
+    void concurrentCreatePlanLeavesExactlyOneActivePlan() throws Exception {
+        String t = register("planrace@example.com");
+        List<Integer> codes = fireConcurrently(10, () ->
+                mvc.perform(post("/api/plan").header("Authorization", bearer(t))
+                                .contentType(MediaType.APPLICATION_JSON).content(planBody("P")))
+                        .andReturn().getResponse().getStatus());
+
+        long active = mongo.getDb().getCollection("plans")
+                .countDocuments(new org.bson.Document("status", "ACTIVE"));
+        assertThat(active).as("at most one ACTIVE plan after concurrent creates").isEqualTo(1L);
+        assertThat(codes).as("losers get 409, never 500").allMatch(c -> c == 201 || c == 409);
+        assertThat(codes).as("at least one create succeeded").contains(201);
     }
 
     // Tenant isolation still holds for splits with weekdays: user B never sees user A's split.

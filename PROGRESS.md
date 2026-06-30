@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-06-25 (reliability hardening)_
+_Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -22,10 +22,38 @@ _Last updated: 2026-06-25 (reliability hardening)_
 - **Operational policy** (`DESIGN.md §8`): backup/PITR cadence; GDPR hard-delete vs tombstone retention
   (`rawImport` embeds PII); `startedAt`/bodyweight timezone policy; offline auth/token-refresh lifecycle.
 - **Subscription model** — when/how to gate cloud sync (only the `SYNC_ENABLED` seam exists today; no billing).
-- **One-ACTIVE-plan-per-user** — enforce with a Mongo partial-unique index, or leave code-enforced?
+- ~~**One-ACTIVE-plan-per-user** — enforce with a Mongo partial-unique index, or leave code-enforced?~~
+  **Decided 2026-06-30: partial-unique index** (`plans {userId}|status=ACTIVE`), built at boot. See Done.
 
 ## Done
 
+- _2026-06-30_ — **Fixed audit C1 + H1 (the two race-condition CRITICAL/HIGH)** — DB-level backstops, failing
+  test first. `MongoSchemaInitializer.initialize()` now runs on **every web boot** via new
+  `config/SchemaBootstrap` (`@ConditionalOnWebApplication`, `ApplicationReadyEvent`) — previously it ran only in
+  the one-time `import` profile, so a normal server had **no unique `users.email` index** (→ the registration
+  TOCTOU created duplicate accounts → login 500). Added a **partial-unique `plans {userId}` index filtered on
+  `status:"ACTIVE"`** (one ACTIVE macrocycle per user) + the `splits`/`plans` collections to the initializer, and
+  an `@ExceptionHandler(DuplicateKeyException) → 409` so race losers fail cleanly instead of 500. Guarded by two
+  new `ApiIntegrationTest` concurrency tests (`concurrentRegisterOfSameEmailCreatesExactlyOneAccount`,
+  `concurrentCreatePlanLeavesExactlyOneActivePlan`) — **confirmed failing first** (12 concurrent registers → many
+  accounts; 10 concurrent createPlan → >1 ACTIVE), green after. Gates: `RUN_MONGO_TESTS=1 mvn test` **37/0/0**
+  (fresh DB, validators on), no-DB `mvn test` **76/0** (37 skipped). Live re-verified: 20 concurrent registers →
+  **1 account + login 200**; 15 concurrent createPlan → **1 ACTIVE plan** (DB-confirmed). Fail-fast caveat: the
+  boot-time unique-index build throws if the live DB already holds duplicate emails — dedupe before deploying.
+  **Still open from the audit:** C2 (rate limiting) + the HIGH/MEDIUM UX/validation items.
+- _2026-06-30_ — **UI/UX + prod-readiness council audit** (`docs/uiux-prod-audit.md`). 5-lens code council
+  (contract-drift, backend-validation, concurrency, security, UX) **cross-checked by a live multi-user
+  concurrency simulation** against a running backend on an isolated `workoutlogger_conctest` Atlas DB.
+  **Verified-live findings:** (C1) registration TOCTOU → 23 duplicate accounts for one email (DB-confirmed) →
+  login for that email **permanently 500s** (`findByEmail` IncorrectResultSize); root cause: unique `users.email`
+  index only built in the `import` profile (`auto-index-creation:false`). (C2) **no rate limiting** — 30
+  concurrent wrong-pw logins all 401 instant, zero 429. (H1) **two ACTIVE plans** from 15 concurrent createPlan
+  (DB-confirmed: 2). (H2) `advance()` **lost update** — 10 concurrent advances → week 2 vs 11 sequential
+  (`Macrocycle` has no `@Version`). (M1) bodyweight **precision drift 400** blocks the logging loop (client 1e-6
+  vs backend `@Pattern` 1e-3). (M2) malformed JSON → 500 not 400. **Held up:** tenant isolation (B→A workout 404,
+  list empty), auth enforcement (forged/garbage/no token all 401), decimals-as-strings on the wire, all 33
+  `Api.*` endpoints + enums + nullable-field guards. Full ranked list (2 CRITICAL, 5 HIGH, 8 MEDIUM, 9 LOW) +
+  fixes in the doc. Backstops the two pending decisions below (one-ACTIVE-plan index, JWT secret) with evidence.
 - _2026-06-25_ — **Docs synced to this session's design changes** (4 parallel sub-agents, each verified vs code).
   `DESIGN.md` (terminal plan states + `splitId`/`completedAt`/`endedAt`, `Split.weekdays`, `CreateSetRequest`
   validation invariant, `GET /plan/history`, the completion/WeekCalendar/reliability/onboarding frontend layers),
