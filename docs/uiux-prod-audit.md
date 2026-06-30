@@ -17,12 +17,18 @@ return 500** for that email.
 
 Two CRITICAL, then HIGH→LOW. "Verified live" = reproduced on the running server this run.
 
-> **Update (same session): C1 + H1 are FIXED** — `MongoSchemaInitializer.initialize()` now runs on every web
-> boot (`SchemaBootstrap`), creating the unique `users.email` index and a new partial-unique
-> `plans {userId}|status=ACTIVE` index, and `DuplicateKeyException → 409`. Guarded by failing-first concurrency
-> tests in `ApiIntegrationTest`; re-verified live (20 concurrent registers → 1 account + login 200;
-> 15 concurrent createPlan → 1 ACTIVE plan). **C2 (rate limiting) and the HIGH/MEDIUM UX + validation items
-> below remain open.**
+> **Update (same session) — most of the audit is now FIXED across PRs #17–#21:**
+> - **C1 + H1** (#17): `MongoSchemaInitializer.initialize()` runs on every web boot (`SchemaBootstrap`) → unique
+>   `users.email` + partial-unique `plans {userId}|status=ACTIVE` indexes, `DuplicateKeyException → 409`.
+>   Re-verified live (20 concurrent registers → 1 account + login 200; 15 concurrent createPlan → 1 ACTIVE).
+> - **H3 + H4** (#18): mid-session 401 drops to login (`onUnauthenticated` seam); plan-accept surfaces errors.
+> - **C2** (#19): per-IP rate limiter on `/api/auth/**` → 429 (config-gated, disabled in the integration suite).
+> - **H2 + M1 + M2 + M4 + M5** (#21): `@Version` on `Macrocycle` (+409); bodyweight 1e-3 round + `@Pattern`;
+>   malformed-JSON/bad-date → 400; `@Size` list caps + bodyweight-log cap; split `weekdays` 0–6.
+>
+> **Still open: M3** (`User` `@Version`/atomic settings — deferred to avoid 409-ing the local-first settings
+> sync; needs targeted atomic `$set`/`$push`) **and the LOW tail L1–L9** (pagination, token revocation,
+> Swagger-in-prod, the 401 envelope shape, `UpdateSetRequest` `@Pattern`, etc.).
 
 ---
 
