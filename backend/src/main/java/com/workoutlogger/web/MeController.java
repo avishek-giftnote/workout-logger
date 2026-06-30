@@ -13,6 +13,7 @@ import com.workoutlogger.web.dto.ApiDtos.SetBodyweightRequest;
 import com.workoutlogger.web.dto.ApiDtos.UpdateBodyweightEntryRequest;
 import com.workoutlogger.web.dto.ApiDtos.UpdateProfileRequest;
 import com.workoutlogger.web.dto.DtoMapper;
+import com.workoutlogger.web.error.ApiExceptions.BadRequestException;
 import com.workoutlogger.web.error.ApiExceptions.NotFoundException;
 import jakarta.validation.Valid;
 import org.bson.types.ObjectId;
@@ -108,6 +109,7 @@ public class MeController {
     @PutMapping("/bodyweight")
     public MeDto setBodyweight(@Valid @RequestBody SetBodyweightRequest req) {
         User u = current();
+        if (u.getBodyweightLog().size() >= 3650) throw new BadRequestException("Bodyweight log is full");
         u.getBodyweightLog().add(new BodyweightEntry(new ObjectId().toHexString(),
                 parseWhen(req.recordedAt()), DtoMapper.dec(req.weightKg()), false));
         recomputeCurrent(u);
@@ -157,7 +159,8 @@ public class MeController {
         if (s == null || s.isBlank()) return Instant.now();
         try { return Instant.parse(s.trim()); }
         catch (Exception ignored) {
-            return LocalDate.parse(s.trim()).atTime(12, 0).toInstant(ZoneOffset.UTC);
+            try { return LocalDate.parse(s.trim()).atTime(12, 0).toInstant(ZoneOffset.UTC); }
+            catch (RuntimeException e) { throw new BadRequestException("Invalid date: " + s); }
         }
     }
 
@@ -166,7 +169,10 @@ public class MeController {
     public MeDto updateProfile(@Valid @RequestBody UpdateProfileRequest req) {
         User u = current();
         Profile p = u.getProfile() == null ? new Profile() : u.getProfile();
-        if (req.dateOfBirth() != null && !req.dateOfBirth().isBlank()) p.setDateOfBirth(LocalDate.parse(req.dateOfBirth().trim()));
+        if (req.dateOfBirth() != null && !req.dateOfBirth().isBlank()) {
+            try { p.setDateOfBirth(LocalDate.parse(req.dateOfBirth().trim())); }
+            catch (RuntimeException e) { throw new BadRequestException("Invalid date: " + req.dateOfBirth()); }
+        }
         if (req.heightCm() != null) p.setHeightCm(DtoMapper.dec(req.heightCm()));
         if (req.sex() != null) p.setSex(req.sex());
         if (req.goal() != null) p.setGoal(req.goal());

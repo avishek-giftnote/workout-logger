@@ -241,7 +241,9 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
     const eff = s.mode === "ASSISTED" ? bw - d : bw + d;
     // Round the grain like the cardio path above — raw `bw ± d` carries binary-float drift
     // (e.g. 72.3 + 10.1 → 82.39999999999999) that would persist verbatim into Decimal128.
-    weight = Number.isFinite(eff) ? String(Math.round(eff * 1e6) / 1e6) : "0";
+    // Round to 3 dp (not 1e-6): the backend @Pattern accepts at most 3 decimal places, so a finer
+    // value would 400 the whole save. (audit M1)
+    weight = Number.isFinite(eff) ? String(Math.round(eff * 1e3) / 1e3) : "0";
     loadMode = d === 0 ? "BODYWEIGHT" : s.mode;
     loadDelta = String(d);
   } else {

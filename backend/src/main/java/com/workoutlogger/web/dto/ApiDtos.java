@@ -19,6 +19,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 import java.util.List;
@@ -75,10 +76,10 @@ public final class ApiDtos {
                                    String elevationGainM, Integer cadenceSpm) {}
 
     public record CreateBlockRequest(@NotNull String exerciseId, String name, int position, String note,
-                                     @NotNull @Valid List<CreateSetRequest> sets) {}
+                                     @NotNull @Valid @Size(max = 100) List<CreateSetRequest> sets) {}
 
     public record CreateWorkoutRequest(@NotNull Instant startedAt, Integer durationSeconds, String templateId,
-                                       CyclePhase cyclePhase, @NotNull @Valid List<CreateBlockRequest> exercises,
+                                       CyclePhase cyclePhase, @NotNull @Valid @Size(max = 50) List<CreateBlockRequest> exercises,
                                        List<Muscle> soreMuscles) {}
 
     public record UpdateSetRequest(String weight, @Min(0) @Max(1000) Integer reps, @Min(1) @Max(10) Integer rpe,
@@ -101,7 +102,8 @@ public final class ApiDtos {
     // ---- splits ----
     public record SplitDto(String id, String name, List<String> templateIds, List<Integer> weekdays) {}
 
-    public record SaveSplitRequest(@NotNull String name, List<String> templateIds, List<Integer> weekdays) {}
+    public record SaveSplitRequest(@NotNull String name, List<String> templateIds,
+                                   List<@Min(0) @Max(6) Integer> weekdays) {}
 
     // ---- me / bodyweight ----
     public record BodyweightEntryDto(String id, Instant recordedAt, String weightKg, boolean estimated) {}
@@ -117,7 +119,9 @@ public final class ApiDtos {
     public record SettingsDto(Map<String, String> settings, String updatedAt) {}
 
     /** recordedAt: optional ISO date (yyyy-MM-dd) or instant; defaults to now. Lets the user backdate weigh-ins. */
-    public record SetBodyweightRequest(@NotNull String weightKg, String recordedAt) {}
+    public record SetBodyweightRequest(
+            @NotNull @Pattern(regexp = DECIMAL_PATTERN, message = "weightKg must be a decimal ≤ 9999") String weightKg,
+            String recordedAt) {}
 
     /** Amend an existing weigh-in — only non-null fields are applied. */
     public record UpdateBodyweightEntryRequest(String weightKg, String recordedAt) {}

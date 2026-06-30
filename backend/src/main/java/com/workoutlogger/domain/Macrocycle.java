@@ -1,6 +1,7 @@
 package com.workoutlogger.domain;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Version;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -19,6 +20,10 @@ public class Macrocycle {
     @Id
     private String id;
     private String userId;
+
+    @Version
+    private Long version;                    // optimistic lock against concurrent advance() writes (audit H2)
+
     private String name;
     private Instant startedAt;
     private Instant completedAt;             // set when status transitions to COMPLETED (nullable)
@@ -40,6 +45,8 @@ public class Macrocycle {
     public void setId(String id) { this.id = id; }
     public String getUserId() { return userId; }
     public void setUserId(String userId) { this.userId = userId; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public Instant getStartedAt() { return startedAt; }
