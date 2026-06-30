@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Api, tokenStore } from "./client";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Api, tokenStore, setOnUnauthenticated } from "./client";
 
 // node test env: stub the browser globals the client touches
 const store: Record<string, string> = {};
@@ -43,6 +43,35 @@ describe("api client — auth error messages", () => {
     mockFetch(409, { message: "Email already registered" });
     await expect(Api.register("a@b.com", "pw"))
       .rejects.toMatchObject({ status: 409, message: "Email already registered" });
+  });
+});
+
+describe("api client — onUnauthenticated callback", () => {
+  afterEach(() => setOnUnauthenticated(() => {})); // always restore the no-op
+
+  it("invokes the registered callback on a mid-session 401 (stale token)", async () => {
+    localStorage.setItem("wl.token", "stale");
+    const cb = vi.fn();
+    setOnUnauthenticated(cb);
+    mockFetch(401, {});
+    await expect(Api.me()).rejects.toMatchObject({ status: 401 });
+    expect(cb).toHaveBeenCalledOnce();
+  });
+
+  it("does NOT invoke the callback on an auth-endpoint 401 (bad credentials — not a session expiry)", async () => {
+    const cb = vi.fn();
+    setOnUnauthenticated(cb);
+    mockFetch(401, {});
+    await expect(Api.login("a@b.com", "wrong")).rejects.toMatchObject({ status: 401 });
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("does NOT invoke the callback on a non-401 error", async () => {
+    const cb = vi.fn();
+    setOnUnauthenticated(cb);
+    mockFetch(500, { message: "Internal error" });
+    await expect(Api.me()).rejects.toMatchObject({ status: 500 });
+    expect(cb).not.toHaveBeenCalled();
   });
 });
 

@@ -18,6 +18,12 @@ export class ApiError extends Error {
   }
 }
 
+// Callback invoked on a mid-session 401 so the auth layer can update React state (sign out).
+// AuthProvider wires this on mount via setOnUnauthenticated(); the default no-op is safe before mount.
+// Lives here (not in auth.tsx) so client.ts never imports from auth.tsx — avoids a circular dependency.
+let _onUnauthenticated: () => void = () => {};
+export const setOnUnauthenticated = (cb: () => void) => { _onUnauthenticated = cb; };
+
 // Fail fast on an unresponsive backend (e.g. the DB is unreachable and a request hangs on Mongo's
 // server-selection timeout) instead of leaving the UI spinning indefinitely. status 0 = no HTTP response.
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -49,6 +55,7 @@ async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     // stale — clear it and prompt a fresh sign-in.
     if (path.startsWith("/auth/")) throw new ApiError(401, "Incorrect email or password.");
     tokenStore.clear();
+    _onUnauthenticated();   // notify the auth layer so React state (isAuthed) is updated immediately
     throw new ApiError(401, "Session expired — please sign in again.");
   }
   if (!res.ok) {
