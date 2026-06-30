@@ -1,0 +1,41 @@
+# Keep the build context small and free of build artifacts / secrets / local files.
+# (Anything excluded here never enters the Docker build context.)
+
+# Dependencies & build outputs (rebuilt inside the image)
+**/node_modules
+**/target
+**/dist
+**/build
+
+# Git metadata
+**/.git
+**/.gitignore
+
+# Secrets / local env — must never enter the build context
+**/.env
+**/.env.*
+backend/.env.local
+**/*.local
+secrets/
+
+# Personal data (git-ignored already, belt-and-suspenders)
+**/*.csv
+tools/import_preview.json
+
+# Test / tooling output
+**/playwright-report
+**/test-results
+**/blob-report
+**/.playwright-mcp
+**/coverage
+**/*.tsbuildinfo
+
+# Editor / OS noise
+**/.idea
+**/.vscode
+**/.DS_Store
+**/*.log
+
+# Docs & infra not needed by the build
+**/.github
+DIAGRAMS.pdf

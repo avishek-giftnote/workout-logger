@@ -21,6 +21,10 @@ node_modules/
 dist/
 build/
 
+# ── Bundled SPA (build artifact) — produced only inside the Docker image ───────
+# The Dockerfile COPYs frontend/dist here at build time; it must never be committed.
+backend/src/main/resources/static/
+
 # ── Playwright E2E ────────────────────────────────────────────────────────────
 playwright-report/
 test-results/
