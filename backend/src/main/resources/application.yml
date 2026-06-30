@@ -12,6 +12,12 @@ security:
     # key is generated at startup (tokens reset on restart) — fine for local dev only.
     secret: ${SECURITY_JWT_SECRET:}
     expiry-minutes: ${SECURITY_JWT_EXPIRY_MINUTES:10080}
+  # Per-IP fixed-window rate limit on /api/auth/** (login + register). In-memory, single-instance only;
+  # a multi-instance deploy needs a shared store (Redis). See RateLimitFilter / RateLimitProperties.
+  ratelimit:
+    enabled: ${SECURITY_RATELIMIT_ENABLED:true}
+    capacity: ${SECURITY_RATELIMIT_CAPACITY:10}
+    window-seconds: ${SECURITY_RATELIMIT_WINDOW_SECONDS:60}
 
 # Importer configuration (used when the "import" profile is active).
 importer:
