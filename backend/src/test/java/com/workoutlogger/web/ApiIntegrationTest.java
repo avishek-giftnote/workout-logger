@@ -32,7 +32,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "spring.data.mongodb.uri=${MONGODB_TEST_URI:mongodb://localhost:27017/workoutlogger_test}")
+@TestPropertySource(properties = {
+        "spring.data.mongodb.uri=${MONGODB_TEST_URI:mongodb://localhost:27017/workoutlogger_test}",
+        // The auth rate limiter keys by IP; every MockMvc request shares 127.0.0.1, so the concurrent-register
+        // burst below would trip a 429. Disable it here — RateLimitIntegrationTest covers the limiter on its own.
+        "security.ratelimit.enabled=false"})
 @EnabledIfEnvironmentVariable(named = "RUN_MONGO_TESTS", matches = "1")
 class ApiIntegrationTest {
 
