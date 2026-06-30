@@ -31,6 +31,13 @@ public class ApiExceptionHandler {
         return body(HttpStatus.BAD_REQUEST, e.getMessage(), null);
     }
 
+    // A unique-index collision — the loser of a register / createPlan race (the DB-level guard fired). Map to
+    // 409 so the client can retry cleanly, rather than the opaque 500 the generic handler would return.
+    @ExceptionHandler(org.springframework.dao.DuplicateKeyException.class)
+    public ResponseEntity<Map<String, Object>> duplicateKey(org.springframework.dao.DuplicateKeyException e) {
+        return body(HttpStatus.CONFLICT, "Already exists — a concurrent request won; please retry.", null);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> validation(MethodArgumentNotValidException e) {
         String msg = e.getBindingResult().getFieldErrors().stream()
