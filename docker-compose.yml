@@ -1,0 +1,39 @@
+# Deploy stack for an OCI Always-Free Ampere A1 VM, fronted by a Cloudflare Tunnel.
+#
+# Topology:  Browser ──TLS──▶ Cloudflare edge ──tunnel──▶ cloudflared ──▶ app:8080
+# The app publishes NO host ports — it is reachable ONLY through the tunnel (cloudflared and app
+# share this compose network), so nothing is exposed to the public internet and no OCI ingress
+# firewall rules are needed. Secrets come from a local .env (chmod 600, git-ignored) — see .env.example.
+#
+#   cp .env.example .env   &&   edit .env   &&   docker compose up -d --build
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      # 'prod' activates the M7 JWT fail-fast — a blank SECURITY_JWT_SECRET refuses to boot.
+      SPRING_PROFILES_ACTIVE: prod
+      MONGODB_URI: ${MONGODB_URI:?set MONGODB_URI in .env}
+      SECURITY_JWT_SECRET: ${SECURITY_JWT_SECRET:?set SECURITY_JWT_SECRET in .env}
+    expose:
+      - "8080"            # internal to the compose network only — NOT published to the host
+    networks:
+      - web
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    depends_on:
+      app:
+        condition: service_healthy   # wait for the app HEALTHCHECK before routing traffic
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge

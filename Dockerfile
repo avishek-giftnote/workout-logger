@@ -26,8 +26,16 @@ RUN mvn -B -DskipTests package
 # ── Stage 3: minimal runtime ──────────────────────────────────────────────────
 FROM eclipse-temurin:21-jre-jammy AS runtime
 WORKDIR /app
+# curl only for the container HEALTHCHECK (the jre image ships without it).
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 # Single fat jar from the package stage (finalName is artifactId-version).
 COPY --from=backend /app/target/*.jar /app/app.jar
 EXPOSE 8080
-# MaxRAMPercentage 75% leaves headroom under the 512MB VM (~128MB for stack/metaspace/native).
+# Container health = the actuator probe. Docker/compose restarts the container if this fails;
+# with the Cloudflare Tunnel, an unhealthy app means cloudflared has nothing to route to.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=45s --retries=3 \
+    CMD curl -fsS http://localhost:8080/actuator/health || exit 1
+# MaxRAMPercentage 75% — on an Ampere A1 VM (e.g. 6–24 GB) this gives the JVM a multi-GB heap;
+# override with -e JAVA_OPTS / JAVA_TOOL_OPTIONS if you pin a smaller machine shape.
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/app.jar"]
