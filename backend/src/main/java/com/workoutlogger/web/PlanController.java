@@ -52,7 +52,9 @@ public class PlanController {
                 mi.blockType(), band);
     }
     private static LocalDate date(String s) {
-        return (s == null || s.isBlank()) ? null : LocalDate.parse(s.trim());
+        if (s == null || s.isBlank()) return null;
+        try { return LocalDate.parse(s.trim()); }
+        catch (RuntimeException e) { throw new BadRequestException("Invalid date: " + s); }
     }
 
     /** The active macrocycle, or 204 if the user has no plan. */

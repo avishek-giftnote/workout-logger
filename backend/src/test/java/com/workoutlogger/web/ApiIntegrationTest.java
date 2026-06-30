@@ -798,4 +798,93 @@ class ApiIntegrationTest {
         mvc.perform(get("/api/splits").header("Authorization", bearer(b)))
                 .andExpect(jsonPath("$.length()").value(0));
     }
+
+    // ── backend-hardening cluster (prod audit) ──
+
+    // H2 — advance() must not lose updates under concurrency. Without an optimistic lock on Macrocycle, N
+    // simultaneous advances all read the same week and all save week+1 (a lost update: 10×200 but week only
+    // +1). With @Version the losers get a 409 conflict and committed advances exactly equal the week delta.
+    @Test
+    void concurrentAdvanceDoesNotLoseUpdates() throws Exception {
+        String t = register("advancerace@example.com");
+        // accumulationWeeks=50 ⇒ every advance is a pure week increment (no deload roll / meso transition).
+        String plan = "{\"name\":\"Long\",\"mesocycles\":[{\"name\":\"M\",\"accumulationWeeks\":50,\"phase\":\"SURPLUS\",\"focusMuscles\":[]}]}";
+        mvc.perform(post("/api/plan").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(plan))
+                .andExpect(status().isCreated());
+
+        List<Integer> codes = fireConcurrently(10, () ->
+                mvc.perform(post("/api/plan/advance").header("Authorization", bearer(t)))
+                        .andReturn().getResponse().getStatus());
+
+        int week = json.readTree(mvc.perform(get("/api/plan").header("Authorization", bearer(t)))
+                .andReturn().getResponse().getContentAsString()).get("week").asInt();
+        long committed = codes.stream().filter(c -> c == 200).count();
+        assertThat(week - 1).as("no lost update: committed advances equal the week delta").isEqualTo((int) committed);
+        assertThat(codes).as("every non-200 is a 409 conflict, never 500").allMatch(c -> c == 200 || c == 409);
+        assertThat(codes).as("at least one advance committed").contains(200);
+    }
+
+    // M1 — bodyweight weightKg is bounded to ≤3 decimal places at the source (matches the client's 3-dp
+    // rounding), so a finer value can't be stored / poison the effective-load calc.
+    @Test
+    void bodyweightRejectsMoreThanThreeDecimals() throws Exception {
+        String t = register("bwprec@example.com");
+        mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"72.3456\"}"))
+                .andExpect(status().isBadRequest());                                    // 4 dp rejected
+        mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"72.345\"}"))
+                .andExpect(status().isOk());                                            // 3 dp accepted
+    }
+
+    // M2 — a malformed JSON body is the client's fault → 400, not the opaque 500 the generic handler gives.
+    @Test
+    void malformedJsonBodyReturns400() throws Exception {
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content("{not json"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // M2 — an unparseable date reaching a bare LocalDate.parse path is 400, not 500.
+    @Test
+    void invalidDateInBodyweightReturns400() throws Exception {
+        String t = register("baddate@example.com");
+        mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"weightKg\":\"70\",\"recordedAt\":\"not-a-date\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // M4 — a block with more than 100 sets is rejected (@Size) before it can be persisted.
+    @Test
+    void blockWithTooManySetsReturns400() throws Exception {
+        String t = register("toomanysets@example.com");
+        String ex = createExercise(t, "PressY", false);
+        StringBuilder sets = new StringBuilder();
+        for (int i = 0; i < 101; i++) {
+            if (i > 0) sets.append(",");
+            sets.append("{\"orderIndex\":").append(i).append(",\"setType\":\"WORKING\",\"weight\":\"50\",\"reps\":5}");
+        }
+        String body = "{\"startedAt\":\"2026-06-03T09:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"x\",\"position\":0,\"sets\":[" + sets + "]}]}";
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    // M5 — split weekdays are constrained to 0..6 (element constraint); an out-of-range day is rejected.
+    @Test
+    void splitWeekdaysOutOfRangeRejected() throws Exception {
+        String t = register("weekdayrange@example.com");
+        String ex = createExercise(t, "PressZ", false);
+        String t1 = createTemplate(t, "T", ex);
+        mvc.perform(post("/api/splits").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"S\",\"templateIds\":[\"" + t1 + "\"],\"weekdays\":[0,9]}"))
+                .andExpect(status().isBadRequest());                                    // 9 out of range
+        mvc.perform(post("/api/splits").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"S\",\"templateIds\":[\"" + t1 + "\"],\"weekdays\":[0,6]}"))
+                .andExpect(status().isCreated());                                       // boundary 6 ok
+    }
 }

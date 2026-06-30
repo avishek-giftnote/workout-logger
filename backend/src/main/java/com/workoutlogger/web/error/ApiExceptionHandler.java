@@ -38,6 +38,20 @@ public class ApiExceptionHandler {
         return body(HttpStatus.CONFLICT, "Already exists — a concurrent request won; please retry.", null);
     }
 
+    // A concurrent @Version mismatch — two simultaneous advance() writes raced and the loser's save found a
+    // bumped version. Map to 409 (not the opaque 500) so the client can re-read and retry. (audit H2)
+    @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, Object>> optimisticLock(org.springframework.dao.OptimisticLockingFailureException e) {
+        return body(HttpStatus.CONFLICT, "Conflicting concurrent update — please retry.", null);
+    }
+
+    // Malformed JSON or an unparseable body reaches the converter, not a controller. Without this the generic
+    // handler returns 500; a bad request body is the client's fault → 400. (audit M2)
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> notReadable(org.springframework.http.converter.HttpMessageNotReadableException e) {
+        return body(HttpStatus.BAD_REQUEST, "Malformed request body.", null);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> validation(MethodArgumentNotValidException e) {
         String msg = e.getBindingResult().getFieldErrors().stream()
