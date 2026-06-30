@@ -257,6 +257,15 @@ const GOALS: { v: GoalType; label: string }[] = [
 const MONTHS = [3, 4, 6, 9, 12];
 const DAYS = [2, 3, 4, 5, 6];
 
+/** Returns the id of an existing template whose name matches exactly, or null if none found.
+ *  Used by the accept flow to skip re-creating a template that already exists in the user's catalog
+ *  (idempotent-ish creation).  Full rollback of orphaned templates on failure requires a
+ *  DELETE /api/templates/{id} endpoint — that endpoint does not exist yet; defer until it does.
+ */
+export function findExistingTemplateId(name: string, existing: { id: string; name: string }[]): string | null {
+  return existing.find((t) => t.name === name)?.id ?? null;
+}
+
 interface MacroPlannerProps {
   onCreated: () => void;
   initial?: { goal: GoalType; days?: number; focus?: Muscle[]; targetDate?: string };
@@ -267,6 +276,8 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
   const qc = useQueryClient();
   const exercises = useQuery({ queryKey: ["exercises"], queryFn: Api.listExercises });
   const energy = useQuery({ queryKey: ["energy"], queryFn: Api.energy });
+  const templates = useQuery({ queryKey: ["templates"], queryFn: Api.listTemplates });
+  const [acceptError, setAcceptError] = useState<string | null>(null);
 
   const [goal, setGoal] = useState<GoalType>(initial?.goal ?? "GENERAL_HYPERTROPHY");
   const [months, setMonths] = useState(6);
@@ -349,20 +360,28 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
           if (cur) cur.sets = Math.min(PER_SESSION_CAP, cur.sets + s.sets);
           else merged.set(exId, { exerciseId: exId, name, sets: s.sets, reps: s.reps, targetRir: s.targetRir });
         });
-        const exercises = [...merged.values()];
-        if (!exercises.length) continue;
-        const created = await Api.createTemplate({ name: t.name, exercises: exercises.map((e, i) => ({ exerciseId: e.exerciseId, name: e.name, position: i, sets: e.sets, reps: e.reps, targetRir: e.targetRir })) });
-        ids.push(created.id);
+        const resolvedExercises = [...merged.values()];
+        if (!resolvedExercises.length) continue;
+        // Idempotent-ish: reuse an existing template of the same name to avoid orphaned duplicates on retry.
+        // Full rollback of any newly-created templates on failure requires DELETE /api/templates/{id},
+        // which does not yet exist — defer until that endpoint is added.
+        const existingId = findExistingTemplateId(t.name, templates.data ?? []);
+        const templateId = existingId ?? (await Api.createTemplate({ name: t.name, exercises: resolvedExercises.map((e, i) => ({ exerciseId: e.exerciseId, name: e.name, position: i, sets: e.sets, reps: e.reps, targetRir: e.targetRir })) })).id;
+        ids.push(templateId);
         weekdays.push(sched[di] ?? di);   // keep weekdays aligned to the templates we actually created
       }
       let splitId: string | undefined;
       if (ids.length) splitId = (await Api.createSplit({ name: pv.splitName, templateIds: ids, weekdays })).id;
       await Api.createPlan({ name: planName, mesocycles: pv.mesocycles, goal, targetDate: usesDate ? targetDate : undefined, focusMuscles: needsFocus ? focus : undefined, splitId });
     },
+    onMutate: () => setAcceptError(null),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["templates"] });
       qc.invalidateQueries({ queryKey: ["splits"] });
       onCreated();
+    },
+    onError: (err) => {
+      setAcceptError(err instanceof Error ? err.message : "Failed to create plan — please try again.");
     },
   });
 
@@ -481,6 +500,9 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
             ))}
           </div>
 
+          {acceptError && (
+            <p style={{ fontSize: 13, color: "var(--ember)", margin: "0 4px 8px" }}>{acceptError}</p>
+          )}
           <div className="action-bar">
             <button className="btn btn-ghost grow" onClick={() => nav("/muscles")}>Volume</button>
             <button className="btn btn-ghost grow" onClick={() => nav("/past-plans")}>Past plans</button>

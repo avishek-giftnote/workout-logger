@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Api, tokenStore } from "../api/client";
+import { Api, tokenStore, setOnUnauthenticated } from "../api/client";
 
 interface AuthCtx {
   token: string | null;
@@ -19,6 +19,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) return;
     Api.me().catch(() => { tokenStore.clear(); setToken(null); });
   }, [token]);
+
+  // Wire the API-layer callback so any mid-session 401 (stale token) immediately updates React auth
+  // state, dropping the UI to the login screen instead of staying in a broken authenticated shell.
+  // setToken is stable (useState setter) — intentionally omitted from deps.
+  useEffect(() => {
+    setOnUnauthenticated(() => { tokenStore.clear(); setToken(null); });
+    return () => setOnUnauthenticated(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const value = useMemo<AuthCtx>(() => ({
     token,
