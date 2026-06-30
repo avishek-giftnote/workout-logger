@@ -1,109 +1,122 @@
 # DEPLOY.md — workout-logger
 
-How to deploy the app as a **single jar** (the Spring Boot backend serves both the `/api` and the bundled
-React SPA from one origin) to **Fly.io**, backed by the existing **MongoDB Atlas** cluster.
+Deploy the app as a **single Docker image** (the Spring Boot backend serves both `/api` and the bundled React
+SPA from one origin) onto an **Oracle Cloud Infrastructure (OCI) Always-Free Ampere A1 VM**, fronted by a
+**Cloudflare Tunnel** for TLS, with **MongoDB Atlas** as the database.
 
-**Architecture note:** auth (register/login) and all workout logging go through the backend → MongoDB. Only
-the *settings* slice is local-first. So the deployed app needs the Atlas connection to work *from Fly*. There
-is no cloud-sync / Stripe layer yet (future Phase 2).
-
----
-
-## What's already done (code — shipped PRs #23/#24)
-
-| Blocker | Status |
-|---|---|
-| SPA served from the jar + client-side deep links (`/start`, `/previous-workouts/{id}`) don't 404 | ✅ `SpaForwardController` + `SecurityConfig` (`/api/**` auth, rest public) |
-| Health check for Fly | ✅ `spring-boot-starter-actuator`, only `/actuator/health` exposed |
-| Single-image build that bundles the SPA into the jar | ✅ `Dockerfile` (proven: `static/index.html` is inside the jar) |
-| `fly.toml` / `.dockerignore` | ✅ committed (no secrets) |
-| Blank `SECURITY_JWT_SECRET` silently degrading | ✅ M7 fail-fast under the `prod` profile (`SPRING_PROFILES_ACTIVE=prod` set in `fly.toml`) |
-| Client API base URL | ✅ relative `/api` → same-origin, no CORS, no `VITE_API_URL` |
-
-The remaining work is **operational** — accounts, secrets, and dashboards only you can touch.
-
----
-
-## Manual prerequisites (do these first — in order)
-
-1. **Fly.io account + CLI** — install `flyctl`, then `fly auth login` (browser). Add a payment card
-   (https://fly.io/dashboard → Billing) — required even on the free allowance.
-2. **Atlas → Network Access → allow Fly to connect.** Add `0.0.0.0/0` (allow from anywhere). Atlas M0 has no
-   PrivateLink and Fly egress IPs are dynamic, so this is the pragmatic option. **Without it the deployed app
-   hangs on "connection timed out" and register/login fail — the #1 silent killer.**
-3. **Rotate the Atlas DB password** (recommended). The `avishek_db_user` password was exposed in a chat
-   transcript. Atlas → Database Access → edit user → Edit Password → autogenerate → copy the new **SRV
-   connection string**.
-4. **Generate a JWT secret:** `openssl rand -base64 48` — keep the output for step 7. (Because of M7, a blank
-   secret now makes the prod container **refuse to boot**, so this is mandatory, not optional.)
-5. **Verify the prod `workoutlogger` DB is clean** before first boot: no duplicate emails, no >1 ACTIVE plan.
-   The app builds unique indexes at startup (`SchemaBootstrap`) and **fail-fasts on a dirty DB**. (The importer
-   already built these on the real data, so it should be clean — just confirm.)
-
----
-
-## Deploy (Phase 1 — web app live)
-
-From the repo root (the `Dockerfile` + `fly.toml` are here):
-
-```bash
-# 1. Create the Fly app (generates/overwrites fly.toml with a unique name + region; --no-deploy yet)
-fly launch --no-deploy
-#    (or keep the committed fly.toml and just `fly apps create <name>`; ensure app name + region are set)
-
-# 2. Set secrets (NEVER commit these — injected at deploy time)
-fly secrets set MONGODB_URI="mongodb+srv://...<your rotated string>..." \
-                SECURITY_JWT_SECRET="<the openssl output from step 4>"
-
-# 3. Deploy (builds the Dockerfile remotely, bundles the SPA, boots on :8080 behind HTTPS)
-fly deploy --remote-only
-
-# 4. Open it
-fly open
+```
+Browser ──TLS──▶ Cloudflare edge ──encrypted tunnel──▶ cloudflared ──▶ app:8080 ──▶ MongoDB Atlas
+                                          (both containers on one OCI VM, Docker network)
 ```
 
-The first request after an idle period has a JVM cold-start (a few seconds) because `fly.toml` is set to
-scale-to-zero (`min_machines_running = 0`). Bump it to `1` if you want it always warm.
+**Why this shape:** the Ampere A1 free tier is generous (up to 4 Arm OCPU / 24 GB RAM, always-on). The
+Cloudflare Tunnel means the app publishes **no inbound ports** — nothing is exposed to the internet and you
+**don't touch the OCI ingress firewall at all** (its double-layer firewall is the usual footgun). The backend
+is pure-JVM on multi-arch base images, so **ARM64 is a non-issue**.
 
-### Smoke-test after deploy
-- `https://<app>.fly.dev/` loads the SPA; a hard refresh on `/start` still loads (no 404).
-- Register a new account → log a workout → refresh → it persists (proves Atlas connectivity + auth).
-- `https://<app>.fly.dev/actuator/health` returns `{"status":"UP"}`.
-
----
-
-## Optional — continuous deploy on merge to main
-
-Add a `deploy` job to `.github/workflows/ci.yml` gated on `needs: [frontend-gate, backend-gate, e2e]` and
-`if: github.ref == 'refs/heads/main' && github.event_name == 'push'`, using
-`superfly/flyctl-actions/setup-flyctl` + `fly deploy --remote-only` with `FLY_API_TOKEN`. Create the token
-with `fly tokens create deploy` and add it to GitHub repo secrets. Consider restricting to backend/frontend
-path changes so docs-only merges don't redeploy.
+**Architecture note:** auth + workout logging go through the backend → MongoDB (only the *settings* slice is
+local-first), so the VM must reach Atlas. No cloud-sync / Stripe layer yet (future Phase 2).
 
 ---
 
-## Environment variables
+## What's in the repo
 
-| Variable | Required | Notes |
-|---|---|---|
-| `MONGODB_URI` | ✅ | Atlas SRV string — `fly secrets set` |
-| `SECURITY_JWT_SECRET` | ✅ | 32+ random bytes. **Blank → container refuses to boot under the prod profile (M7).** |
-| `SPRING_PROFILES_ACTIVE` | ✅ (set in `fly.toml`) | `prod` — engages the M7 fail-fast |
-| `SECURITY_JWT_EXPIRY_MINUTES` | optional | default 10080 (7 days) |
-| `SECURITY_RATELIMIT_ENABLED` | optional | default `true`; in-memory, single-VM (fine for Phase 1) |
+| File | Purpose |
+|---|---|
+| `Dockerfile` | 3-stage build: Vite SPA → bundled into the Spring Boot jar → slim JRE runtime (+ `HEALTHCHECK` on `/actuator/health`). Builds natively on ARM. |
+| `docker-compose.yml` | Two services: `app` (no published host ports) + `cloudflared` (the tunnel). |
+| `.env.example` | Template for the VM's `.env` (secrets). Copy to `.env`, never commit. |
+
+The app already: serves the SPA + client-side deep links, exposes only `/actuator/health`, calls the API at the
+relative `/api` (same origin → no CORS), and **fail-fasts on a blank `SECURITY_JWT_SECRET` under the `prod`
+profile** (M7 — set in compose).
 
 ---
+
+## One-time setup (manual — accounts & dashboards)
+
+### 1. Provision the OCI VM
+- Create an OCI account (free; needs a card for identity, not charged on Always-Free).
+- Compute → Instances → Create. Shape: **VM.Standard.A1.Flex** (Ampere), e.g. **1–2 OCPU / 6–12 GB**. Image:
+  **Ubuntu 22.04** (or Oracle Linux). Add your SSH public key.
+  - ⚠️ **Capacity:** "Out of host capacity" on Ampere A1 is common. Retry, try a different Availability Domain,
+    or a less-busy home region. (Many people script the create-retry.)
+- Networking → reserve the instance's **public IP** (promote the ephemeral IP to *reserved*) so it survives a
+  stop/start — you'll allowlist it in Atlas.
+
+### 2. Install Docker on the VM
+```bash
+ssh ubuntu@<VM_PUBLIC_IP>
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-plugin git
+sudo usermod -aG docker $USER && exit        # re-login so the group applies
+```
+(No inbound firewall rules are needed — the tunnel is outbound-only. Leave the OCI Security List default and
+don't add host iptables rules beyond SSH.)
+
+### 3. Cloudflare Tunnel
+- Put a domain on Cloudflare (free plan — change the domain's nameservers to Cloudflare).
+- Zero Trust dashboard → **Networks → Tunnels → Create a tunnel → Cloudflared**. Name it; copy the **tunnel
+  token** (shown in the `--token <...>` of the install command) — that's `TUNNEL_TOKEN`.
+- In the tunnel's **Public Hostname** tab, add: `app.yourdomain.com` → Service `HTTP` → `http://app:8080`
+  (the compose service name `app`, port 8080).
+
+### 4. MongoDB Atlas
+- Network Access → add the VM's **reserved public IP** (a single `/32` — tighter than the `0.0.0.0/0` Fly would
+  have forced).
+- (Recommended) rotate the `avishek_db_user` password (it was exposed in a transcript); copy the new SRV string.
+
+### 5. JWT secret
+```bash
+openssl rand -base64 48        # → SECURITY_JWT_SECRET (mandatory; blank won't boot under prod)
+```
+
+---
+
+## Deploy
+
+```bash
+ssh ubuntu@<VM_PUBLIC_IP>
+git clone https://github.com/avishek-giftnote/workout-logger.git
+cd workout-logger
+cp .env.example .env && chmod 600 .env
+nano .env            # fill MONGODB_URI, SECURITY_JWT_SECRET, TUNNEL_TOKEN
+docker compose up -d --build        # builds the image natively on ARM, starts app + cloudflared
+docker compose ps                   # app should become 'healthy'; cloudflared 'running'
+docker compose logs -f app          # watch startup (Mongo connect, Tomcat on 8080)
+```
+
+### Smoke-test
+- `https://app.yourdomain.com/` loads the SPA; hard-refresh `/start` still loads (no 404).
+- Register → log a workout → refresh → persists (proves Atlas + auth through the tunnel).
+- `https://app.yourdomain.com/actuator/health` → `{"status":"UP"}`.
+
+---
+
+## Updating / CD
+- **Manual update:** `git pull && docker compose up -d --build`.
+- **CD (optional):** a GitHub Actions job (gated on the three CI gates + `push` to `main`) that SSHes into the
+  VM and runs the pull+rebuild, e.g. via `appleboy/ssh-action` with the VM host/key in repo secrets. Or
+  build+push an image to GHCR and have the VM `docker compose pull && up -d`. Restrict to backend/frontend path
+  changes so docs-only merges don't redeploy.
+
+## Ops ownership (new vs a PaaS — these are now yours)
+- **SSH hardening:** key-only auth (`PasswordAuthentication no`), no root login, consider `fail2ban`.
+- **Patching:** `sudo apt-get install -y unattended-upgrades` (or periodic `apt upgrade` + reboot).
+- **Restart on reboot:** `restart: always` + Docker's systemd unit (enabled by default) bring the stack back
+  after a VM reboot. Verify with a test reboot.
+- **Backups:** Atlas M0 has limited/no automated backup — for real data, schedule `mongodump` (cron on the VM
+  to OCI Object Storage, 20 GB free) or upgrade Atlas. Phase-1/single-user: acceptable risk.
 
 ## Known limitations (revisit before scaling)
-
-- **Rate limiter + draft state are in-memory** — correct for a single Fly VM; 2+ instances need a shared store
-  (Fly Redis). `min_machines_running = 0` is fine (the limiter just resets on cold start).
-- **Atlas M0** — shared, no SLA, 512MB, max 500 connections. Budget M10 as the first paid upgrade.
-- **512MB VM** — JVM runs with `-XX:MaxRAMPercentage=75`; watch memory under load, bump to 1GB if it OOM-kills.
-- **No observability** — `fly logs` + Fly metrics to start; add structured (JSON) logging before scaling.
+- **Rate limiter + draft state are in-memory** — correct for this single VM; multiple instances would need a
+  shared store (Redis).
+- **Atlas M0** — shared, no SLA, 512 MB, max 500 connections. With 24 GB on the VM you *could* self-host Mongo
+  instead (drops the M0 limits, adds backup/security burden) — not worth it for Phase 1.
+- **Single VM = single point of failure** — fine for a personal app; no HA.
+- **No observability** beyond `docker logs` — add structured (JSON) logging + a metrics endpoint before scaling.
 - **No data-migration story** — a schema-shape change currently means re-import into a fresh DB; design a
   migration path before there's real user data to preserve.
 - **Phase 2 (deferred):** Stripe + a `subscribed` flag + a `403` sync-gate + delta-sync over the existing REST
   API (the local-first `LocalStore` seam already exists client-side).
 
-_Last updated: 2026-06-30 — blockers fixed in PRs #23/#24._
+_Last updated: 2026-06-30 — OCI Always-Free + Cloudflare Tunnel (migrated off Fly.io)._

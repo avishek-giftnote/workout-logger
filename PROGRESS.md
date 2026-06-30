@@ -27,7 +27,19 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 ## Done
 
-- _2026-06-30_ — **Deployability: SPA-serving + health + Docker/Fly scaffolding + M7 JWT fail-fast** — PRs #23
+- _2026-06-30_ — **Deploy target → OCI Always-Free + Cloudflare Tunnel** (Fly's free tier was withdrawn).
+  Replaced the Fly scaffolding with a VM-based stack: `docker-compose.yml` (`app` with **no published host
+  ports** + `cloudflared`), `.env.example` (secrets template; real `.env` git-ignored via a `!.env.example`
+  negation), a Docker `HEALTHCHECK` on `/actuator/health`, and the `curl` it needs; removed `fly.toml`.
+  Topology: Browser → Cloudflare edge → tunnel → `cloudflared` → `app:8080` → Atlas — so **no inbound ports**
+  (sidesteps OCI's double-layer firewall) and TLS/IP-hiding come free from Cloudflare. The `Dockerfile`
+  (pure-JVM, multi-arch bases) runs on **ARM64/Ampere unchanged**; M7's `SPRING_PROFILES_ACTIVE=prod` moves to
+  compose. `DEPLOY.md` fully rewritten as the OCI runbook (provision Ampere A1 → install Docker → Cloudflare
+  tunnel → Atlas allowlist the VM's *reserved* IP → `compose up`). Considerations captured: Ampere capacity
+  scarcity, in-memory rate-limiter/draft (single-VM only), new ops ownership (SSH hardening, patching, backups).
+  _Manual steps remaining (you): provision the VM, Cloudflare domain+tunnel token, Atlas IP allowlist, fill
+  `.env`, `docker compose up -d --build`._ (Compose not tool-validated locally — no Docker in this env.)
+- _2026-06-30_ — **Deployability: SPA-serving + health + Docker scaffolding + M7 JWT fail-fast** — PRs #23
   (backend-serving + M7) & #24 (infra), two parallel worktree lanes (one stopped mid-run and finished by hand +
   folded in M7). Makes the app shippable as a **single jar** (backend serves the bundled SPA, same origin → no
   CORS — client already calls relative `/api`): `SpaForwardController` forwards extensionless client routes to
