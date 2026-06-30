@@ -27,6 +27,29 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 ## Done
 
+- _2026-06-30_ — **Fixed audit C2 (rate limiting)** — PR #19, **parallel worktree Lane B** (ran concurrently
+  with Lane A; backend-only vs frontend-only → zero-conflict merge). Per-IP rate limiter on `/api/auth/**`
+  (`RateLimitFilter`, a `OncePerRequestFilter` at `HIGHEST_PRECEDENCE` so it sheds load before the security
+  chain / BCrypt): fixed-window counter in a `ConcurrentHashMap`, keyed by `X-Forwarded-For` first hop else
+  `getRemoteAddr()`, → **429** with the standard `{timestamp,status,error,message}` envelope. No new dependency;
+  in-memory / single-instance-correct (multi-instance needs Redis — noted in code). Configurable via
+  `@ConfigurationProperties("security.ratelimit")`: `enabled`(true)/`capacity`(10)/`window-seconds`(60).
+  Suite interaction handled: the limiter is disabled in `ApiIntegrationTest` (its 12-concurrent same-IP register
+  burst would trip it) via the class's `@TestPropertySource`; a dedicated `RateLimitIntegrationTest` (capacity=3)
+  proves the 429 (failing-before/passing-after). Gate: `RUN_MONGO_TESTS=1 mvn test` **77/0/0**, no-DB green.
+  _Follow-up:_ rate-limit response should also send `Retry-After`; multi-instance store when scaled.
+- _2026-06-30_ — **Fixed audit H3 + H4 (frontend session resilience)** — PR #18, **parallel worktree Lane A**
+  (ran concurrently with the C2 rate-limit lane; disjoint files → clean merge). **H3:** a mid-session 401 now
+  drops the app to the login screen — `auth.tsx` exposes a module-level `onUnauthenticated` callback (wired by
+  `AuthProvider` to clear token + `setToken(null)`) that `client.ts` invokes on a non-auth 401, instead of only
+  clearing localStorage while `isAuthed` stayed true. **H4:** plan `accept` no longer fails silently —
+  `onMutate`/`onError` surface the message; orphaned-template path took the **dedupe-defer** route (no
+  `DELETE /api/templates/{id}` endpoint exists, so the create loop skips a same-name template via the new pure
+  `findExistingTemplateId`; true rollback deferred to a future delete endpoint, noted in code). Gate: typecheck ·
+  `npm test` **124** (+8) · build. **Open audit items remaining after C1/H1/H3/H4/C2:** H2 (`advance()` lost
+  update — `@Version`), M1 (bodyweight-precision 400), M2 (malformed-JSON/date 500→400), M3 (`User` `@Version`),
+  M4/M5 (`@Size` caps, weekday bounds), plus the LOW tail (these cluster in `ApiIntegrationTest`/`ApiDtos`/
+  `ApiExceptionHandler` → best as one sequential backend-hardening pass, not parallel lanes).
 - _2026-06-30_ — **Fixed audit C1 + H1 (the two race-condition CRITICAL/HIGH)** — DB-level backstops, failing
   test first. `MongoSchemaInitializer.initialize()` now runs on **every web boot** via new
   `config/SchemaBootstrap` (`@ConditionalOnWebApplication`, `ApplicationReadyEvent`) — previously it ran only in
