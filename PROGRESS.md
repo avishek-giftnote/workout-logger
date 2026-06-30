@@ -27,6 +27,18 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 ## Done
 
+- _2026-06-30_ — **Fixed audit H2 + M1 + M2 + M4 + M5 (backend hardening cluster)** — PR #21, one sequential
+  pass (these share `ApiIntegrationTest`/`ApiDtos`/`ApiExceptionHandler` → not lane-parallelizable). **H2:**
+  `@Version` on `Macrocycle` + `OptimisticLockingFailureException → 409` — concurrent `advance()` no longer
+  silently drops writes (losers 409, not a 200 that did nothing). **M1:** bodyweight-precision 400 fixed — client
+  rounds effective load to 1e-3 (`engine.tsx`, was 1e-6) + `@Pattern` on `SetBodyweightRequest.weightKg`. **M2:**
+  malformed JSON / bad dates now 400 not 500 (`HttpMessageNotReadableException → 400` + the three bare
+  `LocalDate.parse` wrapped). **M4:** `@Size(max=50)` exercises / `@Size(max=100)` sets + bodyweight-log cap 3650.
+  **M5:** split `weekdays` constrained `List<@Min(0)@Max(6)Integer>`. Failing-test-first (H2 + malformed-JSON
+  confirmed failing pre-fix); +6 guards → `ApiIntegrationTest` **43**, gate `RUN_MONGO_TESTS=1 mvn test` 83/0/0,
+  no-DB green, frontend 124 + eval (L1 drift 0, 240/240) + build green. **M3 deliberately deferred** — full
+  `User` `@Version` would 409 the local-first settings sync (LWW); proper fix is targeted atomic `$set`/`$push`,
+  its own PR. _Audit now: only M3 + the LOW tail (L1–L9) remain open._
 - _2026-06-30_ — **Fixed audit C2 (rate limiting)** — PR #19, **parallel worktree Lane B** (ran concurrently
   with Lane A; backend-only vs frontend-only → zero-conflict merge). Per-IP rate limiter on `/api/auth/**`
   (`RateLimitFilter`, a `OncePerRequestFilter` at `HIGHEST_PRECEDENCE` so it sheds load before the security
