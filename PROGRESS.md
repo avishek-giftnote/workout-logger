@@ -27,6 +27,19 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 ## Done
 
+- _2026-06-30_ — **Deployability: SPA-serving + health + Docker/Fly scaffolding + M7 JWT fail-fast** — PRs #23
+  (backend-serving + M7) & #24 (infra), two parallel worktree lanes (one stopped mid-run and finished by hand +
+  folded in M7). Makes the app shippable as a **single jar** (backend serves the bundled SPA, same origin → no
+  CORS — client already calls relative `/api`): `SpaForwardController` forwards extensionless client routes to
+  `index.html` (deep links/refresh don't 404); `SecurityConfig` → `/api/**` authenticated, rest public;
+  `spring-boot-starter-actuator` exposes only `/actuator/health` for Fly. `Dockerfile` (3-stage, proven the SPA
+  lands in the jar via `unzip -l`), `.dockerignore`, `fly.toml` (force_https, health check, scale-to-zero,
+  512MB, `[env] SPRING_PROFILES_ACTIVE=prod`). **M7:** blank `SECURITY_JWT_SECRET` now fail-fasts under the
+  `prod` profile (dev/tests/e2e keep the ephemeral fallback → CI unaffected). Guards: `ApiIntegrationTest` **44**
+  (health public / API still 401 / SPA routes forward) + `JwtServiceTest` **6** (+3 M7); gate green, e2e green.
+  Deploy runbook + manual-steps checklist in **`DEPLOY.md`**. _Manual steps remaining (you): Fly account+login,
+  Atlas IP allowlist (0.0.0.0/0), rotate the exposed Atlas password, `fly secrets set MONGODB_URI/SECURITY_JWT_SECRET`,
+  `fly deploy`._
 - _2026-06-30_ — **Fixed audit H2 + M1 + M2 + M4 + M5 (backend hardening cluster)** — PR #21, one sequential
   pass (these share `ApiIntegrationTest`/`ApiDtos`/`ApiExceptionHandler` → not lane-parallelizable). **H2:**
   `@Version` on `Macrocycle` + `OptimisticLockingFailureException → 409` — concurrent `advance()` no longer
