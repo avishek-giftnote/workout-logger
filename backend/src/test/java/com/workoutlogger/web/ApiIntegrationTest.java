@@ -68,6 +68,27 @@ class ApiIntegrationTest {
         mvc.perform(get("/api/workouts")).andExpect(status().isUnauthorized());
     }
 
+    /**
+     * Single-JAR deploy posture: the actuator health probe is public (Fly's health check), the API
+     * stays JWT-protected, and extensionless SPA routes are permitted + forwarded to index.html so a
+     * deep link / hard refresh does not 404.
+     */
+    @Test
+    void healthIsPublicApiStaysProtectedAndSpaRoutesForward() throws Exception {
+        // Fly health check: /actuator/health is permitAll and returns 200 (only health is exposed).
+        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+
+        // The API surface remains protected — no token still yields 401.
+        mvc.perform(get("/api/workouts")).andExpect(status().isUnauthorized());
+
+        // An extensionless client-side route (no token) is permitted and forwards to the SPA shell:
+        // not 401/403, and resolves to the test index.html placeholder (200).
+        mvc.perform(get("/start")).andExpect(status().isOk());
+
+        // A nested deep link (e.g. /previous-workouts/{id}) also forwards rather than 404-ing.
+        mvc.perform(get("/previous-workouts/abc123")).andExpect(status().isOk());
+    }
+
     @Test
     void usersCannotSeeEachOthersWorkouts() throws Exception {
         String tokenA = register("a@example.com");

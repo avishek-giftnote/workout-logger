@@ -32,6 +32,18 @@ importer:
   user-email: ${IMPORT_USER_EMAIL:importer@example.com}
   user-password: ${IMPORT_USER_PASSWORD:}
 
+# Actuator: expose ONLY the health endpoint (Fly's health check hits /actuator/health,
+# which is permitAll in SecurityConfig). No other endpoints are exposed — avoid info leak.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true   # adds /actuator/health/{liveness,readiness} groups for container probes
+
 logging:
   level:
     com.workoutlogger: INFO

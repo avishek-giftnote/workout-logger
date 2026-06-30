@@ -4,6 +4,8 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
@@ -21,10 +23,20 @@ public class JwtService {
     private final SecretKey key;
     private final long expiryMinutes;
 
-    public JwtService(JwtProperties props) {
+    public JwtService(JwtProperties props, Environment env) {
         String secret = props.getSecret();
+        // Fail-fast (audit M7): under the 'prod' profile a blank secret must NOT silently fall back to an
+        // ephemeral key — that logs every user out on each VM restart and signs differently per replica.
+        // Refuse to start instead. Outside prod (dev / tests / e2e) the ephemeral fallback is kept so the
+        // app runs without configuration. (A < 32-byte secret already throws via Keys.hmacShaKeyFor in any
+        // profile, so M7 only has to cover the blank case.)
+        boolean prod = env.acceptsProfiles(Profiles.of("prod"));
         if (secret == null || secret.isBlank()) {
-            this.key = Jwts.SIG.HS256.key().build();   // ephemeral random key (dev only)
+            if (prod) {
+                throw new IllegalStateException("SECURITY_JWT_SECRET is required under the 'prod' profile "
+                        + "(>= 32 bytes); refusing to start with an ephemeral signing key.");
+            }
+            this.key = Jwts.SIG.HS256.key().build();   // ephemeral random key (dev/test only)
             log.warn("No SECURITY_JWT_SECRET set — generated an ephemeral signing key; tokens will "
                     + "not survive a restart. Set SECURITY_JWT_SECRET (>= 32 bytes) for stable auth.");
         } else {
