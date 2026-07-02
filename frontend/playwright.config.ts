@@ -30,6 +30,9 @@ export default defineConfig({
             // blank JWT secret → the backend mints an ephemeral key; fine for a single E2E run (the
             // backend stays up throughout, so tokens stay valid). Override via env if you need stability.
             SECURITY_JWT_SECRET: process.env.SECURITY_JWT_SECRET ?? "",   // pragma: allowlist secret
+            // The auth rate limiter keys by IP; a whole suite of registrations comes from one host, which
+            // trips it and 429s later registers (exactly why ApiIntegrationTest disables it). Off for E2E.
+            SECURITY_RATELIMIT_ENABLED: "false",
           },
         },
         {
