@@ -61,6 +61,30 @@ class EnergyServiceTest {
         assertThat(e.maintenanceKcalLow()).isLessThan(e.maintenanceKcalHigh());
     }
 
+    // M3 derive-at-read: with ZERO real weigh-ins the Mifflin weight falls back to the legacy import-era
+    // mirror (routed through BodyweightMath.currentOf(u)) — pins the "behaviorally identical" refactor of
+    // the n==0 branch, which no test exercised before.
+    @Test
+    void importOnlyAccount_mifflinFallsBackToLegacyMirror() {
+        User u = new User();
+        Profile p = new Profile();
+        p.setSex(Sex.MALE);
+        p.setDateOfBirth(LocalDate.of(1995, 1, 1));
+        p.setHeightCm(new BigDecimal("180"));
+        p.setActivityLevel(ActivityLevel.MODERATE);
+        u.setProfile(p);
+        // import shape: one estimated log row + the user-supplied real weight in the mirror
+        u.setBodyweightLog(new ArrayList<>(List.of(new BodyweightEntry(
+                java.util.UUID.randomUUID().toString(), Instant.now(), new BigDecimal("75.0"), true))));
+        u.setCurrentBodyweightKg(new BigDecimal("75.0"));
+        EnergyDto withMirror = svc.estimate(u);
+        assertThat(withMirror.maintenanceKcalLow()).as("mirror fallback feeds Mifflin").isNotNull();
+
+        u.setCurrentBodyweightKg(null);                           // mirror retired (post-first-write state)
+        EnergyDto without = svc.estimate(u);
+        assertThat(without.maintenanceKcalLow()).as("no weight at all ⇒ no maintenance range").isNull();
+    }
+
     @Test
     void steadyGain_classifiesSurplus() {
         EnergyDto e = svc.estimate(user(true, 80.0, 81.6, 8, 28));  // +1.6 kg / 28 d ≈ +0.4 kg/wk

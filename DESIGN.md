@@ -78,6 +78,38 @@ idempotency key, computed from normalized instant).
 drift); `setType`/`loadMode` enums; `rpe` int 1–10; `reps`/`durationSeconds` ≥ 0; required
 `userId`/`startedAt`.
 
+### 2a. Concurrency mechanism selection (council-ratified, audit M3)
+
+The codebase deliberately carries THREE concurrency mechanisms; pick by the write's shape, never by
+habit. **Read-modify-write `save()` on a shared document is forbidden once it has more than one write
+path** — that pattern is what lost concurrent User writes (a settings PUT dropped a parallel weigh-in).
+
+1. **Whole-doc `@Version` + If-Match → 409** (Workout set-PATCH, Macrocycle `advance()`): only when the
+   write is a genuine last-writer-must-know contest AND the client can act on a conflict (re-read /
+   rebase / prompt). Never put a 409 on a fire-and-forget path.
+2. **Domain-timestamp LWW, always 200, never 409** (settings `settingsUpdatedAt`): fire-and-forget sync
+   writes where newest-wins IS the contract. The newest-wins check must live INSIDE the update's match
+   (`settingsUpdatedAt <= incoming` ANDed into the `updateFirst`), not in a read-then-save; a superseded
+   write returns the persisted winner so the caller can reconcile.
+3. **Targeted atomic op scoped `{_id, tenant}`** (`MeRepository`: `$push`/`$pull`/positional-`$`/
+   per-field `$set`): disjoint subtrees or key-addressable embedded entries. Preconditions (the log cap,
+   entry existence) go INSIDE the match — `$expr $size` for the cap, `bodyweightLog.entryId` for entry
+   ops — so a miss matches nothing (404) instead of phantom-bumping `updatedAt`. Check
+   `getMatchedCount()`, not `getModifiedCount()` (a no-op write matches but modifies nothing).
+   Derived values that can't be recomputed atomically alongside the op (`currentBodyweightKg`) are
+   **derived at read** (`BodyweightMath`), not stored.
+
+Known accepted residual: profile's set-once `initialIntakeAt` is a bounded two-op sequence (atomic
+per-op, not as a unit); a crash between the ops leaves kcal set with no anchor until the next
+kcal-bearing PUT (field is write-only today). Embedded ids are never named `id` (Spring maps embedded
+`id`→`_id`, silently breaking dotted-path queries): `setId` on sets, `entryId` on bodyweight entries.
+Legacy rows are backfilled once at startup by `BodyweightEntryIdBackfillRunner` — never on the request
+path, and via a per-doc **compare-and-swap** on the array snapshot (Tomcat serves before
+`ApplicationReadyEvent`, so a blind `$set` could clobber a boot-window write; a CAS miss retries next
+pass/boot). The legacy `currentBodyweightKg` mirror is served only for import-era accounts that have
+never written a weigh-in; every bodyweight write `$unset`s it in the same atomic op, so a deleted last
+real entry yields null — never a resurrected import weight.
+
 ## 3. The 6 high-impact council fixes (adopted) + input-validation invariant
 
 1. **Decimal128 as a string end-to-end** *(highest-leverage correctness fix)*. Store native
