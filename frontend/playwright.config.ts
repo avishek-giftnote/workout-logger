@@ -10,7 +10,10 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // 1 retry everywhere: CI absorbs the odd hiccup; locally it absorbs remote-Atlas latency flake on the
+  // workout-logging /start gate (~600ms/op RTT). A real failure still fails both attempts — retries mask
+  // network flake, not bugs. For a fast local run, point MONGODB_URI at a local mongo instead of Atlas.
+  retries: 1,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: { baseURL, trace: "on-first-retry" },
