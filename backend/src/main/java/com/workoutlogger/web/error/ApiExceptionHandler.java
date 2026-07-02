@@ -52,6 +52,13 @@ public class ApiExceptionHandler {
         return body(HttpStatus.BAD_REQUEST, "Malformed request body.", null);
     }
 
+    // A path/query/header param that won't bind to its target type — e.g. a non-numeric If-Match header
+    // hitting a Long parameter. Without this the generic handler returns 500; it's the client's fault → 400.
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> typeMismatch(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException e) {
+        return body(HttpStatus.BAD_REQUEST, "Malformed request parameter: " + e.getName(), null);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> validation(MethodArgumentNotValidException e) {
         String msg = e.getBindingResult().getFieldErrors().stream()

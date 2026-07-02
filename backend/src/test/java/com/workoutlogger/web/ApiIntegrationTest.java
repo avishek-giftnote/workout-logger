@@ -213,6 +213,201 @@ class ApiIntegrationTest {
                 .andExpect(status().isBadRequest());                    // repLow > repHigh → 400
     }
 
+    // ── updateSet optimistic lock (@Version / If-Match, 409-on-stale) — Phase-0 sync hardening ──
+    // Deciding-council contract (docs/sync-architecture-council.md + the updateSet council):
+    // version rides the If-Match header (optional, enforced-when-present); a stale write → 409 with the
+    // server's current copy in .detail; missing/other-tenant/soft-deleted/set-missing → 404 (never a
+    // misleading 409, never a tenant-existence leak); version is exposed read-only on WorkoutDto.
+    private JsonNode getWorkout(String token, String wid) throws Exception {
+        return json.readTree(mvc.perform(get("/api/workouts/" + wid).header("Authorization", bearer(token)))
+                .andReturn().getResponse().getContentAsString());
+    }
+    private String firstSetId(JsonNode w) { return w.get("exercises").get(0).get("sets").get(0).get("id").asText(); }
+
+    @Test
+    void workoutDtoExposesVersionAndItRoundTrips() throws Exception {
+        String t = register("ver@example.com");
+        String ex = createExercise(t, "Ver Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        JsonNode w = getWorkout(t, wid);
+        assertThat(w.get("version").isNumber()).isTrue();               // exposed as a plain JSON number
+        long v0 = w.get("version").asLong();
+        String put = "{\"startedAt\":\"2026-06-03T09:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
+                + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"55\",\"reps\":8}]}]}";
+        long v1 = json.readTree(mvc.perform(put("/api/workouts/" + wid).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content(put)).andReturn().getResponse().getContentAsString())
+                .get("version").asLong();
+        assertThat(v1).isGreaterThan(v0);                              // a full PUT (save) bumps @Version
+    }
+
+    @Test
+    void setUpdateWithMatchingVersionSucceedsAndBumps() throws Exception {
+        String t = register("match@example.com");
+        String ex = createExercise(t, "Match Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        JsonNode w = getWorkout(t, wid);
+        long v = w.get("version").asLong();
+        String sid = firstSetId(w);
+        String res = mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .header("If-Match", String.valueOf(v))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reps\":10}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        JsonNode after = json.readTree(res);
+        assertThat(after.get("version").asLong()).isEqualTo(v + 1);
+        assertThat(after.get("exercises").get(0).get("sets").get(0).get("reps").asInt()).isEqualTo(10);
+    }
+
+    @Test
+    void setUpdateWithStaleVersionReturns409WithCurrentCopy() throws Exception {
+        String t = register("stale@example.com");
+        String ex = createExercise(t, "Stale Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        JsonNode w = getWorkout(t, wid);
+        long v = w.get("version").asLong();
+        String sid = firstSetId(w);
+        // first write with the current version succeeds and bumps to v+1
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .header("If-Match", String.valueOf(v)).contentType(MediaType.APPLICATION_JSON).content("{\"reps\":9}"))
+                .andExpect(status().isOk());
+        // second write still carrying the ORIGINAL (now stale) version → 409, body.detail = server's current copy
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .header("If-Match", String.valueOf(v)).contentType(MediaType.APPLICATION_JSON).content("{\"reps\":12}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail.version").value((int) (v + 1)))
+                .andExpect(jsonPath("$.detail.exercises[0].sets[0].reps").value(9));   // stale write did NOT apply
+    }
+
+    @Test
+    void setUpdateWithoutIfMatchPreservesCurrentBehavior() throws Exception {
+        String t = register("noif@example.com");
+        String ex = createExercise(t, "NoIf Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        JsonNode w = getWorkout(t, wid);
+        long v = w.get("version").asLong();
+        String sid = firstSetId(w);
+        String res = mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reps\":11}"))   // no If-Match
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(res).get("version").asLong()).isEqualTo(v + 1);   // unconditioned update still increments
+    }
+
+    @Test
+    void setUpdateOnMissingWorkoutReturns404() throws Exception {
+        String t = register("missing@example.com");
+        mvc.perform(patch("/api/workouts/000000000000000000000000/sets/nope").header("Authorization", bearer(t))
+                        .header("If-Match", "0").contentType(MediaType.APPLICATION_JSON).content("{\"reps\":5}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void setUpdateCrossTenantReturns404NotConflict() throws Exception {
+        String a = register("ta@example.com");
+        String b = register("tb@example.com");
+        String ex = createExercise(a, "A Lift", false);
+        String wid = createWorkout(a, ex, "50", 8);
+        JsonNode w = getWorkout(a, wid);
+        long v = w.get("version").asLong();
+        String sid = firstSetId(w);
+        // B, holding A's real version, must get 404 (never 409, never 200) — no cross-tenant existence leak.
+        // Also assert the body carries NO `detail`: a 409 attaches the current WorkoutDto, so its absence proves
+        // the response is indistinguishable from a genuine not-found and never leaks A's document to B.
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(b))
+                        .header("If-Match", String.valueOf(v)).contentType(MediaType.APPLICATION_JSON).content("{\"reps\":7}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").doesNotExist());
+    }
+
+    @Test
+    void setUpdateOnLegacyNullVersionDocBehavesOnWritePath() throws Exception {
+        String t = register("legacywrite@example.com");
+        String ex = createExercise(t, "LegacyWrite Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        String sid = firstSetId(getWorkout(t, wid));
+        // strip the version field → a pre-@Version legacy doc (via MongoTemplate so the String @Id → ObjectId _id)
+        mongo.updateFirst(
+                new org.springframework.data.mongodb.core.query.Query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(wid)),
+                new org.springframework.data.mongodb.core.query.Update().unset("version"),
+                com.workoutlogger.domain.Workout.class);
+        // (a) If-Match "0" against an ABSENT version field → 409: Mongo {version:0} does not match a missing field.
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .header("If-Match", "0").contentType(MediaType.APPLICATION_JSON).content("{\"reps\":9}"))
+                .andExpect(status().isConflict());
+        // (b) no header → unconditioned update seeds the absent field: $inc(version,1) → 1.
+        String res = mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reps\":10}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(res).get("version").asLong()).isEqualTo(1L);
+    }
+
+    @Test
+    void setUpdateOnSoftDeletedWorkoutReturns404() throws Exception {
+        String t = register("del@example.com");
+        String ex = createExercise(t, "Del Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        JsonNode w = getWorkout(t, wid);
+        long v = w.get("version").asLong();
+        String sid = firstSetId(w);
+        mvc.perform(delete("/api/workouts/" + wid).header("Authorization", bearer(t))).andExpect(status().isNoContent());
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .header("If-Match", String.valueOf(v)).contentType(MediaType.APPLICATION_JSON).content("{\"reps\":6}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void setUpdateWithCurrentVersionButMissingSetReturns404() throws Exception {
+        String t = register("noset@example.com");
+        String ex = createExercise(t, "NoSet Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        long v = getWorkout(t, wid).get("version").asLong();
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/deadbeef").header("Authorization", bearer(t))
+                        .header("If-Match", String.valueOf(v)).contentType(MediaType.APPLICATION_JSON).content("{\"reps\":6}"))
+                .andExpect(status().isNotFound());   // set genuinely missing → 404, NOT a version conflict
+    }
+
+    @Test
+    void setUpdateMalformedIfMatchReturns400() throws Exception {
+        String t = register("badif@example.com");
+        String ex = createExercise(t, "BadIf Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        String sid = firstSetId(getWorkout(t, wid));
+        mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .header("If-Match", "not-a-number").contentType(MediaType.APPLICATION_JSON).content("{\"reps\":6}"))
+                .andExpect(status().isBadRequest());   // non-numeric If-Match → 400, not 500
+    }
+
+    @Test
+    void setUpdateResponseKeepsDecimalsAsStrings() throws Exception {
+        String t = register("decstr@example.com");
+        String ex = createExercise(t, "Dec Lift", false);
+        String wid = createWorkout(t, ex, "42.25", 8);
+        JsonNode w = getWorkout(t, wid);
+        long v = w.get("version").asLong();
+        String sid = firstSetId(w);
+        String res = mvc.perform(patch("/api/workouts/" + wid + "/sets/" + sid).header("Authorization", bearer(t))
+                        .header("If-Match", String.valueOf(v)).contentType(MediaType.APPLICATION_JSON).content("{\"weight\":\"43.75\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        JsonNode set = json.readTree(res).get("exercises").get(0).get("sets").get(0);
+        assertThat(set.get("weight").isTextual()).isTrue();            // weight stays a decimal STRING, not a number
+        assertThat(set.get("weight").asText()).isEqualTo("43.75");
+    }
+
+    @Test
+    void legacyNullVersionSerializesAsNull() throws Exception {
+        String t = register("legacy@example.com");
+        String ex = createExercise(t, "Legacy Lift", false);
+        String wid = createWorkout(t, ex, "50", 8);
+        // simulate a pre-@Version document: strip the version field. Go through MongoTemplate so the String
+        // @Id is converted to the stored ObjectId _id (a raw collection filter on the String id would no-op).
+        mongo.updateFirst(
+                new org.springframework.data.mongodb.core.query.Query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(wid)),
+                new org.springframework.data.mongodb.core.query.Update().unset("version"),
+                com.workoutlogger.domain.Workout.class);
+        JsonNode w = getWorkout(t, wid);
+        assertThat(w.get("version") == null || w.get("version").isNull()).isTrue();   // null, never coerced to 0
+    }
+
     @Test
     void templateCreateUpdateGet() throws Exception {
         String t = register("t@example.com");

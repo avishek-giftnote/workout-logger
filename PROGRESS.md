@@ -22,6 +22,38 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 - **Operational policy** (`DESIGN.md §8`): backup/PITR cadence; GDPR hard-delete vs tombstone retention
   (`rawImport` embeds PII); `startedAt`/bodyweight timezone policy; offline auth/token-refresh lifecycle.
 - **Subscription model** — when/how to gate cloud sync (only the `SYNC_ENABLED` seam exists today; no billing).
+- **Cloud-sync architecture — council ran 2026-07-02, verdict recommend-only** (`docs/sync-architecture-council.md`):
+  unanimous **BUILD** hand-rolled delta-sync on the existing Spring/Mongo REST API (delta-read endpoint +
+  `If-Match`/409 + client outbox), **not** PowerSync/ElectricSQL (a full DB migration or a second service that
+  duplicates tenant isolation for ~1 user). Conflict model = whole-doc LWW backstopped by `@Version`. Open calls
+  for Avishek: (1) greenlight BUILD? (2) Phase-1 409 UX — rebase-retry-only vs "keep mine/keep server's" prompt;
+  (3) tombstone-retention window (entangled with the GDPR hard-delete decision above). Dissent preserved in the
+  brief: backend-eng sizes it 1.5-2wk (the `If-Match` retrofit across 8 endpoints, not delta-read, is the critical
+  path); data-modeler flags the `@Version` backfill trap (annotating Exercise/Template/Split without a `version=0`
+  backfill breaks Spring's insert-vs-update branch).
+- **Phase-0 hardening — IMPLEMENTED via `/autopilot` (2026-07-02), gate green, review council in flight.**
+  `WorkoutRepository.updateSet` now enforces the `@Version` precondition via an optional `If-Match` header
+  (optional-when-present, additive), returns a 3-state `SetUpdateResult` → controller maps stale→**409** (with
+  the server's current copy in `.detail`), missing/other-tenant/soft-deleted/set-missing→**404** (no existence
+  leak). `WorkoutDto` gained a read-only nullable `version` (+ `types.ts` mirror, optional); malformed `If-Match`
+  →400. A deciding council set the contract (unanimous: If-Match header, optional, expose version, re-query
+  disambiguation, server-only scope — frontend send/rebase deferred to sync Phase-1). 11 new `ApiIntegrationTest`
+  guards (RED→GREEN). The guards surfaced + fixed a **pre-existing** bug: a phantom version bump on a missing
+  `setId` (update matched the doc regardless of the arrayFilter); now set-existence is part of the match. Gate:
+  ApiIntegrationTest 56/56, backend pure BUILD SUCCESS, frontend tsc+124 vitest+build. **Review council PASSED**
+  (backend-engineer + data-modeler CLEAN; eval-engineer/systems-architect findings triaged — two test-coverage
+  gaps fixed in-loop: legacy-null-version *write* path + cross-tenant no-`detail`-leak assertion). **Not yet
+  committed** — ready as a standalone PR when you say `/git-ship`.
+  - _Deferred to the version-audit (review council flagged, out of scope for Phase-0, logged not dropped):_
+    (1) **409 body divergence** — the pre-existing `PUT /workouts` + Plan `save()` paths return 409 with
+    `detail:null` via the generic `OptimisticLockingFailureException` handler, while the new PATCH returns the
+    server's current copy. The PATCH shape is the target (matches the sync council); harmonize the generic
+    handler to re-query + attach `.detail` during the audit. (2) **Template doesn't generalize** — `SetUpdateResult`
+    /`updateFirst` fits embedded-array writes; Exercise/Template/Split/Plan use `mongo.save()` (managed `@Version`
+    fires automatically) and must NOT copy this mechanism, and need the `version=0` backfill BEFORE `@Version` is
+    annotated. (3) Bare-integer `If-Match` (not RFC-7232 quoted ETag) is a decided deviation — write it into
+    DESIGN.md before 7 more endpoints copy it. (4) Promote the strongest set-update guards to a numbered `S##`
+    catalog when the sync ship-gate is built.
 - ~~**One-ACTIVE-plan-per-user** — enforce with a Mongo partial-unique index, or leave code-enforced?~~
   **Decided 2026-06-30: partial-unique index** (`plans {userId}|status=ACTIVE`), built at boot. See Done.
 

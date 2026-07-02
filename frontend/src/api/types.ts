@@ -78,6 +78,9 @@ export interface WorkoutDto {
   soreMuscles: Muscle[] | null;
   createdAt: string;
   updatedAt: string;
+  /** @Version optimistic-lock token; null on legacy docs, may be omitted on the wire. Read-only; echo via
+   *  `If-Match` on a future set-PATCH. Optional so it's additive-safe and doesn't force every fixture to set it. */
+  version?: number | null;
 }
 
 export interface CreateSetRequest {

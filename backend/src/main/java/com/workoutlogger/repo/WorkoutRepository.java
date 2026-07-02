@@ -75,15 +75,40 @@ public class WorkoutRepository {
                 .getModifiedCount() > 0;
     }
 
+    /** Outcome of a granular set update — a 3-state result so the controller cannot silently collapse a
+     *  stale write into a 404 (the compiler forces success/conflict/not-found to be handled). */
+    public enum SetUpdateResult { UPDATED, VERSION_CONFLICT, NOT_FOUND }
+
     /**
      * Granular set update addressed by (workoutId, setId) — array-position independent.
      * Only non-null fields are applied. Bumps version + updatedAt.
+     *
+     * <p>Optimistic lock: when {@code expectedVersion} is non-null it is ANDed into the match as an
+     * If-Match precondition — a stale value matches nothing and yields {@code VERSION_CONFLICT} (→409),
+     * distinguished from a genuinely missing / other-tenant / soft-deleted doc ({@code NOT_FOUND} →404)
+     * by a failure-path re-query. That re-query re-asserts the SAME tenant predicate (userId + deletedAt)
+     * so cross-tenant existence never leaks as a 409. It is a best-effort diagnostic for HTTP-status
+     * messaging ONLY — it is not atomic with the update and is never a stronger concurrency guarantee.
+     * A null {@code expectedVersion} preserves the legacy unconditioned behavior.
+     *
+     * <p>Note: Spring's managed {@code OptimisticLockingFailureException} does NOT fire here —
+     * {@code updateFirst} bypasses {@code @Version}'s save() check — so both the increment
+     * ({@code .inc("version", 1)}) and the precondition ({@code where("version").is(...)}) are manual.
      */
-    public boolean updateSet(String workoutId, String setId, BigDecimal weight, Integer reps,
-                             Integer rpe, String note, SetType setType, BigDecimal loadDelta) {
-        Query q = new Query(where("_id").is(workoutId)
+    public SetUpdateResult updateSet(String workoutId, String setId, BigDecimal weight, Integer reps,
+                                     Integer rpe, String note, SetType setType, BigDecimal loadDelta,
+                                     Long expectedVersion) {
+        // Set-existence is part of the match: without it the unconditional .inc("version")/updatedAt below
+        // would "modify" the workout (→ modifiedCount>0 → false success) even when the arrayFilter hits no
+        // set. Requiring the setId here means a missing set matches nothing → NOT_FOUND, and never a phantom
+        // version bump on a workout whose target set does not exist.
+        Criteria base = where("_id").is(workoutId)
                 .and("userId").is(tenant.userId())
-                .and("deletedAt").is(null));
+                .and("deletedAt").is(null)
+                .and("exercises.sets.setId").is(setId);
+        Criteria match = (expectedVersion == null)
+                ? base
+                : new Criteria().andOperator(base, where("version").is(expectedVersion));
         Update u = new Update().set("updatedAt", Instant.now()).inc("version", 1)
                 .filterArray(Criteria.where("s.setId").is(setId));
         if (weight != null)    u.set("exercises.$[].sets.$[s].weight", weight);
@@ -92,7 +117,19 @@ public class WorkoutRepository {
         if (note != null)      u.set("exercises.$[].sets.$[s].note", note);
         if (setType != null)   u.set("exercises.$[].sets.$[s].setType", setType);
         if (loadDelta != null) u.set("exercises.$[].sets.$[s].loadDelta", loadDelta);
-        return mongo.updateFirst(q, u, Workout.class).getModifiedCount() > 0;
+
+        if (mongo.updateFirst(new Query(match), u, Workout.class).getModifiedCount() > 0) {
+            return SetUpdateResult.UPDATED;
+        }
+        if (expectedVersion == null) return SetUpdateResult.NOT_FOUND;   // legacy path: no version to conflict on
+
+        // Failure-path disambiguation (best-effort, non-atomic): tenant-scoped re-read without the version.
+        Workout doc = findOne(workoutId).orElse(null);
+        if (doc == null) return SetUpdateResult.NOT_FOUND;              // missing / soft-deleted / other tenant
+        boolean setExists = doc.getExercises().stream()
+                .flatMap(e -> e.sets().stream())
+                .anyMatch(s -> setId.equals(s.setId()));
+        return setExists ? SetUpdateResult.VERSION_CONFLICT : SetUpdateResult.NOT_FOUND;
     }
 
     /**

@@ -58,9 +58,12 @@ public final class ApiDtos {
     public record ExerciseBlockDto(String exerciseId, String name, int position, String note,
                                    List<SetDto> sets) {}
 
+    // version: the @Version optimistic-lock token, read-only on the wire (nullable on legacy docs). A small
+    // integer → serialized as a plain JSON number; the decimals-as-string rule is only for fractional weights.
+    // No request DTO accepts a client-supplied version; the precondition value comes from the If-Match header.
     public record WorkoutDto(String id, Instant startedAt, Integer durationSeconds, String rawDurationText,
                              String templateId, CyclePhase cyclePhase, List<ExerciseBlockDto> exercises,
-                             List<Muscle> soreMuscles, Instant createdAt, Instant updatedAt) {}
+                             List<Muscle> soreMuscles, Instant createdAt, Instant updatedAt, Long version) {}
 
     /** Sane decimal pattern: optional sign, 1–4 integer digits, optional 1–3 decimal places (e.g. "100.5", "-20.25"). */
     static final String DECIMAL_PATTERN = "^-?\\d{1,4}(\\.\\d{1,3})?$";
