@@ -12,7 +12,9 @@ export async function register(page: Page, email = uniqueEmail()): Promise<strin
   await page.getByPlaceholder("you@example.com").fill(email);
   await page.getByPlaceholder("••••••••").fill(PASSWORD);
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByRole("button", { name: "History" })).toBeVisible();   // topbar nav ⇒ authed
+  // registration synchronously seeds the 84-exercise default catalog before the token returns, so the
+  // authed shell can take >5s (the default expect timeout) under load — wait generously here.
+  await expect(page.getByRole("button", { name: "History" })).toBeVisible({ timeout: 20_000 });   // topbar nav ⇒ authed
   return email;
 }
 
