@@ -125,6 +125,12 @@ Entity relationships are many-to-many by id reference, not joins:
   weight become a JSON number (a JS-`number` client silently rounds the ~25% fractional-kg values).
 - **Embedded set id field is named `setId`, not `id`** — Spring Data maps any embedded field named `id` to
   `_id`, which made `arrayFilters` updates silently match nothing. Granular set updates address `(workoutId, setId)`.
+  Same rule on the User doc: bodyweight entries use `entryId` (legacy rows backfilled at startup, never on read).
+- **Concurrency mechanism is chosen by write shape — see DESIGN.md §2a.** `@Version`+If-Match/409 only where the
+  client can act on a conflict; timestamp-LWW (always 200) for fire-and-forget sync writes; targeted atomic
+  ops (`MeRepository`) for disjoint/key-addressed User subtrees. **Never read-modify-write `save()` a shared
+  doc** (audit M3: it dropped concurrent writes); preconditions go inside the update's match; check
+  `matchedCount`, not `modifiedCount`; `currentBodyweightKg` is derived at read (`BodyweightMath`), never written.
 - **Exercises partial-unique index filters on `{nameKey: {$exists: true}}`** — MongoDB rejects `$exists:false`
   in `partialFilterExpression`. See `MongoSchemaInitializer` (it also holds the `$jsonSchema` validators;
   it runs only in the `import` profile, since `auto-index-creation` is off).

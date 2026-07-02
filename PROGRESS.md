@@ -60,6 +60,34 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 ## Done
 
+- _2026-07-02_ — **M3 (User-doc lost updates) IMPLEMENTED via `/autopilot` — gate green, review council in
+  flight.** Second autopilot run; picked as highest-priority open item (the audit's last non-LOW finding;
+  the agenda's two "HIGH" planner bugs turned out already fixed in code — structural-diff reset notice +
+  exact-remainder duration — agenda entries were stale). A deciding council (backend-eng, data-modeler,
+  systems-architect, frontend-eng + Opus chair) ruled: **targeted atomic ops, NO `@Version` on User** (would
+  409 disjoint writes; client swallows settings errors → silent loss; backfill trap for zero benefit). Built:
+  new `MeRepository` (conditional-LWW settings `updateFirst`, `$push` with the 3650 cap in-match via
+  `$expr $size`, positional-`$` amend / `$pull` delete keyed `bodyweightLog.entryId`, per-field profile `$set`
+  + two-op set-once `initialIntakeAt`); `MeController` rewritten (zero `save()`, `current()` is a pure read);
+  `BodyweightEntry.id`→`entryId` (embedded `id`→`_id` trap, wire name unchanged); `currentBodyweightKg`
+  **derived at read** (`BodyweightMath`, with a deliberate derive-else-legacy-mirror fallback for import-era
+  accounts — deviation from the council's "read-never", under review); `BodyweightEntryIdBackfillRunner`
+  (startup, raw-Document, preserves legacy ids); **DESIGN.md §2a** (three-mechanism concurrency-selection
+  rule) + CLAUDE.md pointer. 14 failing-guard-first `ApiIntegrationTest` cases (7 RED pre-fix → all green).
+  Gate: ApiIntegrationTest **71/71** (isolated DB), EnergyServiceTest 19/19, backend pure BUILD SUCCESS,
+  frontend tsc + 124 vitest (client untouched). **Review council found 3 MAJORs — all fixed in-loop:**
+  (1) the backfill runner's blind full-array `$set` could clobber boot-window writes (Tomcat serves BEFORE
+  `ApplicationReadyEvent`) → rewritten as a per-doc **compare-and-swap** on the array snapshot, bounded
+  retry loop keyed on seen-not-fixed (a follow-up single-reviewer verify caught the seen/fixed conflation);
+  (2) my derive-fallback deviation was WRONG — deleting the last real weigh-in resurrected the frozen import
+  weight (energy-analyst reproduced it live) → every bodyweight write now `$unset`s the mirror in the same
+  atomic update, exactly reproducing the old recomputeCurrent lifecycle (pinned:
+  `legacyMirrorIsRetiredOnFirstWriteNeverResurrected`, incl. a non-binary-representable Decimal128
+  round-trip); (3) the EnergyService n==0 mirror-fallback was test-uncovered → pinned in EnergyServiceTest.
+  Accepted residuals documented in DESIGN.md §2a (two-op `initialIntakeAt` crash window — write-only field;
+  backfill CAS race window structurally untestable in-suite, hand-verified by an adversarial reviewer).
+  **Not yet committed** — ready to ship as a standalone PR.
+
 - _2026-06-30_ — **Deploy target → OCI Always-Free + Cloudflare Tunnel** (Fly's free tier was withdrawn).
   Replaced the Fly scaffolding with a VM-based stack: `docker-compose.yml` (`app` with **no published host
   ports** + `cloudflared`), `.env.example` (secrets template; real `.env` git-ignored via a `!.env.example`

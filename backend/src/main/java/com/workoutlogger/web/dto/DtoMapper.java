@@ -87,12 +87,14 @@ public final class DtoMapper {
 
     public static MeDto toDto(User u) {
         List<BodyweightEntryDto> log = u.getBodyweightLog().stream()
-                .map(e -> new BodyweightEntryDto(e.id(), e.recordedAt(), str(e.weightKg()), e.estimated())).toList();
+                .map(e -> new BodyweightEntryDto(e.entryId(), e.recordedAt(), str(e.weightKg()), e.estimated())).toList();
         Profile p = u.getProfile();
         ProfileDto profile = p == null ? null : new ProfileDto(
                 p.getDateOfBirth() == null ? null : p.getDateOfBirth().toString(),
                 str(p.getHeightCm()), p.getSex(), p.getGoal(), p.getActivityLevel(), p.getInitialIntakeKcal());
-        return new MeDto(u.getId(), u.getEmail(), str(u.getCurrentBodyweightKg()), log, profile);
+        // Derived at read (M3): the stored mirror is never written anymore; BodyweightMath falls back to
+        // it only for legacy import-era docs with no real weigh-in yet.
+        return new MeDto(u.getId(), u.getEmail(), str(com.workoutlogger.domain.BodyweightMath.currentOf(u)), log, profile);
     }
 
     public static ApiDtos.SettingsDto toSettingsDto(User u) {

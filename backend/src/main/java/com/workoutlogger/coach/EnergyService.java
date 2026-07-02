@@ -63,7 +63,9 @@ public class EnergyService {
         int minN = 6;
         int minSpan = female ? 21 : 14;   // wider window for cyclic water retention
 
-        BigDecimal latestW = n > 0 ? entries.get(n - 1).weightKg() : u.getCurrentBodyweightKg();
+        // n==0 ⇒ the derived current is null too, so this is the same legacy-mirror fallback as before —
+        // routed through BodyweightMath so the derivation rule lives in one place (M3 derive-at-read).
+        BigDecimal latestW = n > 0 ? entries.get(n - 1).weightKg() : com.workoutlogger.domain.BodyweightMath.currentOf(u);
 
         // Mifflin–St Jeor × PAL maintenance range (±8%), only with a complete profile + a weight.
         Integer maintLow = null, maintHigh = null;

@@ -43,6 +43,7 @@ class ApiIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired MongoTemplate mongo;
     @Autowired ObjectMapper json;
+    @Autowired com.workoutlogger.config.BodyweightEntryIdBackfillRunner backfill;
 
     @BeforeEach
     void clean() {
@@ -1103,4 +1104,327 @@ class ApiIntegrationTest {
                         .content("{\"name\":\"S\",\"templateIds\":[\"" + t1 + "\"],\"weekdays\":[0,6]}"))
                 .andExpect(status().isCreated());                                       // boundary 6 ok
     }
+
+    // ── M3: User-doc concurrency (audit M3, council docs — targeted atomic ops, no @Version) ──
+    // Council contract: every MeController write is a targeted atomic update keyed {_id: tenant.userId()};
+    // settings LWW is one conditional updateFirst (always 200, superseded write returns the persisted
+    // winner, NEVER 409 — the client swallows settings errors); currentBodyweightKg is DERIVED at read
+    // (latest non-estimated), never a stored mirror; GETs never write (backfill moves to a startup runner).
+
+    private String meId(String t) throws Exception {
+        return json.readTree(mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andReturn().getResponse().getContentAsString()).get("id").asText();
+    }
+    private org.bson.Document rawUser(String id) {
+        return mongo.getDb().getCollection("users")
+                .find(new org.bson.Document("_id", new org.bson.types.ObjectId(id))).first();
+    }
+    private int settingsStatus(String t, long ts, String v) throws Exception {
+        return mvc.perform(put("/api/me/settings").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"settings\":{\"k\":\"" + v + "\"},\"updatedAt\":\"" + ts + "\"}"))
+                .andReturn().getResponse().getStatus();
+    }
+    private int addBwStatus(String t, String w) throws Exception {
+        return mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"" + w + "\"}"))
+                .andReturn().getResponse().getStatus();
+    }
+
+    // M3 core (RED pre-fix): a settings PUT built from a snapshot that predates a parallel weigh-in must
+    // not drop the weigh-in on save. Alternate the two writes across concurrent threads; both must survive.
+    @Test
+    void concurrentSettingsAndBodyweightWritesBothSurvive() throws Exception {
+        String t = register("m3core@example.com");
+        java.util.concurrent.atomic.AtomicInteger i = new java.util.concurrent.atomic.AtomicInteger();
+        List<Integer> codes = fireConcurrently(6, () -> (i.getAndIncrement() % 2 == 0)
+                ? settingsStatus(t, 1000, "vs")
+                : addBwStatus(t, "81.5"));
+        assertThat(codes).allMatch(c -> c == 200);
+        String me = mvc.perform(get("/api/me").header("Authorization", bearer(t))).andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(me).get("bodyweightLog").size()).as("no weigh-in lost to a settings save").isEqualTo(3);
+        mvc.perform(get("/api/me/settings").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.settings.k").value("vs"));
+    }
+
+    // Settings LWW under concurrency: distinct timestamps race; all 200, the highest timestamp wins, never torn.
+    @Test
+    void concurrentSettingsPutsKeepLastWriteWins() throws Exception {
+        String t = register("lwwrace@example.com");
+        java.util.concurrent.atomic.AtomicInteger i = new java.util.concurrent.atomic.AtomicInteger();
+        List<Integer> codes = fireConcurrently(8, () -> {
+            int k = i.getAndIncrement();
+            return settingsStatus(t, 1000 + k, "v" + k);
+        });
+        assertThat(codes).as("LWW never errors — no 409/500 on the settings path").allMatch(c -> c == 200);
+        mvc.perform(get("/api/me/settings").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.settings.k").value("v7"))
+                .andExpect(jsonPath("$.updatedAt").value("1007"));
+    }
+
+    // Superseded-write contract: a stale PUT returns 200 with the PERSISTED winner, not the caller's payload.
+    @Test
+    void supersededSettingsWriteReturnsPersistedWinner() throws Exception {
+        String t = register("superseded@example.com");
+        assertThat(settingsStatus(t, 2000, "newer")).isEqualTo(200);
+        mvc.perform(put("/api/me/settings").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"settings\":{\"k\":\"stale\"},\"updatedAt\":\"1000\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settings.k").value("newer"))
+                .andExpect(jsonPath("$.updatedAt").value("2000"));
+    }
+
+    // Concurrent appends (RED pre-fix): full-doc saves lose parallel appends; $push must keep all N.
+    @Test
+    void concurrentBodyweightAddsAllSurvive() throws Exception {
+        String t = register("bwrace@example.com");
+        List<Integer> codes = fireConcurrently(10, () -> addBwStatus(t, "80.5"));
+        assertThat(codes).allMatch(c -> c == 200);
+        String me = mvc.perform(get("/api/me").header("Authorization", bearer(t))).andReturn().getResponse().getContentAsString();
+        JsonNode log = json.readTree(me).get("bodyweightLog");
+        assertThat(log.size()).as("every concurrent append survives").isEqualTo(10);
+        long distinct = java.util.stream.StreamSupport.stream(log.spliterator(), false)
+                .map(e -> e.get("id").asText()).distinct().count();
+        assertThat(distinct).as("no duplicate entry ids").isEqualTo(10);
+    }
+
+    // Cap boundary under concurrency (RED pre-fix: TOCTOU lets every racer pass the size check).
+    @Test
+    void bodyweightCapHoldsUnderConcurrentAdds() throws Exception {
+        String t = register("bwcap@example.com");
+        String uid = meId(t);
+        java.util.List<org.bson.Document> seed = new java.util.ArrayList<>();
+        for (int k = 0; k < 3649; k++) {
+            seed.add(new org.bson.Document("entryId", new org.bson.types.ObjectId().toHexString())
+                    .append("recordedAt", java.util.Date.from(java.time.Instant.parse("2020-01-01T00:00:00Z").plusSeconds(k)))
+                    .append("weightKg", org.bson.types.Decimal128.parse("80"))
+                    .append("estimated", true));
+        }
+        mongo.getDb().getCollection("users").updateOne(
+                new org.bson.Document("_id", new org.bson.types.ObjectId(uid)),
+                new org.bson.Document("$set", new org.bson.Document("bodyweightLog", seed)));
+        List<Integer> codes = fireConcurrently(5, () -> addBwStatus(t, "80.5"));
+        assertThat(codes.stream().filter(c -> c == 200).count()).as("exactly one add wins the last slot").isEqualTo(1);
+        assertThat(codes).as("losers get the cap 400, never 500").allMatch(c -> c == 200 || c == 400);
+        org.bson.Document u = rawUser(uid);
+        assertThat(((java.util.List<?>) u.get("bodyweightLog")).size()).as("log never exceeds the cap").isEqualTo(3650);
+    }
+
+    // Disjoint entry ops race (RED pre-fix): amend A + delete B concurrently; both must apply.
+    @Test
+    void disjointBodyweightEntryOpsBothApply() throws Exception {
+        String t = register("bwdisjoint@example.com");
+        assertThat(addBwStatus(t, "80")).isEqualTo(200);
+        assertThat(addBwStatus(t, "81")).isEqualTo(200);
+        String me = mvc.perform(get("/api/me").header("Authorization", bearer(t))).andReturn().getResponse().getContentAsString();
+        JsonNode log = json.readTree(me).get("bodyweightLog");
+        String idA = log.get(0).get("id").asText(), idB = log.get(1).get("id").asText();
+        java.util.concurrent.atomic.AtomicInteger i = new java.util.concurrent.atomic.AtomicInteger();
+        List<Integer> codes = fireConcurrently(2, () -> (i.getAndIncrement() == 0)
+                ? mvc.perform(patch("/api/me/bodyweight/" + idA).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"85.5\"}"))
+                        .andReturn().getResponse().getStatus()
+                : mvc.perform(delete("/api/me/bodyweight/" + idB).header("Authorization", bearer(t)))
+                        .andReturn().getResponse().getStatus());
+        assertThat(codes).allMatch(c -> c == 200);
+        String after = mvc.perform(get("/api/me").header("Authorization", bearer(t))).andReturn().getResponse().getContentAsString();
+        JsonNode alog = json.readTree(after).get("bodyweightLog");
+        assertThat(alog.size()).as("delete applied").isEqualTo(1);
+        assertThat(alog.get(0).get("id").asText()).isEqualTo(idA);
+        assertThat(alog.get(0).get("weightKg").asText()).as("amend applied").isEqualTo("85.5");
+    }
+
+    // Same-entry amend/delete race: exactly one outcome persists; never a 500, never a corrupt log.
+    @Test
+    void sameEntryAmendDeleteRaceIsSane() throws Exception {
+        String t = register("bwsame@example.com");
+        assertThat(addBwStatus(t, "80")).isEqualTo(200);
+        String me = mvc.perform(get("/api/me").header("Authorization", bearer(t))).andReturn().getResponse().getContentAsString();
+        String id = json.readTree(me).get("bodyweightLog").get(0).get("id").asText();
+        java.util.concurrent.atomic.AtomicInteger i = new java.util.concurrent.atomic.AtomicInteger();
+        List<Integer> codes = fireConcurrently(2, () -> (i.getAndIncrement() == 0)
+                ? mvc.perform(patch("/api/me/bodyweight/" + id).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"82\"}"))
+                        .andReturn().getResponse().getStatus()
+                : mvc.perform(delete("/api/me/bodyweight/" + id).header("Authorization", bearer(t)))
+                        .andReturn().getResponse().getStatus());
+        assertThat(codes).as("no 500 under a same-entry race").allMatch(c -> c == 200 || c == 404);
+        JsonNode alog = json.readTree(mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andReturn().getResponse().getContentAsString()).get("bodyweightLog");
+        assertThat(alog.size()).as("entry is amended XOR deleted").isIn(0, 1);
+        if (alog.size() == 1) assertThat(alog.get(0).get("weightKg").asText()).isEqualTo("82");
+    }
+
+    // Missing-id guard: amend/delete of an unknown entry id → 404 with NO phantom updatedAt bump.
+    @Test
+    void missingEntryIdReturns404WithoutPhantomBump() throws Exception {
+        String t = register("bwmissing@example.com");
+        assertThat(addBwStatus(t, "80")).isEqualTo(200);
+        Object before = rawUser(meId(t)).get("updatedAt");
+        mvc.perform(patch("/api/me/bodyweight/deadbeef").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"90\"}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/me/bodyweight/deadbeef").header("Authorization", bearer(t)))
+                .andExpect(status().isNotFound());
+        assertThat(rawUser(meId(t)).get("updatedAt")).as("no write on a missed match").isEqualTo(before);
+    }
+
+    // Tenant isolation on the rewritten paths: B cannot touch A's entries and B's writes never reach A.
+    @Test
+    void bodyweightEntryOpsAreTenantIsolated() throws Exception {
+        String a = register("bwta@example.com");
+        String b = register("bwtb@example.com");
+        assertThat(addBwStatus(a, "80")).isEqualTo(200);
+        String idA = json.readTree(mvc.perform(get("/api/me").header("Authorization", bearer(a)))
+                .andReturn().getResponse().getContentAsString()).get("bodyweightLog").get(0).get("id").asText();
+        mvc.perform(patch("/api/me/bodyweight/" + idA).header("Authorization", bearer(b))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"1\"}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/me/bodyweight/" + idA).header("Authorization", bearer(b)))
+                .andExpect(status().isNotFound());
+        JsonNode aLog = json.readTree(mvc.perform(get("/api/me").header("Authorization", bearer(a)))
+                .andReturn().getResponse().getContentAsString()).get("bodyweightLog");
+        assertThat(aLog.get(0).get("weightKg").asText()).isEqualTo("80");
+    }
+
+    // Profile disjoint fields (RED pre-fix): concurrent single-field updates must both land.
+    @Test
+    void concurrentProfileDisjointFieldsBothLand() throws Exception {
+        String t = register("profrace@example.com");
+        java.util.concurrent.atomic.AtomicInteger i = new java.util.concurrent.atomic.AtomicInteger();
+        List<Integer> codes = fireConcurrently(2, () -> (i.getAndIncrement() == 0)
+                ? mvc.perform(put("/api/me/profile").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"heightCm\":\"180.5\"}"))
+                        .andReturn().getResponse().getStatus()
+                : mvc.perform(put("/api/me/profile").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"goal\":\"GAIN_MUSCLE\"}"))
+                        .andReturn().getResponse().getStatus());
+        assertThat(codes).allMatch(c -> c == 200);
+        mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.profile.heightCm").value("180.5"))
+                .andExpect(jsonPath("$.profile.goal").value("GAIN_MUSCLE"));
+    }
+
+    // initialIntakeAt is set-once: a second kcal update must not move the anchor timestamp.
+    @Test
+    void initialIntakeAtIsSetOnce() throws Exception {
+        String t = register("intake@example.com");
+        mvc.perform(put("/api/me/profile").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initialIntakeKcal\":2500}"))
+                .andExpect(status().isOk());
+        Object first = ((org.bson.Document) rawUser(meId(t)).get("profile")).get("initialIntakeAt");
+        assertThat(first).isNotNull();
+        mvc.perform(put("/api/me/profile").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initialIntakeKcal\":2600}"))
+                .andExpect(status().isOk());
+        org.bson.Document p = (org.bson.Document) rawUser(meId(t)).get("profile");
+        assertThat(p.get("initialIntakeAt")).as("set-once anchor never moves").isEqualTo(first);
+        assertThat(p.get("initialIntakeKcal")).isEqualTo(2600);
+    }
+
+    // Derive-on-read (RED pre-fix): a stale stored mirror must never be served; the value is computed
+    // from the log — latest NON-estimated entry — so an estimated import row can't poison it either.
+    @Test
+    void currentBodyweightIsDerivedNotStaleMirror() throws Exception {
+        String t = register("derive@example.com");
+        assertThat(addBwStatus(t, "80.5")).isEqualTo(200);
+        String uid = meId(t);
+        // seed a stale mirror + a NEWER estimated raw entry — neither may win over the real 80.5
+        org.bson.Document estimated = new org.bson.Document("entryId", new org.bson.types.ObjectId().toHexString())
+                .append("recordedAt", java.util.Date.from(java.time.Instant.now().plusSeconds(3600)))
+                .append("weightKg", org.bson.types.Decimal128.parse("90"))
+                .append("estimated", true);
+        mongo.getDb().getCollection("users").updateOne(
+                new org.bson.Document("_id", new org.bson.types.ObjectId(uid)),
+                new org.bson.Document("$set", new org.bson.Document("currentBodyweightKg", org.bson.types.Decimal128.parse("70")))
+                        .append("$push", new org.bson.Document("bodyweightLog", estimated)));
+        mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.currentBodyweightKg").value("80.5"));
+    }
+
+    // Write-on-read elimination (RED pre-fix): a GET on a legacy doc (id-less weigh-in) must not mutate it —
+    // the backfill belongs to the one-time startup runner, not the request path.
+    @Test
+    void getNeverWritesToLegacyDocs() throws Exception {
+        String t = register("legacyget@example.com");
+        String uid = meId(t);
+        org.bson.Document legacy = new org.bson.Document()
+                .append("recordedAt", java.util.Date.from(java.time.Instant.parse("2024-01-01T12:00:00Z")))
+                .append("weightKg", org.bson.types.Decimal128.parse("77.5"))
+                .append("estimated", false);   // deliberately NO id key at all
+        mongo.getDb().getCollection("users").updateOne(
+                new org.bson.Document("_id", new org.bson.types.ObjectId(uid)),
+                new org.bson.Document("$push", new org.bson.Document("bodyweightLog", legacy)));
+        mvc.perform(get("/api/me").header("Authorization", bearer(t))).andExpect(status().isOk());
+        org.bson.Document entry = ((java.util.List<org.bson.Document>) (java.util.List<?>) rawUser(uid).get("bodyweightLog")).get(0);
+        assertThat(entry.containsKey("_id") || entry.containsKey("entryId") || entry.containsKey("id"))
+                .as("a GET must not mint ids / rewrite the doc").isFalse();
+    }
+
+    // Mirror lifecycle (review-council fix): an import-era account serves the legacy mirror UNTIL its
+    // first bodyweight write ($unset in the same atomic update); after deleting the last real weigh-in
+    // the value is null — never a resurrected years-stale import weight feeding effective-load/Mifflin.
+    @Test
+    void legacyMirrorIsRetiredOnFirstWriteNeverResurrected() throws Exception {
+        String t = register("mirror@example.com");
+        String uid = meId(t);
+        // import shape: mirror = user-supplied real weight, log = one estimated row
+        org.bson.Document est = new org.bson.Document("entryId", new org.bson.types.ObjectId().toHexString())
+                .append("recordedAt", java.util.Date.from(java.time.Instant.parse("2023-01-01T12:00:00Z")))
+                .append("weightKg", org.bson.types.Decimal128.parse("75"))
+                .append("estimated", true);
+        mongo.getDb().getCollection("users").updateOne(
+                new org.bson.Document("_id", new org.bson.types.ObjectId(uid)),
+                new org.bson.Document("$set", new org.bson.Document("currentBodyweightKg", org.bson.types.Decimal128.parse("75"))
+                        .append("bodyweightLog", java.util.List.of(est))));
+        mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.currentBodyweightKg").value("75"));      // untouched account: fallback serves
+        assertThat(addBwStatus(t, "80.3")).isEqualTo(200);                       // first write retires the mirror
+        mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andExpect(jsonPath("$.currentBodyweightKg").value("80.3"));    // non-binary-representable ⇒ Decimal128 held
+        String id = json.readTree(mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andReturn().getResponse().getContentAsString()).get("bodyweightLog").get(1).get("id").asText();
+        mvc.perform(delete("/api/me/bodyweight/" + id).header("Authorization", bearer(t))).andExpect(status().isOk());
+        String afterDelete = mvc.perform(get("/api/me").header("Authorization", bearer(t)))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(afterDelete).get("currentBodyweightKg").isNull())
+                .as("null after deleting the last real entry — NOT a resurrected 75").isTrue();
+        assertThat(rawUser(uid).containsKey("currentBodyweightKg")).as("mirror $unset by the write").isFalse();
+    }
+
+    // Startup backfill: a legacy `_id`-keyed id is PRESERVED as entryId (the client already holds it),
+    // a missing one is minted once, and the second run is a no-op (self-terminating).
+    @Test
+    void backfillRunnerPreservesLegacyIdsAndIsIdempotent() throws Exception {
+        String t = register("backfill@example.com");
+        String uid = meId(t);
+        org.bson.Document withLegacyId = new org.bson.Document("_id", "legacy-id-123")
+                .append("recordedAt", java.util.Date.from(java.time.Instant.parse("2024-01-01T12:00:00Z")))
+                .append("weightKg", org.bson.types.Decimal128.parse("76"))
+                .append("estimated", false);
+        org.bson.Document withNoId = new org.bson.Document()
+                .append("recordedAt", java.util.Date.from(java.time.Instant.parse("2024-02-01T12:00:00Z")))
+                .append("weightKg", org.bson.types.Decimal128.parse("77"))
+                .append("estimated", false);
+        mongo.getDb().getCollection("users").updateOne(
+                new org.bson.Document("_id", new org.bson.types.ObjectId(uid)),
+                new org.bson.Document("$set", new org.bson.Document("bodyweightLog",
+                        java.util.List.of(withLegacyId, withNoId))));
+
+        assertThat(backfill.backfillAll()).as("first run remediates the doc").isEqualTo(1);
+        java.util.List<org.bson.Document> log =
+                ((java.util.List<org.bson.Document>) (java.util.List<?>) rawUser(uid).get("bodyweightLog"));
+        assertThat(log.get(0).getString("entryId")).as("legacy _id survives as entryId").isEqualTo("legacy-id-123");
+        assertThat(log.get(0).containsKey("_id")).isFalse();
+        assertThat(log.get(1).getString("entryId")).as("missing id is minted").isNotBlank();
+        assertThat(backfill.backfillAll()).as("second run is a no-op").isEqualTo(0);
+
+        // the backfilled id is live: the client can amend through it
+        mvc.perform(patch("/api/me/bodyweight/legacy-id-123").header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weightKg\":\"78.5\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bodyweightLog[0].weightKg").value("78.5"));
+    }
+
 }

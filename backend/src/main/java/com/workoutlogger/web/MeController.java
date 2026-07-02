@@ -2,10 +2,8 @@ package com.workoutlogger.web;
 
 import com.workoutlogger.coach.EnergyService;
 import com.workoutlogger.domain.BodyweightEntry;
-import com.workoutlogger.domain.Profile;
 import com.workoutlogger.domain.User;
-import com.workoutlogger.repo.UserRepository;
-import com.workoutlogger.security.Tenant;
+import com.workoutlogger.repo.MeRepository;
 import com.workoutlogger.web.dto.ApiDtos.EnergyDto;
 import com.workoutlogger.web.dto.ApiDtos.MeDto;
 import com.workoutlogger.web.dto.ApiDtos.SettingsDto;
@@ -22,20 +20,23 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.Comparator;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
+/**
+ * The current user's own document. Every mutation here is a TARGETED ATOMIC update via
+ * {@link MeRepository} — never a read-modify-write {@code save()} of the whole User doc, which lost
+ * concurrent writes (audit M3; mechanism-selection rule in DESIGN.md §2a). Reads never write.
+ */
 @RestController
 @RequestMapping("/api/me")
 public class MeController {
 
-    private final UserRepository users;
-    private final Tenant tenant;
+    private final MeRepository me;
     private final EnergyService energy;
 
-    public MeController(UserRepository users, Tenant tenant, EnergyService energy) {
-        this.users = users;
-        this.tenant = tenant;
+    public MeController(MeRepository me, EnergyService energy) {
+        this.me = me;
         this.energy = energy;
     }
 
@@ -51,19 +52,21 @@ public class MeController {
         return DtoMapper.toSettingsDto(current());
     }
 
-    /** Upserts settings with last-write-wins by epoch-millis `updatedAt` — a stale write never clobbers a
-     *  newer one (so a second device that synced later can't overwrite the latest change). */
+    /**
+     * Upserts settings with last-write-wins by epoch-millis `updatedAt`, enforced ATOMICALLY — the
+     * newest-wins check is inside the update's match, not a read-then-save. Always 200, never 409 (the
+     * client fire-and-forgets this path): a winning write echoes the committed values; a superseded one
+     * returns the persisted winner so the caller can reconcile.
+     */
     @PutMapping("/settings")
     public SettingsDto putSettings(@RequestBody SettingsDto req) {
-        User u = current();
         long incoming = parseTs(req.updatedAt());
-        if (incoming >= u.getSettingsUpdatedAt()) {
-            u.setSettings(req.settings() == null ? new java.util.HashMap<>() : new java.util.HashMap<>(req.settings()));
-            u.setSettingsUpdatedAt(incoming);
-            u.setUpdatedAt(Instant.now());
-            users.save(u);
+        Map<String, String> settings = req.settings() == null
+                ? new java.util.HashMap<>() : new java.util.HashMap<>(req.settings());
+        if (me.putSettingsIfNewer(settings, incoming)) {
+            return new SettingsDto(settings, String.valueOf(incoming));   // we won: Mongo committed exactly this
         }
-        return DtoMapper.toSettingsDto(u);
+        return DtoMapper.toSettingsDto(current());   // superseded (or racing): return the persisted winner
     }
 
     private static long parseTs(String s) {
@@ -71,33 +74,9 @@ public class MeController {
         catch (NumberFormatException e) { return 0L; }
     }
 
+    /** Pure read — the legacy id-backfill save() moved to {@code BodyweightEntryIdBackfillRunner}. */
     private User current() {
-        User u = users.findById(tenant.userId())
-                .orElseThrow(() -> new NotFoundException("User not found"));
-        if (backfillIds(u)) users.save(u);   // give legacy weigh-ins stable ids so they can be amended/deleted
-        return u;
-    }
-
-    private static boolean backfillIds(User u) {
-        List<BodyweightEntry> log = u.getBodyweightLog();
-        boolean changed = false;
-        for (int i = 0; i < log.size(); i++) {
-            BodyweightEntry e = log.get(i);
-            if (e.id() == null) {
-                log.set(i, new BodyweightEntry(new ObjectId().toHexString(), e.recordedAt(), e.weightKg(), e.estimated()));
-                changed = true;
-            }
-        }
-        return changed;
-    }
-
-    /** currentBodyweightKg = latest REAL weigh-in, else null — never an estimated import value (it would
-     *  poison the calisthenics effective-load calc). */
-    private static void recomputeCurrent(User u) {
-        u.setCurrentBodyweightKg(u.getBodyweightLog().stream()
-                .filter(e -> !e.estimated())
-                .max(Comparator.comparing(BodyweightEntry::recordedAt))
-                .map(BodyweightEntry::weightKg).orElse(null));
+        return me.find().orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     @GetMapping
@@ -105,53 +84,38 @@ public class MeController {
         return DtoMapper.toDto(current());
     }
 
-    /** Records a bodyweight measurement (optionally backdated). currentBodyweightKg tracks the LATEST entry. */
+    /** Records a bodyweight measurement (optionally backdated). The log cap is enforced inside the
+     *  atomic append's match, so concurrent adds can't overshoot it. */
     @PutMapping("/bodyweight")
     public MeDto setBodyweight(@Valid @RequestBody SetBodyweightRequest req) {
-        User u = current();
-        if (u.getBodyweightLog().size() >= 3650) throw new BadRequestException("Bodyweight log is full");
-        u.getBodyweightLog().add(new BodyweightEntry(new ObjectId().toHexString(),
-                parseWhen(req.recordedAt()), DtoMapper.dec(req.weightKg()), false));
-        recomputeCurrent(u);
-        u.setUpdatedAt(Instant.now());
-        users.save(u);
-        return DtoMapper.toDto(u);
+        BodyweightEntry entry = new BodyweightEntry(new ObjectId().toHexString(),
+                parseWhen(req.recordedAt()), DtoMapper.dec(req.weightKg()), false);
+        switch (me.addBodyweight(entry)) {
+            case CAP_FULL -> throw new BadRequestException("Bodyweight log is full");
+            case NOT_FOUND -> throw new NotFoundException("User not found");
+            case ADDED -> { /* fall through */ }
+        }
+        return DtoMapper.toDto(current());
     }
 
-    /** Amends a weigh-in (weight and/or date). */
+    /** Amends a weigh-in (weight and/or date) — one positional atomic $set keyed by entry id. */
     @PatchMapping("/bodyweight/{id}")
     public MeDto amendBodyweight(@PathVariable String id, @RequestBody UpdateBodyweightEntryRequest req) {
-        User u = current();
-        var log = u.getBodyweightLog();
-        int i = indexOf(log, id);
-        if (i < 0) throw new NotFoundException("Weigh-in " + id + " not found");
-        BodyweightEntry e = log.get(i);
-        var weight = (req.weightKg() == null || req.weightKg().isBlank()) ? e.weightKg() : DtoMapper.dec(req.weightKg());
-        var when = (req.recordedAt() == null || req.recordedAt().isBlank()) ? e.recordedAt() : parseWhen(req.recordedAt());
-        log.set(i, new BodyweightEntry(e.id(), when, weight, false));   // an amended entry is a real measurement
-        recomputeCurrent(u);
-        u.setUpdatedAt(Instant.now());
-        users.save(u);
-        return DtoMapper.toDto(u);
+        var weight = (req.weightKg() == null || req.weightKg().isBlank()) ? null : DtoMapper.dec(req.weightKg());
+        var when = (req.recordedAt() == null || req.recordedAt().isBlank()) ? null : parseWhen(req.recordedAt());
+        if (!me.amendBodyweight(id, weight, when)) {
+            throw new NotFoundException("Weigh-in " + id + " not found");
+        }
+        return DtoMapper.toDto(current());
     }
 
-    /** Deletes a weigh-in. */
+    /** Deletes a weigh-in — one atomic $pull keyed by entry id. */
     @DeleteMapping("/bodyweight/{id}")
     public MeDto deleteBodyweight(@PathVariable String id) {
-        User u = current();
-        var log = u.getBodyweightLog();
-        int i = indexOf(log, id);
-        if (i < 0) throw new NotFoundException("Weigh-in " + id + " not found");
-        log.remove(i);
-        recomputeCurrent(u);
-        u.setUpdatedAt(Instant.now());
-        users.save(u);
-        return DtoMapper.toDto(u);
-    }
-
-    private static int indexOf(List<BodyweightEntry> log, String id) {
-        for (int i = 0; i < log.size(); i++) if (id.equals(log.get(i).id())) return i;
-        return -1;
+        if (!me.deleteBodyweight(id)) {
+            throw new NotFoundException("Weigh-in " + id + " not found");
+        }
+        return DtoMapper.toDto(current());
     }
 
     /** Blank → now; a yyyy-MM-dd date → that day at 12:00 UTC; otherwise a parsed instant. */
@@ -164,27 +128,24 @@ public class MeController {
         }
     }
 
-    /** Partial update of the optional fitness profile (only non-null fields are applied). */
+    /** Partial update of the optional fitness profile — per-field atomic $set (only non-null fields),
+     *  so concurrent edits to different fields both land. initialIntakeAt stays set-once. */
     @PutMapping("/profile")
     public MeDto updateProfile(@Valid @RequestBody UpdateProfileRequest req) {
-        User u = current();
-        Profile p = u.getProfile() == null ? new Profile() : u.getProfile();
+        Map<String, Object> fields = new LinkedHashMap<>();
         if (req.dateOfBirth() != null && !req.dateOfBirth().isBlank()) {
-            try { p.setDateOfBirth(LocalDate.parse(req.dateOfBirth().trim())); }
+            try { fields.put("dateOfBirth", LocalDate.parse(req.dateOfBirth().trim())); }
             catch (RuntimeException e) { throw new BadRequestException("Invalid date: " + req.dateOfBirth()); }
         }
-        if (req.heightCm() != null) p.setHeightCm(DtoMapper.dec(req.heightCm()));
-        if (req.sex() != null) p.setSex(req.sex());
-        if (req.goal() != null) p.setGoal(req.goal());
-        if (req.activityLevel() != null) p.setActivityLevel(req.activityLevel());
-        if (req.initialIntakeKcal() != null) {
-            p.setInitialIntakeKcal(req.initialIntakeKcal());
-            if (p.getInitialIntakeAt() == null) p.setInitialIntakeAt(Instant.now());
+        if (req.heightCm() != null) fields.put("heightCm", DtoMapper.dec(req.heightCm()));
+        if (req.sex() != null) fields.put("sex", req.sex());
+        if (req.goal() != null) fields.put("goal", req.goal());
+        if (req.activityLevel() != null) fields.put("activityLevel", req.activityLevel());
+        boolean firstIntake = req.initialIntakeKcal() != null;
+        if (firstIntake) fields.put("initialIntakeKcal", req.initialIntakeKcal());
+        if (!me.updateProfileFields(fields, firstIntake)) {
+            throw new NotFoundException("User not found");
         }
-        p.setUpdatedAt(Instant.now());
-        u.setProfile(p);
-        u.setUpdatedAt(Instant.now());
-        users.save(u);
-        return DtoMapper.toDto(u);
+        return DtoMapper.toDto(current());
     }
 }
