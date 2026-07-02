@@ -42,8 +42,9 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
   `setId` (update matched the doc regardless of the arrayFilter); now set-existence is part of the match. Gate:
   ApiIntegrationTest 56/56, backend pure BUILD SUCCESS, frontend tsc+124 vitest+build. **Review council PASSED**
   (backend-engineer + data-modeler CLEAN; eval-engineer/systems-architect findings triaged — two test-coverage
-  gaps fixed in-loop: legacy-null-version *write* path + cross-tenant no-`detail`-leak assertion). **Not yet
-  committed** — ready as a standalone PR when you say `/git-ship`.
+  gaps fixed in-loop: legacy-null-version *write* path + cross-tenant no-`detail`-leak assertion). **SHIPPED as
+  PR #27** (squash-merged to `main` as `bd2100c`, 2026-07-02; CI green: frontend + backend/Mongo + Playwright e2e).
+  First end-to-end run of the new `/autopilot` harness ([[autopilot-harness]]).
   - _Deferred to the version-audit (review council flagged, out of scope for Phase-0, logged not dropped):_
     (1) **409 body divergence** — the pre-existing `PUT /workouts` + Plan `save()` paths return 409 with
     `detail:null` via the generic `OptimisticLockingFailureException` handler, while the new PATCH returns the
