@@ -10,7 +10,10 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // 1 retry everywhere: CI absorbs the odd hiccup; locally it absorbs remote-Atlas latency flake on the
+  // workout-logging /start gate (~600ms/op RTT). A real failure still fails both attempts — retries mask
+  // network flake, not bugs. For a fast local run, point MONGODB_URI at a local mongo instead of Atlas.
+  retries: 1,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: { baseURL, trace: "on-first-retry" },
@@ -27,6 +30,9 @@ export default defineConfig({
             // blank JWT secret → the backend mints an ephemeral key; fine for a single E2E run (the
             // backend stays up throughout, so tokens stay valid). Override via env if you need stability.
             SECURITY_JWT_SECRET: process.env.SECURITY_JWT_SECRET ?? "",   // pragma: allowlist secret
+            // The auth rate limiter keys by IP; a whole suite of registrations comes from one host, which
+            // trips it and 429s later registers (exactly why ApiIntegrationTest disables it). Off for E2E.
+            SECURITY_RATELIMIT_ENABLED: "false",
           },
         },
         {

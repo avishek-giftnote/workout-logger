@@ -86,7 +86,9 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
   round-trip); (3) the EnergyService n==0 mirror-fallback was test-uncovered → pinned in EnergyServiceTest.
   Accepted residuals documented in DESIGN.md §2a (two-op `initialIntakeAt` crash window — write-only field;
   backfill CAS race window structurally untestable in-suite, hand-verified by an adversarial reviewer).
-  **Not yet committed** — ready to ship as a standalone PR.
+  **SHIPPED as PR #29** (squash-merged to `main` as `a05b38b`, 2026-07-02; CI green incl. backend/Mongo).
+  Second end-to-end `/autopilot` run. **M3 was the audit's last open non-LOW finding — the prod-audit
+  cluster (C1/C2/H1–H4/M1–M7) is now fully closed.**
 
 - _2026-06-30_ — **Deploy target → OCI Always-Free + Cloudflare Tunnel** (Fly's free tier was withdrawn).
   Replaced the Fly scaffolding with a VM-based stack: `docker-compose.yml` (`app` with **no published host
@@ -330,6 +332,25 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
   React/Vite logging engine shared by new+edit; 16 validated Mermaid diagrams. See `DESIGN.md` / `docs/coach.md`.
 
 ## On the agenda (backlog, not started)
+
+- **E2E functionality suite (FE+BE Playwright, flag actual-vs-intended) — BUILT via `/autopilot` (2026-07-02), suite green, not committed.**
+  Third autopilot run. A deciding council set the strategy (7 ranked specs, real jar + isolated Atlas,
+  `test.fixme`+`docs/e2e-findings.md` found-bug convention). An eval-engineer review council then hardened it
+  (caught a false-green substring count, a permissive assertion that blessed F01, a missing primary-entity
+  decimal test, and confirmed the ADDED-mode failure was a spec bug). **Delivered:** 7 new spec files
+  (`tenant-isolation`, `bodyweight-decimal` ×3 incl. the workout-set Decimal128 round-trip, `exercise-catalog`,
+  `plan-lifecycle` ENDED walk, `coach-gate` gate, `workout-delete`, `empty-and-error-states`) + shared
+  `logSet`/`logBodyweight` helpers + `docs/e2e-findings.md`. **Full suite: 14 passed / 3 fixme / 0 failed**
+  (retries:1 now, to absorb remote-Atlas latency). No regression to the pre-existing specs.
+  - **F01 filed** (`docs/e2e-findings.md`, MINOR): a cross-tenant/nonexistent workout deep-link renders the
+    generic `QueryError` ("Couldn't load data") instead of a not-found state — `getWorkout` doesn't coerce a
+    404, so `WorkoutDetailPage`'s "Workout not found" branch is dead code. Security intact. Tracked by a
+    fails-loud `test.fixme` in `tenant-isolation.spec.ts`. **A cheap standalone fix candidate** (coerce 404→null
+    in `getWorkout`, or reorder the not-found branch before the error branch).
+  - **3 `test.fixme` gaps** (honestly scoped, no app bug masked): coach READY flip + plan COMPLETED walk (both
+    need heavy fixtures/selector confirmation), and the ADDED-mode was FIXED (was a spec cell-indexing bug).
+  - **Known limitation:** the `logSet`/`/start` specs flake against remote Atlas (~600ms/op RTT, no backend
+    defect); reliable on local mongo / CI `mongo:7`. `retries:1` absorbs it. Council brief: workflow `wnrkfrd5o`.
 
 - **Set-cap trim refinement (no thin slots) — deferred, needs care.** First attempt (drop/redistribute WHOLE slots
   instead of shaving to 1-set stubs) eliminated stubs but **merged distinct-stimulus pairs away**: relocating an
