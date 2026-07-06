@@ -90,6 +90,14 @@ export default function EditWorkoutPage() {
   });
 
   if (workout.isError || exercises.isError) return <QueryError onRetry={() => { workout.refetch(); exercises.refetch(); }} />;
+  // A missing/other-tenant workout (getWorkout coerces 404 → null) — without this branch `blocks` stays null
+  // and the isLoading check below would spin forever (F01). Show the same not-found state as the detail page.
+  if (!workout.isLoading && !workout.data) return (
+    <main className="screen">
+      <div className="empty"><div className="big">Workout not found</div>
+        <button className="btn btn-ghost mt" onClick={() => nav("/previous-workouts")}>← Back</button></div>
+    </main>
+  );
   if (workout.isLoading || blocks === null) return <main className="screen"><div className="spinner" /></main>;
   const totalSets = blocks.reduce((n, b) => n + b.sets.length, 0);
 
