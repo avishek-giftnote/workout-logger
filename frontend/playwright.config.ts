@@ -8,6 +8,8 @@ const managed = !process.env.E2E_BASE_URL;
 
 export default defineConfig({
   testDir: "./e2e",
+  // Drop the run's DB on finish (remote/Atlas only) so local e2e runs stop leaking test databases.
+  globalTeardown: "./e2e/global-teardown.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   // 1 retry everywhere: CI absorbs the odd hiccup; locally it absorbs remote-Atlas latency flake on the

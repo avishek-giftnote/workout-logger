@@ -13,17 +13,17 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
 
 ## Pending decisions (needs Avishek)
 
-- **Database situation — audited 2026-07-07 (`docs/db-situation.md`).** Report was "test runs keep spawning
-  clusters and the `import@giftnote.com` account is gone." **Actual root cause: not clusters — one Atlas cluster,
-  but 16 databases on it.** Every test/smoke run picks its own hand-named `workoutlogger_*` database and never
-  drops it (13 leaked, incl. `_e2e` with 67 accumulated users, `_conctest` with 34 race dupes) — all synthetic
-  test accounts. **`import@giftnote.com` AND the documented `tester@workoutlogger.com` demo are gone from all 16
-  DBs** (one-time imports into DBs later wiped; not recoverable — need a re-import from the git-ignored CSV). The
-  **document schema does not need remodelling**; the fix is env/lifecycle hygiene. Decisions needed: (1) recreate
-  the demo account? — confirm email + choose password, then re-run the importer; (2) drop the 13 stray test DBs
-  now? (synthetic only, irreversible); (3) test-DB strategy — per-run suffix+teardown vs a dropped
-  `workoutlogger_ci`. Current-persistence-model **class diagram** is in the same doc. Entangled with the Atlas
-  password rotation below (single shared credential mingles dev/test/prod data).
+- **Database situation — audited + largely REMEDIATED 2026-07-07 (`docs/db-situation.md`).** Root cause was
+  DB-lifecycle hygiene, not the schema (one Atlas cluster with 16 databases because test/smoke runs named an
+  isolated `workoutlogger_*` DB per run and never dropped it — all synthetic). **Done:** (1) **test-DB teardown
+  wired + verified** — backend `@AfterAll` (`TestDbCleanup`, guarded to only ever drop a `workoutlogger_*` DB,
+  never the dev DB) on `ApiIntegrationTest` + `RateLimitIntegrationTest`, and a Playwright `globalTeardown`
+  (remote-only; CI's ephemeral `mongo:7` is a no-op); both confirmed to drop the run's DB. (2) **13 stray test
+  DBs dropped** — the cluster is now **3** (only `workoutlogger` dev + `admin`/`local`). **Still open:**
+  **recreate a loginable demo account** — `import@giftnote.com`/`tester@workoutlogger.com` are gone (one-time
+  imports into wiped DBs); needs the git-ignored `strong_workouts.csv` + a chosen password, then re-run the
+  importer into `workoutlogger`. Entangled with the Atlas password rotation below (single shared credential).
+  Current-persistence-model **class diagram** is in the audit doc.
 - **Deployment: scaffolded, NOT executed.** Docker + compose + Cloudflare-Tunnel + OCI runbook merged
   (PRs #24-26; `DEPLOY.md` is authoritative). Blocked on the VM-shape choice: **Path A** (add 4 GB swap +
   cap the JVM heap on the free 1 GB x86 micro, ship now) vs **Path B, recommended** (PAYG upgrade → Ampere

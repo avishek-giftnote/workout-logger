@@ -45,11 +45,19 @@ class ApiIntegrationTest {
     @Autowired ObjectMapper json;
     @Autowired com.workoutlogger.config.BodyweightEntryIdBackfillRunner backfill;
 
+    private static MongoTemplate dropRef;
+
     @BeforeEach
     void clean() {
+        dropRef = mongo;   // capture for the static @AfterAll teardown
         for (String c : new String[]{"users", "workouts", "exercises", "templates", "splits", "plans"}) {
             mongo.getDb().getCollection(c).deleteMany(new org.bson.Document());
         }
+    }
+
+    @org.junit.jupiter.api.AfterAll
+    static void dropTestDatabase() {
+        TestDbCleanup.dropIfTestDatabase(dropRef);   // don't leak the run's workoutlogger_* DB (docs/db-situation.md)
     }
 
     private String register(String email) throws Exception {

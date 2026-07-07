@@ -36,6 +36,18 @@ class RateLimitIntegrationTest {
 
     @Autowired
     MockMvc mvc;
+    @org.springframework.beans.factory.annotation.Autowired
+    org.springframework.data.mongodb.core.MongoTemplate mongo;
+
+    private static org.springframework.data.mongodb.core.MongoTemplate dropRef;
+
+    @org.junit.jupiter.api.BeforeEach
+    void captureDropRef() { dropRef = mongo; }
+
+    @org.junit.jupiter.api.AfterAll
+    static void dropTestDatabase() {
+        TestDbCleanup.dropIfTestDatabase(dropRef);   // don't leak the run's workoutlogger_* DB (docs/db-situation.md)
+    }
 
     @Test
     void loginBurstFromOneIpIsThrottledWith429() throws Exception {
