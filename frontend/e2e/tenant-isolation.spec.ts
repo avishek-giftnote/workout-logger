@@ -32,23 +32,32 @@ test("tenant isolation: user B never sees user A's workouts, catalog, or a direc
   await b.getByRole("button", { name: "Exercises" }).click();
   await expect(b.getByText("84 exercises", { exact: true })).toBeVisible();
 
-  // 3. B deep-linking directly to A's workout must NOT render A's data — the security invariant — and the
-  //    page must SETTLE (no spinner-forever). Both are hard-asserted here.
+  // 3. B deep-linking directly to A's workout must NOT render A's data (the security invariant) and must
+  //    show the not-found state — a tenant miss is a 404, which getWorkout now coerces to null (F01 fixed).
   await b.goto(aWorkoutPath);
   await expect(b.getByText("123.5")).toHaveCount(0);               // A's set weight never shows
   await expect(b.locator(".set-row")).toHaveCount(0);
-  await expect(b.getByText("Couldn't load data")).toBeVisible();   // pins CURRENT behaviour (see the F01 fixme)
+  await expect(b.getByText("Workout not found")).toBeVisible();    // not the generic "Couldn't load data"
 
   await ctxA.close();
   await ctxB.close();
 });
 
-// F01 (docs/e2e-findings.md): the INTENDED state for a tenant-scoped/nonexistent workout is a "not found"
-// message, not the generic connectivity error. WorkoutDetailPage even has a dead "Workout not found" branch.
-// This fails today (getWorkout doesn't coerce 404 → QueryError wins); kept as a fails-loud fixme so a fix
-// flips it green and prompts removing the fixme, rather than a permissive OR that hides the discrepancy.
-test.fixme("F01: a nonexistent/foreign workout shows a not-found state, not a generic connection error", async ({ page }) => {
+// F01 (docs/e2e-findings.md, FIXED): a nonexistent/foreign workout shows a "not found" state, not the
+// generic connectivity error — getWorkout coerces a 404 to null so WorkoutDetailPage's not-found branch
+// (previously dead code) renders. The detail route:
+test("F01: a nonexistent workout deep-link shows not-found, not a generic connection error", async ({ page }) => {
   await register(page);
   await page.goto("/previous-workouts/000000000000000000000000");
   await expect(page.getByText("Workout not found")).toBeVisible();
+  await expect(page.getByText("Couldn't load data")).toHaveCount(0);
+});
+
+// ...and the EDIT route, which had NO not-found branch — a coerced-null 404 left `blocks` null and would
+// have spun forever without the new guard.
+test("F01: the edit route for a nonexistent workout shows not-found, not an infinite spinner", async ({ page }) => {
+  await register(page);
+  await page.goto("/previous-workouts/000000000000000000000000/edit");
+  await expect(page.getByText("Workout not found")).toBeVisible();
+  await expect(page.locator(".spinner")).toHaveCount(0);
 });

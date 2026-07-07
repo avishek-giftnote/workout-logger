@@ -121,7 +121,13 @@ export const Api = {
 
   // workouts
   listWorkouts: () => api<WorkoutDto[]>("/workouts"),
-  getWorkout: (id: string) => api<WorkoutDto>(`/workouts/${id}`),
+  // 404 → null (not a thrown error) so a missing/other-tenant workout renders a "not found" state, not the
+  // generic connectivity error (F01). Mirrors lastWorkingSet/getPlan; both detail + edit pages branch on null.
+  getWorkout: (id: string) =>
+    api<WorkoutDto | null>(`/workouts/${id}`).catch((e) => {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }),
   createWorkout: (body: CreateWorkoutRequest) =>
     api<WorkoutDto>("/workouts", { method: "POST", body: JSON.stringify(body) }),
   updateWorkout: (id: string, body: CreateWorkoutRequest) =>

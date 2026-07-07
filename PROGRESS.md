@@ -333,7 +333,19 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 ## On the agenda (backlog, not started)
 
-- **E2E functionality suite (FE+BE Playwright, flag actual-vs-intended) — BUILT via `/autopilot` (2026-07-02), suite green, not committed.**
+- **E2E functionality suite (FE+BE Playwright, flag actual-vs-intended) — SHIPPED via `/autopilot` as PR #30 (`7a1b651`, 2026-07-02).**
+  CI caught a flake my local Atlas runs couldn't: the e2e job red-then-green twice → **root cause was the per-IP
+  auth rate limiter (audit C2) 429-ing the burst of registrations from CI's single host**, so the authed shell
+  never rendered (a LATENT flake in the pre-existing e2e setup — also hit the old `plan-slots` spec). Fixed with
+  `SECURITY_RATELIMIT_ENABLED=false` in the managed webServer env (as `ApiIntegrationTest` already does) +
+  a longer `register()` auth-gate wait. All CI green on both workflow runs after the fix.
+  - **F01 FIXED via `/autopilot` (2026-07-07):** `getWorkout` now coerces a 404 → null (mirrors
+    `lastWorkingSet`/`getPlan`), so a missing/other-tenant workout deep-link shows "Workout not found" instead
+    of the generic "Couldn't load data" — the detail page's previously-dead not-found branch renders.
+    `EditWorkoutPage` gained the same branch (a coerced-null 404 would otherwise leave `blocks` null and spin
+    forever — caught before shipping). Council skipped (mechanical fix, precedented pattern); frontend-engineer
+    review CLEAN. Guards: the F01 `test.fixme` promoted to 2 live e2e tests (detail + edit routes) + the
+    cross-tenant assertion flipped to "Workout not found". Gate: tsc + 124 vitest + build; e2e F01 guards green.
   Third autopilot run. A deciding council set the strategy (7 ranked specs, real jar + isolated Atlas,
   `test.fixme`+`docs/e2e-findings.md` found-bug convention). An eval-engineer review council then hardened it
   (caught a false-green substring count, a permissive assertion that blessed F01, a missing primary-entity
