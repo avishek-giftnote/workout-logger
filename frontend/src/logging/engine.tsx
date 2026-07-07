@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import { useSettings } from "../settings";
-import type { CardioMetric, Equipment, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput } from "../api/types";
+import type { CardioMetric, Equipment, ExerciseDto, LoadMode, SetDto, SetType, TemplateDto, TemplateExerciseInput, WorkoutDto } from "../api/types";
 
 // ── large-jump guard ──
 /** Returns true when the entered weight is an unusually large jump from the seeded placeholder.
@@ -130,6 +130,46 @@ export function paceSpeed(distanceKm: number, durationS: number): { pace: string
   return { pace: `${secToMmss(Math.round(paceSec))} /km`, speed: `${speed.toFixed(1)} km/h` };
 }
 
+/** Duration for DISPLAY: H:MM:SS past an hour, else M:SS. (secToMmss is the mm:ss INPUT format and does
+ *  not roll hours over — a 90-min ride would read "90:00"; this is the read-side fix.) */
+export const fmtTime = (s: number): string => {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+    : `${m}:${String(sec).padStart(2, "0")}`;
+};
+
+/** Canonical per-set label, shared by WorkoutDetailPage + ExerciseDetailPage so the two can't drift.
+ *  Cardio → "5.20 km · 26:14 · 5:03 /km" (only the present parts; "—" if none); strength → the weight +
+ *  loadMode decomposition. A cardio set carries weight/reps null by invariant. */
+export function formatSetLabel(s: SetDto): string {
+  if (s.kind === "CARDIO") {
+    const parts: string[] = [];
+    if (s.distanceM) parts.push(`${(parseFloat(s.distanceM) / 1000).toFixed(2)} km`);
+    if (s.durationS != null) parts.push(fmtTime(s.durationS));
+    if (s.distanceM && s.durationS) {
+      const ps = paceSpeed(parseFloat(s.distanceM) / 1000, s.durationS);
+      if (ps) parts.push(ps.pace);
+    }
+    return parts.join(" · ") || "—";
+  }
+  if (s.loadMode === "BODYWEIGHT") return `${s.weight} kg · BW`;
+  if (s.loadMode === "ADDED") return `${s.weight} kg · BW +${s.loadDelta}`;
+  if (s.loadMode === "ASSISTED") return `${s.weight} kg · assist −${s.loadDelta}`;
+  return `${s.weight ?? "—"} kg`;
+}
+
+/** Session-level cardio roll-up for the detail view: total distance (km) over CARDIO sets + whether the
+ *  session has any cardio / any strength (drives which stat tiles render). Cardio has no kg-volume. */
+export function cardioSummary(w: WorkoutDto): { km: number; hasCardio: boolean; hasStrength: boolean } {
+  let km = 0, hasCardio = false, hasStrength = false;
+  for (const b of w.exercises) for (const s of b.sets) {
+    if (s.kind === "CARDIO") { hasCardio = true; if (s.distanceM) km += parseFloat(s.distanceM) / 1000; }
+    else hasStrength = true;
+  }
+  return { km, hasCardio, hasStrength };
+}
+
 /** Placeholders carry a previous set's values (used when starting a new session). */
 export function seededSet(prev: SetDto, isBw: boolean): DraftSet {
   const d = blankSet(prev.setType);
@@ -219,6 +259,15 @@ export const structureChanged = (t: TemplateDto, blocks: DraftBlock[]): boolean 
 
 const orPrev = (entry: string, prev?: string) => (entry.trim() || prev || "");
 
+/** Round a free-text decimal string to `dp` places (keeps it inside the backend's cardio @Pattern
+ *  precision); blank → null, non-numeric → passed through so the server rejects it clearly. */
+export const roundStr = (raw: string, dp: number): string | null => {
+  const t = raw.trim();
+  if (!t) return null;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? String(Math.round(n * 10 ** dp) / 10 ** dp) : t;
+};
+
 export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, bodyweight: string, includeRpe = true, isCardio = false) {
   if (isCardio) {
     const km = parseFloat(orPrev(s.distance ?? "", s.pDistance) || "");
@@ -227,8 +276,11 @@ export function toCreateSet(s: DraftSet, orderIndex: number, isBw: boolean, body
       weight: null, loadMode: null, loadDelta: null, reps: null, rpe: null,
       distanceM: Number.isFinite(km) && km > 0 ? String(Math.round(km * 1e6) / 1e3) : null,   // km→m, mm-rounded (no float drift)
       durationS: mmssToSec(orPrev(s.time ?? "", s.pTime)),
-      gradePct: (s.grade ?? "").trim() || null,
-      elevationGainM: (s.elev ?? "").trim() || null,
+      // Round grade/elev to the backend pattern's precision (2dp / 3dp) so a free-text entry like "12.555"
+      // can't produce a value the CARDIO_*_PATTERN rejects (distance is already rounded above). Non-numeric
+      // passes through unchanged → the backend 400s it with a clear message.
+      gradePct: roundStr(s.grade ?? "", 2),
+      elevationGainM: roundStr(s.elev ?? "", 3),
       cadenceSpm: (s.cadence ?? "").trim() ? parseInt(s.cadence!, 10) : null,
     };
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { blankSet, isLargeJump, mmssToSec, paceSpeed, serializeDraft, deserializeDraft, toCreateSet, structureChanged, uid, type DraftSet } from "./engine";
-import type { ExerciseDto, TemplateDto } from "../api/types";
+import { blankSet, cardioSummary, fmtTime, formatSetLabel, isLargeJump, mmssToSec, paceSpeed, serializeDraft, deserializeDraft, toCreateSet, structureChanged, uid, type DraftSet } from "./engine";
+import type { ExerciseDto, SetDto, TemplateDto, WorkoutDto } from "../api/types";
 
 const set = (o: Partial<DraftSet>): DraftSet => ({ ...blankSet("WORKING"), ...o });
 
@@ -40,6 +40,12 @@ describe("toCreateSet", () => {
   it("maps a cardio set with no float drift on distance", () => {
     const r = toCreateSet(set({ distance: "5.2", time: "26:14" }), 0, false, "", true, true);
     expect(r).toMatchObject({ kind: "CARDIO", distanceM: "5200", durationS: 1574, weight: null, reps: null });
+  });
+  it("rounds grade/elev to the backend pattern precision so free-text can't 400", () => {
+    // grade → 2dp, elev → 3dp (mirrors the CARDIO_GRADE/ELEVATION patterns); "12.555" must not reach the server
+    const r = toCreateSet(set({ distance: "5", time: "25:00", grade: "12.555", elev: "52.5555" }), 0, false, "", true, true);
+    expect(r.gradePct).toBe("12.56");
+    expect(r.elevationGainM).toBe("52.556");
   });
 });
 
@@ -99,4 +105,52 @@ describe("structureChanged", () => {
   it("returns true when a set count changed", () => expect(structureChanged(tmpl(3), [block(4)])).toBe(true));
   it("returns true when an exercise was added", () =>
     expect(structureChanged(tmpl(3), [block(3), block(3)])).toBe(true));
+});
+
+// ── cardio display helpers (shared by WorkoutDetailPage + ExerciseDetailPage) ──
+const sd = (o: Partial<SetDto>): SetDto => ({
+  id: "s", setType: "WORKING", weight: null, loadMode: null, loadDelta: null, reps: null, rpe: null,
+  note: null, kind: null, distanceM: null, durationS: null, gradePct: null, elevationGainM: null, cadenceSpm: null, ...o,
+} as SetDto);
+
+describe("fmtTime", () => {
+  it("mm:ss under an hour", () => expect(fmtTime(1574)).toBe("26:14"));
+  it("rolls hours over past 60 min (the bug: 5400 was '90:00')", () => expect(fmtTime(5400)).toBe("1:30:00"));
+  it("pads minutes+seconds in the H:MM:SS form", () => expect(fmtTime(3661)).toBe("1:01:01"));
+  it("zero → 0:00", () => expect(fmtTime(0)).toBe("0:00"));
+});
+
+describe("formatSetLabel", () => {
+  it("cardio distance + duration + derived pace", () =>
+    expect(formatSetLabel(sd({ kind: "CARDIO", distanceM: "5200", durationS: 1574 }))).toBe("5.20 km · 26:14 · 5:03 /km"));
+  it("cardio distance only (no pace without duration)", () =>
+    expect(formatSetLabel(sd({ kind: "CARDIO", distanceM: "5200" }))).toBe("5.20 km"));
+  it("cardio duration only, over an hour", () =>
+    expect(formatSetLabel(sd({ kind: "CARDIO", durationS: 5400 }))).toBe("1:30:00"));
+  it("cardio with neither distance nor duration → —", () =>
+    expect(formatSetLabel(sd({ kind: "CARDIO" }))).toBe("—"));
+  it("strength unchanged (bodyweight ADDED decomposition)", () =>
+    expect(formatSetLabel(sd({ loadMode: "ADDED", weight: "82.5", loadDelta: "10" }))).toBe("82.5 kg · BW +10"));
+  it("plain strength weight", () => expect(formatSetLabel(sd({ weight: "60" }))).toBe("60 kg"));
+});
+
+describe("cardioSummary", () => {
+  const w = (sets: Partial<SetDto>[]): WorkoutDto => ({
+    id: "w", startedAt: "2026-06-04T07:00:00Z", durationSeconds: null, rawDurationText: null, templateId: null,
+    cyclePhase: null, soreMuscles: null, createdAt: "", updatedAt: "", version: 1,
+    exercises: [{ exerciseId: "e", name: "x", position: 0, note: null, sets: sets.map(sd) }],
+  } as WorkoutDto);
+  it("strength-only → no cardio, no distance", () =>
+    expect(cardioSummary(w([{ weight: "60", reps: 5 }]))).toMatchObject({ hasCardio: false, hasStrength: true, km: 0 }));
+  it("cardio-only → distance summed, no strength", () =>
+    expect(cardioSummary(w([{ kind: "CARDIO", distanceM: "5200" }, { kind: "CARDIO", distanceM: "4800" }])))
+      .toMatchObject({ hasCardio: true, hasStrength: false, km: 10 }));
+  it("mixed → both flags true, only cardio distance counted", () =>
+    expect(cardioSummary(w([{ weight: "60", reps: 5 }, { kind: "CARDIO", distanceM: "3000" }])))
+      .toMatchObject({ hasCardio: true, hasStrength: true, km: 3 }));
+  it("cardio with no distance → hasCardio true, km 0, no NaN", () => {
+    const r = cardioSummary(w([{ kind: "CARDIO", durationS: 600 }]));
+    expect(r.hasCardio).toBe(true);
+    expect(r.km).toBe(0);
+  });
 });

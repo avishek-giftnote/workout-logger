@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
+_Last updated: 2026-07-07 (database-situation audit + current-model class diagram)_
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -13,6 +13,17 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
 
 ## Pending decisions (needs Avishek)
 
+- **Database situation — audited 2026-07-07 (`docs/db-situation.md`).** Report was "test runs keep spawning
+  clusters and the `import@giftnote.com` account is gone." **Actual root cause: not clusters — one Atlas cluster,
+  but 16 databases on it.** Every test/smoke run picks its own hand-named `workoutlogger_*` database and never
+  drops it (13 leaked, incl. `_e2e` with 67 accumulated users, `_conctest` with 34 race dupes) — all synthetic
+  test accounts. **`import@giftnote.com` AND the documented `tester@workoutlogger.com` demo are gone from all 16
+  DBs** (one-time imports into DBs later wiped; not recoverable — need a re-import from the git-ignored CSV). The
+  **document schema does not need remodelling**; the fix is env/lifecycle hygiene. Decisions needed: (1) recreate
+  the demo account? — confirm email + choose password, then re-run the importer; (2) drop the 13 stray test DBs
+  now? (synthetic only, irreversible); (3) test-DB strategy — per-run suffix+teardown vs a dropped
+  `workoutlogger_ci`. Current-persistence-model **class diagram** is in the same doc. Entangled with the Atlas
+  password rotation below (single shared credential mingles dev/test/prod data).
 - **Rotate the Atlas DB password + set a real JWT secret** — the `avishek_db_user` Atlas password was pasted
   in chat this session; the dev `SECURITY_JWT_SECRET` is a throwaway. Rotate before any real prod use.
 - **Deferred coaching findings** (`docs/eval-findings.md`, evals pin current behavior under TODO):
@@ -59,6 +70,27 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
   **Decided 2026-06-30: partial-unique index** (`plans {userId}|status=ACTIVE`), built at boot. See Done.
 
 ## Done
+
+- _2026-07-07_ — **Cardio logging completed end-to-end via `/autopilot`.** Cardio was already substantially
+  wired (domain, DTO round-trip, live logging engine, picker, 7 seeded exercises, per-exercise history); a
+  council scoped the two real gaps + additions. **Shipped:** (1) **backend validation** — cardio DTO fields had
+  ZERO Bean-Validation; added 3 patterns (`CARDIO_DISTANCE_PATTERN` allows meters to 999999.999 so a 10 km run
+  "10000" passes — the ≤9999 strength `DECIMAL_PATTERN` would have rejected it), signed grade `@DecimalMin/Max(-30,40)`,
+  elevation `@DecimalMax(20000)`, `durationS @Max(86400)`, `cadenceSpm @Max(300)`; `$jsonSchema` floors on
+  distanceM/elevationGainM (fresh-collection backstop). (2) **frontend display** (the primary gap) —
+  `WorkoutDetailPage` rendered a logged run as "— kg / — reps / —"; now shows the shared `formatSetLabel`
+  ("5.20 km · 26:14 · 5:03 /km"), reps/rpe suppressed per-set, conditional stat tiles (kg-volume / distance /
+  both); extracted `fmtTime`+`formatSetLabel`+`cardioSummary` into `engine.tsx` and deduped `ExerciseDetailPage`
+  (the two divergent copies were how the gap arose). **Fixed a bonus bug:** `fmtTime` hour-rollover (a 90-min
+  ride read "90:00"; now "1:30:00"). (3) **per-modality seed `cardioMetrics`** (new users). **Review council
+  found 2 MAJORs, fixed in-loop:** the free-text grade/elev inputs could emit an off-pattern value (3-decimal
+  grade → whole-workout 400 on a later edit) → `toCreateSet` now rounds grade/elev to the pattern precision like
+  distance; and the seed `cardioMetrics` was untested → a backend guard now asserts Rowing Machine seeds with
+  CADENCE (not the default fallback). **Deferred/accepted (documented):** `UpdateSetRequest` cardio fields +
+  cardio `Equipment` value + existing-user backfill (council); the `$jsonSchema` floor only attaches to fresh
+  collections (defense-in-depth; the DTO `@Pattern` is the real guard). Gate: backend 77 tests
+  (incl. 10km-accepted + boundary/reject + negative-grade + edit-PUT round-trips + seed metrics), frontend tsc +
+  139 vitest + eval + build, and a **live-verified cardio e2e** (`cardio.spec.ts`). **Not yet committed.**
 
 - _2026-07-02_ — **M3 (User-doc lost updates) IMPLEMENTED via `/autopilot` — gate green, review council in
   flight.** Second autopilot run; picked as highest-priority open item (the audit's last non-LOW finding;
@@ -332,6 +364,13 @@ _Last updated: 2026-06-30 (UI/UX + prod-readiness council audit)_
   React/Vite logging engine shared by new+edit; 16 validated Mermaid diagrams. See `DESIGN.md` / `docs/coach.md`.
 
 ## On the agenda (backlog, not started)
+
+- **DB lifecycle hygiene (fix the stray-database leak) — scoped 2026-07-07 (`docs/db-situation.md`).** Once the
+  pending-decisions above are answered: (1) make integration/e2e suites **drop their database on teardown** so
+  Atlas runs stop leaking `workoutlogger_*` DBs (CI's `mongo:7` already disposes; only manual/Atlas runs leak);
+  (2) a scripted **idempotent demo-seed** so the canonical account is rebuildable on demand (importer is already a
+  pure deterministic transform); (3) one-time **cleanup** of the 13 leaked test DBs (destructive → needs approval).
+  Not a schema change — the document model is sound.
 
 - **E2E functionality suite (FE+BE Playwright, flag actual-vs-intended) — SHIPPED via `/autopilot` as PR #30 (`7a1b651`, 2026-07-02).**
   CI caught a flake my local Atlas runs couldn't: the e2e job red-then-green twice → **root cause was the per-IP

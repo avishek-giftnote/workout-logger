@@ -489,14 +489,124 @@ class ApiIntegrationTest {
                 .andReturn().getResponse().getContentAsString());
         String body = "{\"startedAt\":\"2026-06-04T07:00:00Z\",\"exercises\":[{\"exerciseId\":\"" + ex
                 + "\",\"name\":\"Run\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"kind\":\"CARDIO\","
-                + "\"distanceM\":\"5200\",\"durationS\":1574,\"gradePct\":\"1.0\",\"cadenceSpm\":168}]}]}";
+                + "\"distanceM\":\"5200\",\"durationS\":1574,\"gradePct\":\"1.0\",\"elevationGainM\":\"52.5\",\"cadenceSpm\":168}]}]}";
         mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.exercises[0].sets[0].kind").value("CARDIO"))
                 .andExpect(jsonPath("$.exercises[0].sets[0].distanceM").value("5200"))
                 .andExpect(jsonPath("$.exercises[0].sets[0].durationS").value(1574))
+                .andExpect(jsonPath("$.exercises[0].sets[0].elevationGainM").value("52.5"))   // all 5 cardio fields round-trip as strings/ints
                 .andExpect(jsonPath("$.exercises[0].sets[0].cadenceSpm").value(168));
+    }
+
+    // A seeded CARDIO exercise carries its per-modality cardioMetrics (not the client's default fallback).
+    // Rowing Machine → CADENCE, which is NOT in DEFAULT_CARDIO_METRICS [DISTANCE,DURATION,PACE] — so this
+    // proves the seed's cardioMetrics actually round-trip through registration → the exercise API.
+    @Test
+    void seededCardioExerciseCarriesPerModalityMetrics() throws Exception {
+        String t = register("cardioseed@example.com");
+        JsonNode list = json.readTree(mvc.perform(get("/api/exercises").header("Authorization", bearer(t)))
+                .andReturn().getResponse().getContentAsString());
+        JsonNode rowing = null;
+        for (JsonNode e : list) if ("Rowing Machine".equals(e.get("name").asText())) rowing = e;
+        assertThat(rowing).as("Rowing Machine is seeded").isNotNull();
+        List<String> metrics = new ArrayList<>();
+        if (rowing.get("cardioMetrics") != null) rowing.get("cardioMetrics").forEach(m -> metrics.add(m.asText()));
+        assertThat(metrics).as("per-modality seed, not the [DISTANCE,DURATION,PACE] fallback").contains("CADENCE");
+    }
+
+    // ── cardio validation (audit: CreateSetRequest cardio fields had NO Bean-Validation; council decision) ──
+    private String cardioExercise(String t) throws Exception {
+        return id(mvc.perform(post("/api/exercises").header("Authorization", bearer(t))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Run\",\"isBodyweight\":false,\"category\":\"CARDIO\"}"))
+                .andReturn().getResponse().getContentAsString());
+    }
+    // Unique startedAt per call — the workouts {userId, startedAt} unique index 409s a same-user repeat.
+    private int cardioSeq = 0;
+    private String cardioStart() { int n = cardioSeq++; return String.format("2026-06-04T07:%02d:%02dZ", n / 60, n % 60); }
+    /** Post a workout with one cardio set built from the given field fragment; return the HTTP status. */
+    private int postCardioSet(String t, String exId, String setFields) throws Exception {
+        String body = "{\"startedAt\":\"" + cardioStart() + "\",\"exercises\":[{\"exerciseId\":\"" + exId
+                + "\",\"name\":\"Run\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"kind\":\"CARDIO\","
+                + setFields + "}]}]}";
+        return mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse().getStatus();
+    }
+
+    // THE key guard: distanceM is METERS, so a 10 km run "10000" exceeds the ≤9999 strength DECIMAL_PATTERN.
+    // The new CARDIO_DISTANCE_PATTERN must ACCEPT it (a reused DECIMAL_PATTERN would 400 a real 10 km run).
+    @Test
+    void cardioSetAcceptsTenKmRun() throws Exception {
+        String t = register("cardio10k@example.com");
+        String ex = cardioExercise(t);
+        assertThat(postCardioSet(t, ex, "\"distanceM\":\"10000\",\"durationS\":2400")).isEqualTo(201);
+        // and it round-trips the exact string, unrounded
+        String created = mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"startedAt\":\"" + cardioStart() + "\",\"exercises\":[{\"exerciseId\":\""
+                        + ex + "\",\"name\":\"Run\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"kind\":\"CARDIO\",\"distanceM\":\"10000\"}]}]}"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(created).get("exercises").get(0).get("sets").get(0).get("distanceM").asText()).isEqualTo("10000");
+    }
+
+    @Test
+    void cardioBoundaryValuesAccepted() throws Exception {
+        String t = register("cardiobound@example.com");
+        String ex = cardioExercise(t);
+        assertThat(postCardioSet(t, ex, "\"distanceM\":\"999999.999\"")).as("~1000 km").isEqualTo(201);
+        assertThat(postCardioSet(t, ex, "\"durationS\":86400")).as("24 h").isEqualTo(201);
+        assertThat(postCardioSet(t, ex, "\"gradePct\":\"-30\"")).as("min grade").isEqualTo(201);
+        assertThat(postCardioSet(t, ex, "\"gradePct\":\"40\"")).as("max grade").isEqualTo(201);
+        assertThat(postCardioSet(t, ex, "\"elevationGainM\":\"20000\"")).as("max elevation").isEqualTo(201);
+        assertThat(postCardioSet(t, ex, "\"cadenceSpm\":0")).isEqualTo(201);
+        assertThat(postCardioSet(t, ex, "\"cadenceSpm\":300")).as("spin double-count ceiling").isEqualTo(201);
+    }
+
+    @Test
+    void cardioValidationRejectsOutOfRange() throws Exception {
+        String t = register("cardiobad@example.com");
+        String ex = cardioExercise(t);
+        assertThat(postCardioSet(t, ex, "\"distanceM\":\"-500\"")).as("negative distance").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"distanceM\":\"abc\"")).as("garbage distance").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"durationS\":86401")).as("over 24 h").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"durationS\":-1")).isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"gradePct\":\"abc\"")).as("garbage grade").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"gradePct\":\"55\"")).as("grade over +40").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"gradePct\":\"-45\"")).as("grade under -30").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"elevationGainM\":\"-10\"")).as("negative elevation").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"elevationGainM\":\"20001\"")).as("elevation over 20000").isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"cadenceSpm\":-1")).isEqualTo(400);
+        assertThat(postCardioSet(t, ex, "\"cadenceSpm\":301")).as("cadence over 300").isEqualTo(400);
+    }
+
+    // A signed grade must be accepted and round-trip WITH its sign (dec() must not strip the minus).
+    @Test
+    void cardioSetAcceptsNegativeGrade() throws Exception {
+        String t = register("cardiograde@example.com");
+        String ex = cardioExercise(t);
+        String created = mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"startedAt\":\"2026-06-04T07:00:00Z\",\"exercises\":[{\"exerciseId\":\""
+                        + ex + "\",\"name\":\"Run\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"kind\":\"CARDIO\",\"gradePct\":\"-15.5\"}]}]}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(created).get("exercises").get(0).get("sets").get(0).get("gradePct").asText()).isEqualTo("-15.5");
+    }
+
+    // The full-replace PUT edit path must accept a re-saved cardio set (guards against a bound rejecting
+    // already-stored data — a POST-only test can't catch a too-tight constraint on the edit round-trip).
+    @Test
+    void cardioEditPutRoundTrips() throws Exception {
+        String t = register("cardioedit@example.com");
+        String ex = cardioExercise(t);
+        String wid = id(mvc.perform(post("/api/workouts").header("Authorization", bearer(t))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"startedAt\":\"2026-06-04T07:00:00Z\",\"exercises\":[{\"exerciseId\":\""
+                        + ex + "\",\"name\":\"Run\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"kind\":\"CARDIO\",\"distanceM\":\"8000\",\"durationS\":2100}]}]}"))
+                .andReturn().getResponse().getContentAsString());
+        mvc.perform(put("/api/workouts/" + wid).header("Authorization", bearer(t))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"startedAt\":\"2026-06-04T07:00:00Z\",\"exercises\":[{\"exerciseId\":\""
+                        + ex + "\",\"name\":\"Run\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"kind\":\"CARDIO\",\"distanceM\":\"8000\",\"durationS\":2100}]}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exercises[0].sets[0].distanceM").value("8000"));
     }
 
     @Test

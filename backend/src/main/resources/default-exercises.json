@@ -88,11 +88,11 @@
   {"name":"Crunch","category":"STRENGTH","equipment":"BODYWEIGHT","isBodyweight":true,"loadable":true,"laterality":"BILATERAL","mechanic":"ISOLATION","muscles":[{"muscle":"ABS","fraction":"1.0"}]},
   {"name":"Ab Wheel Rollout","category":"STRENGTH","equipment":"BODYWEIGHT","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":"COMPOUND","muscles":[{"muscle":"ABS","fraction":"1.0"},{"muscle":"LAT","fraction":"0.4"}]},
 
-  {"name":"Treadmill Run","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},
-  {"name":"Outdoor Run","category":"CARDIO","equipment":"OTHER","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},
-  {"name":"Cycling","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},
-  {"name":"Rowing Machine","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},
-  {"name":"Stair Climber","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},
-  {"name":"Elliptical","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]},
-  {"name":"Jump Rope","category":"CARDIO","equipment":"OTHER","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[]}
+  {"name":"Treadmill Run","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[],"cardioMetrics":["DISTANCE","DURATION","PACE","GRADE"]},
+  {"name":"Outdoor Run","category":"CARDIO","equipment":"OTHER","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[],"cardioMetrics":["DISTANCE","DURATION","PACE","ELEVATION"]},
+  {"name":"Cycling","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[],"cardioMetrics":["DISTANCE","DURATION","PACE","CADENCE"]},
+  {"name":"Rowing Machine","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[],"cardioMetrics":["DISTANCE","DURATION","PACE","CADENCE"]},
+  {"name":"Stair Climber","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[],"cardioMetrics":["DURATION","CADENCE"]},
+  {"name":"Elliptical","category":"CARDIO","equipment":"MACHINE","isBodyweight":false,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[],"cardioMetrics":["DISTANCE","DURATION","CADENCE"]},
+  {"name":"Jump Rope","category":"CARDIO","equipment":"OTHER","isBodyweight":true,"loadable":false,"laterality":"BILATERAL","mechanic":null,"muscles":[],"cardioMetrics":["DURATION","CADENCE"]}
 ]
