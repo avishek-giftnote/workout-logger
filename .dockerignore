@@ -38,4 +38,4 @@ tools/import_preview.json
 
 # Docs & infra not needed by the build
 **/.github
-DIAGRAMS.pdf
+docs/DIAGRAMS.pdf

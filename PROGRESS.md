@@ -19,11 +19,26 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   wired + verified** — backend `@AfterAll` (`TestDbCleanup`, guarded to only ever drop a `workoutlogger_*` DB,
   never the dev DB) on `ApiIntegrationTest` + `RateLimitIntegrationTest`, and a Playwright `globalTeardown`
   (remote-only; CI's ephemeral `mongo:7` is a no-op); both confirmed to drop the run's DB. (2) **13 stray test
-  DBs dropped** — the cluster is now **3** (only `workoutlogger` dev + `admin`/`local`). **Still open:**
-  **recreate a loginable demo account** — `import@giftnote.com`/`tester@workoutlogger.com` are gone (one-time
-  imports into wiped DBs); needs the git-ignored `strong_workouts.csv` + a chosen password, then re-run the
-  importer into `workoutlogger`. Entangled with the Atlas password rotation below (single shared credential).
-  Current-persistence-model **class diagram** is in the audit doc.
+  DBs dropped** — the cluster is now **3** (only `workoutlogger` dev + `admin`/`local`). (3) **Demo account
+  recreated + test users purged 2026-07-07.** `import@giftnote.com` / **`workout123`** rebuilt into
+  `workoutlogger`. The git-ignored `strong_workouts.csv` was unrecoverable (never committed — correct), but the
+  importer's verified output survived in the git-ignored `tools/import_preview.json`; inverted it back to raw
+  CSV rows and re-ran the **tested** importer (`--importer.persist=true`), so the exact-count assertion
+  (1,533/47/30/195/61) proved the reconstruction faithful. **Re-imported at a 59 kg bodyweight baseline** (not
+  75) so bodyweight-exercise loads are coherent with the person's real weight (Pull Up effective 59 / 69), since
+  historical set weights are stored, not recomputed at read. Added **18 realistic weigh-ins** (mean-reverting
+  58.5–59.3, ±0.5 around 59) across the last two months via the validated `PUT /api/me/bodyweight`, dropped the
+  flat estimated baseline row. **Deleted all 8 `@example.com` test accounts** (`probe-*`/`runskill-*`/`e2e+*`)
+  + their per-user data (50 workouts, 702 exercises, 4 templates) across every collection — the DB now holds a
+  single clean user. Verified: login `workout123` → token, wrong pw → 401, `GET /api/workouts` → 47,
+  decimals-as-strings on the wire, `entryId`/Decimal128 in Mongo. (4) **Diagrams consolidated + moved to
+  `docs/`.** `DIAGRAMS.md` + `DIAGRAMS.pdf` moved from repo root → `docs/` (builder paths, `CLAUDE.md`,
+  `DESIGN.md`, `.dockerignore`, `autopilot.md` updated). Diagram **#12 rewritten as the full domain class
+  diagram shown as STORED** (Mongo storage types — `ObjectId`/`Decimal128`/`ISODate`/String refs — every field
+  of all 6 collections + embedded types + all 14 enums; fixed the `BodyweightEntry.id`→`entryId` error and added
+  the missing cardio/`version` fields). #2 ERD gained the `plans` (Macrocycle/Mesocycle) collection + a
+  `BODYWEIGHT_ENTRY` block; #3 gained `PlanController`/`MeRepository`/`PlanRepository`. **PDF regenerated 17/17**
+  and visually verified readable. The standalone `data-model.md` was folded into #12 and removed.
 - **Deployment: scaffolded, NOT executed.** Docker + compose + Cloudflare-Tunnel + OCI runbook merged
   (PRs #24-26; `DEPLOY.md` is authoritative). Blocked on the VM-shape choice: **Path A** (add 4 GB swap +
   cap the JVM heap on the free 1 GB x86 micro, ship now) vs **Path B, recommended** (PAYG upgrade → Ampere

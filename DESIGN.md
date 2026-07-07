@@ -230,7 +230,7 @@ available in-browser via `@sqlite.org/sqlite-wasm` over the OPFS `opfs-sahpool` 
 
 ## 7. Coaching engine — periodization + prescription + energy (Layers 4–5)
 
-Added after v5. Authoritative spec: **`docs/coach.md`**; behaviour in **`DIAGRAMS.md`** (class diagram #12,
+Added after v5. Authoritative spec: **`docs/coach.md`**; behaviour in **`docs/DIAGRAMS.md`** (class diagram #12,
 sequence diagrams #13–16). A research-backed coach, built as **pure frontend functions** (so the eval can sweep
 them) over thin additive backend persistence — no breaking schema change.
 

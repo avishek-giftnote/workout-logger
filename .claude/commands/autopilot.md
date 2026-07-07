@@ -78,7 +78,7 @@ Dedupe; keep only confirmed issues.
 ## Phase 7 — Record & (optionally) ship
 
 Update `PROGRESS.md` (Done / agenda / decisions) and write the council's decision to auto-memory so it
-persists. Regenerate `DIAGRAMS.pdf` if `DIAGRAMS.md` changed. Commit only if asked; if asked, ship via
+persists. Regenerate `docs/DIAGRAMS.pdf` if `docs/DIAGRAMS.md` changed. Commit only if asked; if asked, ship via
 `/git-ship` (branch → PR → squash-merge — never push to `main`).
 
 ## Report
