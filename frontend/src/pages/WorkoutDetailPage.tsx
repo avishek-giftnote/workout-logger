@@ -3,7 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import QueryError from "../components/QueryError";
-import type { SetDto, WorkoutDto } from "../api/types";
+import { cardioSummary, formatSetLabel } from "../logging/engine";
+import type { WorkoutDto } from "../api/types";
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -14,13 +15,6 @@ const workingVolume = (w: WorkoutDto) => {
     if (s.setType === "WORKING" && s.weight && s.reps) v += parseFloat(s.weight) * s.reps;
   return Math.round(v);
 };
-
-function loadLabel(s: SetDto): string {
-  if (s.loadMode === "BODYWEIGHT") return `${s.weight} kg · BW`;
-  if (s.loadMode === "ADDED") return `${s.weight} kg · BW +${s.loadDelta}`;
-  if (s.loadMode === "ASSISTED") return `${s.weight} kg · assist −${s.loadDelta}`;
-  return `${s.weight ?? "—"} kg`;
-}
 
 export default function WorkoutDetailPage() {
   const { id = "" } = useParams();
@@ -52,6 +46,7 @@ export default function WorkoutDetailPage() {
 
   const w = workout.data;
   const totalSets = w.exercises.reduce((n, b) => n + b.sets.length, 0);
+  const cs = cardioSummary(w);
 
   return (
     <main className="screen">
@@ -62,10 +57,30 @@ export default function WorkoutDetailPage() {
           <h1>{title}</h1>
           <p>{fmtDate(w.startedAt)}</p>
         </div>
-        <div className="w-stat" style={{ textAlign: "right" }}>
-          <b className="mono" style={{ color: "var(--volt)", fontSize: 22 }}>{workingVolume(w).toLocaleString()}</b>
-          <small className="micro" style={{ display: "block" }}>kg volume</small>
-        </div>
+        {!cs.hasCardio ? (
+          // strength-only: unchanged single kg-volume tile
+          <div className="w-stat" style={{ textAlign: "right" }}>
+            <b className="mono" style={{ color: "var(--volt)", fontSize: 22 }}>{workingVolume(w).toLocaleString()}</b>
+            <small className="micro" style={{ display: "block" }}>kg volume</small>
+          </div>
+        ) : (cs.hasStrength || cs.km > 0) ? (
+          // cardio-only → distance tile; mixed → both. (Nothing to show for a distance-less cardio session
+          // like a stair-climber — the session minutes in the subhead already cover it.)
+          <div className="row" style={{ gap: 16, justifyContent: "flex-end" }}>
+            {cs.hasStrength && (
+              <div className="w-stat" style={{ textAlign: "right" }}>
+                <b className="mono" style={{ color: "var(--volt)", fontSize: 22 }}>{workingVolume(w).toLocaleString()}</b>
+                <small className="micro" style={{ display: "block" }}>kg volume</small>
+              </div>
+            )}
+            {cs.km > 0 && (
+              <div className="w-stat" style={{ textAlign: "right" }}>
+                <b className="mono" style={{ color: "var(--ice)", fontSize: 22 }}>{cs.km.toFixed(2)} km</b>
+                <small className="micro" style={{ display: "block" }}>distance</small>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <p className="micro" style={{ margin: "0 4px 14px" }}>
@@ -86,9 +101,10 @@ export default function WorkoutDetailPage() {
                     <span className={`set-idx${warm ? " warm" : ""}`} style={{ cursor: "default" }}>
                       {warm ? "W" : String(++workingNo)}
                     </span>
-                    <span className="readout grow">{loadLabel(s)}</span>
-                    <span className="mono detail-reps">{s.reps ?? "—"} <span className="micro">reps</span></span>
-                    <span className="mono detail-rpe">{s.rpe != null ? <>RPE {s.rpe}</> : <span className="micro">—</span>}</span>
+                    <span className="readout grow">{formatSetLabel(s)}</span>
+                    {/* a cardio set carries reps/rpe null by invariant — the label already shows distance/pace */}
+                    {s.kind !== "CARDIO" && <span className="mono detail-reps">{s.reps ?? "—"} <span className="micro">reps</span></span>}
+                    {s.kind !== "CARDIO" && <span className="mono detail-rpe">{s.rpe != null ? <>RPE {s.rpe}</> : <span className="micro">—</span>}</span>}
                   </div>
                 );
               })}

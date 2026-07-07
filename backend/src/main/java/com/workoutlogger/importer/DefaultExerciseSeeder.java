@@ -2,6 +2,7 @@ package com.workoutlogger.importer;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workoutlogger.domain.CardioMetric;
 import com.workoutlogger.domain.Equipment;
 import com.workoutlogger.domain.Exercise;
 import com.workoutlogger.domain.ExerciseCategory;
@@ -83,12 +84,15 @@ public class DefaultExerciseSeeder {
                     .map(m -> new MuscleContribution(Muscle.valueOf(m.muscle()), new BigDecimal(m.fraction())))
                     .toList());
         }
+        if (s.cardioMetrics() != null && !s.cardioMetrics().isEmpty()) {   // per-modality defaults for CARDIO seeds
+            e.setCardioMetrics(s.cardioMetrics().stream().map(CardioMetric::valueOf).toList());
+        }
         e.setCreatedAt(now);
         e.setUpdatedAt(now);
         return e;
     }
 
     record Seed(String name, String category, String equipment, boolean isBodyweight, Boolean loadable,
-                String laterality, String mechanic, List<M> muscles) {}
+                String laterality, String mechanic, List<M> muscles, List<String> cardioMetrics) {}
     record M(String muscle, String fraction) {}
 }

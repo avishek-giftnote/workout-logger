@@ -3,14 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Api } from "../api/client";
 import QueryError from "../components/QueryError";
-import { CARDIO_METRICS, EQUIPMENT, RestPicker, cardioMetricsOf, equipmentLabel, isCardioEx, paceSpeed } from "../logging/engine";
+import { CARDIO_METRICS, EQUIPMENT, RestPicker, cardioMetricsOf, equipmentLabel, fmtTime, formatSetLabel, isCardioEx } from "../logging/engine";
 import { ChartCard, type Point } from "../components/Chart";
 import { EXERCISE_CHARTS } from "../charts";
 import { MUSCLES } from "../muscles";
 import { isDeload } from "../periodization";
 import { e1rm as est1rm } from "../prescription";
 import { useSettings } from "../settings";
-import type { CardioMetric, Equipment, Laterality, Mechanic, Muscle, MuscleContributionDto, SetDto, TemplateDto, WorkoutDto } from "../api/types";
+import type { CardioMetric, Equipment, Laterality, Mechanic, Muscle, MuscleContributionDto, TemplateDto, WorkoutDto } from "../api/types";
 
 const LATERALITY: { v: Laterality; label: string }[] = [
   { v: "BILATERAL", label: "Bilateral" }, { v: "ISOLATERAL", label: "Isolateral" }, { v: "UNILATERAL", label: "Unilateral" },
@@ -18,24 +18,8 @@ const LATERALITY: { v: Laterality; label: string }[] = [
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
-function loadLabel(s: SetDto): string {
-  if (s.kind === "CARDIO") {
-    const parts: string[] = [];
-    if (s.distanceM) parts.push(`${(parseFloat(s.distanceM) / 1000).toFixed(2)} km`);
-    if (s.durationS != null) parts.push(fmtTime(s.durationS));
-    if (s.distanceM && s.durationS) {
-      const ps = paceSpeed(parseFloat(s.distanceM) / 1000, s.durationS);
-      if (ps) parts.push(ps.pace);
-    }
-    return parts.join(" · ") || "—";
-  }
-  if (s.loadMode === "BODYWEIGHT") return `${s.weight} kg · BW`;
-  if (s.loadMode === "ADDED") return `${s.weight} kg · BW +${s.loadDelta}`;
-  if (s.loadMode === "ASSISTED") return `${s.weight} kg · assist −${s.loadDelta}`;
-  return `${s.weight ?? "—"} kg`;
-}
+// fmtTime + the cardio-aware set label now live in engine.tsx (formatSetLabel) so this page and
+// WorkoutDetailPage share one implementation and can't drift.
 
 function Stat({ value, label, color }: { value: string; label: string; color: string }) {
   return (
@@ -267,7 +251,7 @@ export default function ExerciseDetailPage() {
                 return (
                   <div key={i} className="detail-row">
                     <span className={`set-idx${warm ? " warm" : ""}`} style={{ cursor: "default" }}>{warm ? "W" : String(++workingNo)}</span>
-                    <span className="readout grow">{loadLabel(s)}</span>
+                    <span className="readout grow">{formatSetLabel(s)}</span>
                     {!cardio && <span className="mono detail-reps">{s.reps ?? "—"} <span className="micro">reps</span></span>}
                     {!cardio && <span className="mono detail-rpe">{s.rpe != null ? `RPE ${s.rpe}` : "—"}</span>}
                   </div>

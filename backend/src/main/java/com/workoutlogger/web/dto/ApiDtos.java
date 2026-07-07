@@ -15,6 +15,8 @@ import com.workoutlogger.domain.Sex;
 import com.workoutlogger.domain.SetKind;
 import com.workoutlogger.domain.SetType;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -67,6 +69,14 @@ public final class ApiDtos {
 
     /** Sane decimal pattern: optional sign, 1–4 integer digits, optional 1–3 decimal places (e.g. "100.5", "-20.25"). */
     static final String DECIMAL_PATTERN = "^-?\\d{1,4}(\\.\\d{1,3})?$";
+    // Cardio decimals need their own patterns — distance is in METERS, so the ≤9999 DECIMAL_PATTERN would
+    // reject a 10 km run ("10000"). Shape only; tight ranges come from @DecimalMin/@DecimalMax where signed.
+    /** Non-negative meters, ≤6 integer digits + 3 decimals: 0 .. 999999.999 m (~1000 km). No sign. */
+    static final String CARDIO_DISTANCE_PATTERN  = "^\\d{1,6}(\\.\\d{1,3})?$";
+    /** Signed grade %, magnitude shape ≤99.99 (range clamped to [-30, 40] via @DecimalMin/@DecimalMax). */
+    static final String CARDIO_GRADE_PATTERN     = "^-?\\d{1,2}(\\.\\d{1,2})?$";
+    /** Non-negative meters, ≤5 integer digits + 3 decimals (ceiling 20000 via @DecimalMax). */
+    static final String CARDIO_ELEVATION_PATTERN = "^\\d{1,5}(\\.\\d{1,3})?$";
 
     public record CreateSetRequest(int orderIndex, @NotNull SetType setType,
                                    @Pattern(regexp = DECIMAL_PATTERN, message = "weight must be a decimal ≤ 9999") String weight,
@@ -75,8 +85,14 @@ public final class ApiDtos {
                                    @Min(0) @Max(1000) Integer reps,
                                    @Min(1) @Max(10) Integer rpe,
                                    String note,
-                                   SetKind kind, String distanceM, Integer durationS, String gradePct,
-                                   String elevationGainM, Integer cadenceSpm) {}
+                                   SetKind kind,
+                                   @Pattern(regexp = CARDIO_DISTANCE_PATTERN, message = "distanceM must be a non-negative decimal ≤ 999999.999") String distanceM,
+                                   @Min(0) @Max(86400) Integer durationS,
+                                   @Pattern(regexp = CARDIO_GRADE_PATTERN, message = "gradePct must be a signed decimal ≤ 99.99")
+                                   @DecimalMin("-30") @DecimalMax("40") String gradePct,
+                                   @Pattern(regexp = CARDIO_ELEVATION_PATTERN, message = "elevationGainM must be a non-negative decimal ≤ 20000")
+                                   @DecimalMax("20000") String elevationGainM,
+                                   @Min(0) @Max(300) Integer cadenceSpm) {}
 
     public record CreateBlockRequest(@NotNull String exerciseId, String name, int position, String note,
                                      @NotNull @Valid @Size(max = 100) List<CreateSetRequest> sets) {}

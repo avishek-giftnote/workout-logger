@@ -49,6 +49,26 @@ export async function logSet(page: Page, exerciseName: string, weight: string, r
   await expect(page).toHaveURL(/\/previous-workouts/);
 }
 
+/** Log one cardio set (distance km + time mm:ss) on `exerciseName` (a CARDIO exercise), finish, skip. */
+export async function logCardio(page: Page, exerciseName: string, km: string, time: string): Promise<void> {
+  await page.goto("/start");
+  const emptyBtn = page.getByRole("button", { name: /Empty session/ });
+  await emptyBtn.waitFor({ state: "visible", timeout: 30_000 });
+  await emptyBtn.click();
+  await page.getByRole("button", { name: /Add exercise/ }).click();
+  await page.getByPlaceholder("Search or name a new exercise…").fill(exerciseName);
+  // non-exact: a bodyweight cardio exercise's result button also carries a "BW" tag in its name
+  await page.getByRole("button", { name: exerciseName }).first().click();
+  const row = page.locator(".cardio-row").first();
+  await expect(row).toBeVisible();
+  await row.locator(".cell-input").nth(0).fill(km);      // distance (km)
+  await row.locator(".cell-input").nth(1).fill(time);    // time (mm:ss)
+  await row.getByTitle("Complete set").click();
+  await page.getByRole("button", { name: /Finish/ }).click();
+  await page.getByRole("button", { name: "Skip" }).click();
+  await expect(page).toHaveURL(/\/previous-workouts/);
+}
+
 /** Log a bodyweight measurement through the settings drawer. Leaves the drawer open. */
 export async function logBodyweight(page: Page, kg: string): Promise<void> {
   await page.getByTitle("Settings").click();
