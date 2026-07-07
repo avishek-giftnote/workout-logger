@@ -183,16 +183,17 @@ the eval), with thin additive backend persistence. Read `docs/coach.md` before t
   back-fills missing ones for existing users. Exercise attributes are user-editable (`ExerciseDetailPage`).
 
 ### Diagrams
-`DIAGRAMS.md` holds the validated Mermaid set (renders on GitHub) — structural (the domain **class
-diagram** #12) + behavioural **sequence diagrams** (#13 log-a-planned-session, #14 build/accept-a-plan, #15
-energy estimate, #16 registration+seeding) plus the earlier flow charts. **Keep it current when the model
-changes** and validate (the repo has used a `mermaid.parse` node check; a `;` inside a sequence message breaks
-the parser — use `·`). A plan-completion sequence diagram (#17) is being added.
-- **ALWAYS regenerate `DIAGRAMS.pdf` after editing `DIAGRAMS.md`** (it's a committed artifact, not
+`docs/DIAGRAMS.md` (moved from repo root 2026-07-07, with `docs/DIAGRAMS.pdf`) holds the validated Mermaid set
+(renders on GitHub) — structural (the **full domain class diagram** #12, now storage-typed: ObjectId /
+Decimal128 / ISODate) + behavioural **sequence diagrams** (#13 log-a-planned-session, #14 build/accept-a-plan,
+#15 energy estimate, #16 registration+seeding, #17 plan-completion) plus the earlier flow charts. **Keep it
+current when the model changes** and validate (the repo has used a `mermaid.parse` node check; a `;` inside a
+sequence message breaks the parser — use `·`).
+- **ALWAYS regenerate `docs/DIAGRAMS.pdf` after editing `docs/DIAGRAMS.md`** (it's a committed artifact, not
   git-ignored, so a stale PDF ships otherwise). Run `tools/build-diagrams-pdf.mjs` (renders each Mermaid block
   in headless Chrome → A4 PDF). It needs `marked mermaid puppeteer-core` + a local Chrome — install the deps
   **into `tools/` (not repo-root `node_modules`, which is NOT git-ignored), build, then delete
-  `tools/node_modules` + `tools/package*.json` before committing.** Commit `DIAGRAMS.pdf` explicitly (don't
+  `tools/node_modules` + `tools/package*.json` before committing.** Commit `docs/DIAGRAMS.pdf` explicitly (don't
   `git add -A` while those temp deps exist):
   ```
   cd tools && npm init -y && npm install marked mermaid puppeteer-core && cd ..
@@ -248,8 +249,8 @@ they're one step and consistent:
   demo3 DB with the fixed JWT secret (no re-login), wait for `:8080`, then curl-smoke the changed endpoints +
   clean up any junk demo rows. Done ~10× this session by hand.
 - **`/gate` skill** (exists) — run it every commit: frontend `tsc + npm test + npm run eval + build`; backend
-  `RUN_MONGO_TESTS=1 mvn test`. Extend it to also validate `DIAGRAMS.md` mermaid when that file changed.
-- **`/diagrams` skill** — regenerate/validate the Mermaid in `DIAGRAMS.md` via the `mermaid.parse` node check
+  `RUN_MONGO_TESTS=1 mvn test`. Extend it to also validate `docs/DIAGRAMS.md` mermaid when that file changed.
+- **`/diagrams` skill** — regenerate/validate the Mermaid in `docs/DIAGRAMS.md` via the `mermaid.parse` node check
   (the repo re-implements this ad-hoc each time; the `;`-in-sequence-message trap should be auto-caught).
 - **research sub-agents** — exercise-science / periodization research and broad codebase surveys should always
   be delegated (the `periodization-coach`, `sports-data-expert`, `Explore` agents) so raw pages/file-dumps stay

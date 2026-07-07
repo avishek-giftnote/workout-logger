@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Render DIAGRAMS.md (with its Mermaid blocks) to DIAGRAMS.pdf.
+// Render docs/DIAGRAMS.md (with its Mermaid blocks) to docs/DIAGRAMS.pdf.
 //
 // Usage:
 //   npm install marked mermaid puppeteer-core    # one-time, anywhere on PATH
@@ -18,8 +18,8 @@ import puppeteer from "puppeteer-core";
 
 const require = createRequire(import.meta.url);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = path.join(REPO, "DIAGRAMS.md");
-const OUT = path.join(REPO, "DIAGRAMS.pdf");
+const SRC = path.join(REPO, "docs", "DIAGRAMS.md");
+const OUT = path.join(REPO, "docs", "DIAGRAMS.pdf");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 

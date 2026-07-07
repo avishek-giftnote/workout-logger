@@ -61,6 +61,10 @@ erDiagram
   EXERCISE_BLOCK }o--|| EXERCISE : "references exerciseId"
   WORKOUT }o--o| WORKOUT_TEMPLATE : "optional templateId"
 
+  USER ||--o| MACROCYCLE : "0..1 ACTIVE plan (+ terminal history)"
+  MACROCYCLE ||--|{ MESOCYCLE : "embeds mesocycles[]"
+  MACROCYCLE }o--o| SPLIT : "splitId (schedule)"
+
   USER {
     string id PK
     string email UK
@@ -103,6 +107,31 @@ erDiagram
     Decimal128 elevationGainM
     int cadenceSpm
   }
+  BODYWEIGHT_ENTRY {
+    string entryId "NOT id — embedded in User.bodyweightLog[]"
+    Instant recordedAt
+    Decimal128 weightKg "string on wire"
+    bool estimated "true only for the import baseline"
+  }
+  MACROCYCLE {
+    string id PK
+    string userId FK
+    Long version "optimistic lock"
+    string status "ACTIVE COMPLETED ENDED"
+    string goal "planner goal"
+    int mesoIndex
+    int week
+    string splitId FK "nullable"
+    Instant completedAt "nullable"
+    Instant endedAt "nullable"
+  }
+  MESOCYCLE {
+    string name "embedded in Macrocycle.mesocycles[]"
+    int accumulationWeeks
+    string phase "SURPLUS DEFICIT MAINTENANCE"
+    BlockType blockType
+    IntensityBand intensityBand "rep/RIR band"
+  }
 ```
 
 ### 3. Backend layers (request path + tenant isolation)
@@ -126,6 +155,7 @@ classDiagram
   class TemplateController
   class SplitController
   class MeController
+  class PlanController
 
   class WorkoutRepository {
     +updateSet(workoutId, setId)
@@ -135,6 +165,11 @@ classDiagram
   class TemplateRepository
   class SplitRepository
   class UserRepository
+  class MeRepository {
+    +addBodyweight() atomic
+    +putSettingsIfNewer() LWW
+  }
+  class PlanRepository
   class DtoMapper {
     +toDto() WorkoutDto
     +toBlocks() Workout
@@ -153,12 +188,16 @@ classDiagram
   ExerciseController ..> ExerciseRepository
   TemplateController ..> TemplateRepository
   SplitController ..> SplitRepository
+  MeController ..> MeRepository
   MeController ..> UserRepository
+  PlanController ..> PlanRepository
 
   WorkoutRepository ..> Tenant : AND userId into every query
   ExerciseRepository ..> Tenant
   TemplateRepository ..> Tenant
   SplitRepository ..> Tenant
+  MeRepository ..> Tenant
+  PlanRepository ..> Tenant
 
   WorkoutController ..> DtoMapper
   Workout "1" *-- "many" ExerciseBlock : embeds
@@ -388,160 +427,212 @@ flowchart TD
 > Energy phase scales volume/intensity/progression; numbers seed from logged e1RM (else %BW cold-start);
 > recovery spacing + readiness keep a muscle from being trained fatigued; everything stays an editable preview.
 
-### 12. Domain model — class diagram (structural)
+### 12. Domain model — full class diagram (every field, shown as it is STORED)
+
+> Types are the **Mongo storage types**, not the Java types: an `@Id` is an `ObjectId`; a cross-reference
+> (`userId`, `templateId`, `exerciseId`, `splitId`) is the plain hex **String**; a weight is `Decimal128`
+> (serialized as a **string** on the wire); a timestamp is `ISODate`. Boxes tagged `<<embedded>>` have no
+> collection of their own — they live inside their parent document. The six collection roots are tagged with
+> their collection name.
 
 ```mermaid
 classDiagram
+  direction LR
+
   class User {
-    +String id
+    <<users collection>>
+    +ObjectId _id
     +String email
-    +String passwordHash
-    +BigDecimal currentBodyweightKg
+    +String passwordHash "bcrypt"
+    +Decimal128 currentBodyweightKg "retired mirror — derived at read"
     +List~BodyweightEntry~ bodyweightLog
     +Profile profile
-    +Map~String,String~ settings
-    +long settingsUpdatedAt
+    +Map settings "device-synced prefs"
+    +long settingsUpdatedAt "epoch ms · LWW"
+    +ISODate createdAt
+    +ISODate updatedAt
   }
   class BodyweightEntry {
-    +String id
-    +Instant recordedAt
-    +BigDecimal weightKg
+    <<embedded>>
+    +String entryId "NOT id"
+    +ISODate recordedAt
+    +Decimal128 weightKg
     +boolean estimated
   }
   class Profile {
-    +LocalDate dateOfBirth
-    +BigDecimal heightCm
+    <<embedded>>
+    +ISODate dateOfBirth
+    +Decimal128 heightCm
     +Sex sex
     +Goal goal
     +ActivityLevel activityLevel
     +Integer initialIntakeKcal
   }
-  class Workout {
-    +String id
-    +String userId
-    +Instant startedAt
-    +Integer durationSeconds
-    +String templateId
-    +CyclePhase cyclePhase
-    +List~Muscle~ soreMuscles
-    +Instant deletedAt
-  }
-  class ExerciseBlock {
-    +String exerciseId
-    +String name
-    +int position
-    +List~WorkoutSet~ sets
-  }
-  class WorkoutSet {
-    +String setId
-    +SetType setType
-    +BigDecimal weight
-    +LoadMode loadMode
-    +BigDecimal loadDelta
-    +Integer reps
-    +Integer rpe
-    +SetKind kind
-    +BigDecimal distanceM
-    +Integer durationS
-  }
   class Exercise {
-    +String id
-    +String userId
-    +String name
-    +String nameKey
+    <<exercises collection>>
+    +ObjectId _id
+    +String userId "tenant"
+    +String name "verbatim"
+    +String nameKey "unique per user"
     +boolean isBodyweight
     +Equipment equipment
     +ExerciseCategory category
+    +String defaultUnit "kg"
+    +Integer restSeconds
     +List~CardioMetric~ cardioMetrics
     +List~MuscleContribution~ muscleContributions
     +Laterality laterality
     +Mechanic mechanic
     +Boolean loadable
+    +ISODate deletedAt "tombstone"
   }
   class MuscleContribution {
+    <<embedded>>
     +Muscle muscle
-    +BigDecimal fraction
+    +Decimal128 fraction "1.0 primary · 0.3-0.5 secondary"
   }
   class WorkoutTemplate {
-    +String id
+    <<templates collection>>
+    +ObjectId _id
     +String userId
     +String name
     +List~TemplateExercise~ exercises
   }
   class TemplateExercise {
-    +String exerciseId
+    <<embedded>>
+    +String exerciseId "ref"
     +String name
     +int position
-    +int sets
+    +int sets "planned count"
     +Integer reps
     +String targetRir
   }
   class Split {
-    +String id
+    <<splits collection>>
+    +ObjectId _id
     +String userId
     +String name
-    +List~String~ templateIds
-    +List~Integer~ weekdays "0=Mon…6=Sun · nullable (old docs)"
+    +List~String~ templateIds "refs (M-to-N)"
+    +List~Integer~ weekdays "0=Mon..6=Sun · nullable"
+  }
+  class Workout {
+    <<workouts collection>>
+    +ObjectId _id
+    +String userId "tenant"
+    +Long version "optimistic lock"
+    +ISODate startedAt "unique per user"
+    +String startedAtOffset "nullable"
+    +Integer durationSeconds
+    +String rawDurationText "lossless '1h 29m'"
+    +String templateId "ref · nullable"
+    +CyclePhase cyclePhase
+    +List~ExerciseBlock~ exercises
+    +List~Muscle~ soreMuscles "readiness"
+    +ISODate deletedAt "tombstone"
+  }
+  class ExerciseBlock {
+    <<embedded>>
+    +String exerciseId "ref"
+    +String name "immutable snapshot"
+    +int position
+    +String note
+    +List~WorkoutSet~ sets
+  }
+  class WorkoutSet {
+    <<embedded>>
+    +String setId "NOT id"
+    +int orderIndex
+    +SetType setType
+    +Decimal128 weight "effective load (incl. bodyweight)"
+    +LoadMode loadMode "null = external"
+    +Decimal128 loadDelta "added/assist delta"
+    +String weightUnit "kg"
+    +Integer reps
+    +Integer rpe
+    +String note
+    +ISODate loggedAt "null on import"
+    +boolean estimated
+    +Integer importRowIndex
+    +Map rawImport "original CSV row"
+    +SetKind kind "null = STRENGTH"
+    +Decimal128 distanceM
+    +Integer durationS
+    +Decimal128 gradePct
+    +Decimal128 elevationGainM
+    +Integer cadenceSpm
   }
   class Macrocycle {
-    +String id
+    <<plans collection>>
+    +ObjectId _id
     +String userId
+    +Long version "optimistic lock"
     +String name
     +String status "ACTIVE | COMPLETED | ENDED"
     +int mesoIndex
     +int week
-    +String goal
-    +LocalDate targetDate "nullable"
+    +String goal "GENERAL_HYPERTROPHY | MUSCLE_FOCUS | STRENGTH | CONTEST_PREP"
+    +ISODate targetDate "nullable"
     +List~Muscle~ focusMuscles "nullable"
     +List~Mesocycle~ mesocycles
-    +String splitId "nullable — split used for schedule"
-    +Instant completedAt "nullable — set on last advance()"
-    +Instant endedAt "nullable — set on DELETE /api/plan"
+    +String splitId "ref · nullable"
+    +ISODate startedAt
+    +ISODate completedAt "nullable"
+    +ISODate endedAt "nullable"
   }
   class Mesocycle {
+    <<embedded>>
     +String name
     +int accumulationWeeks
-    +String phase
-    +BlockType blockType
+    +String phase "SURPLUS | DEFICIT | MAINTENANCE"
+    +BlockType blockType "null = HYPERTROPHY"
     +List~Muscle~ focusMuscles
     +IntensityBand intensityBand
   }
   class IntensityBand {
+    <<embedded>>
     +int repLow
     +int repHigh
     +String targetRir
-    +String pctLow
-    +String pctHigh
+    +String pctLow "%1RM"
+    +String pctHigh "%1RM"
   }
 
-  User "1" *-- "*" BodyweightEntry
-  User "1" *-- "0..1" Profile
-  Workout "1" *-- "*" ExerciseBlock
-  ExerciseBlock "1" *-- "*" WorkoutSet
-  Exercise "1" *-- "*" MuscleContribution
-  WorkoutTemplate "1" *-- "*" TemplateExercise
-  Macrocycle "1" *-- "*" Mesocycle
-  Mesocycle "1" *-- "0..1" IntensityBand
+  User "1" *-- "0..*" BodyweightEntry : embeds
+  User "1" *-- "0..1" Profile : embeds
+  Exercise "1" *-- "0..*" MuscleContribution : embeds
+  WorkoutTemplate "1" *-- "1..*" TemplateExercise : embeds
+  Workout "1" *-- "1..*" ExerciseBlock : embeds
+  ExerciseBlock "1" *-- "1..*" WorkoutSet : embeds
+  Macrocycle "1" *-- "1..*" Mesocycle : embeds
+  Mesocycle "1" *-- "0..1" IntensityBand : embeds
+
   Workout ..> WorkoutTemplate : templateId
   ExerciseBlock ..> Exercise : exerciseId
   TemplateExercise ..> Exercise : exerciseId
-  Split ..> WorkoutTemplate : templateIds[]
-  Macrocycle ..> Split : splitId (nullable)
-  MuscleContribution ..> Muscle
-  Mesocycle ..> BlockType
+  Split ..> WorkoutTemplate : templateIds
+  Macrocycle ..> Split : splitId
 
-  class Muscle { <<enumeration>> CHEST LAT QUAD HAMSTRING GLUTE ... ABS (15) }
-  class BlockType { <<enumeration>> HYPERTROPHY STRENGTH PEAK RESENSITIZATION MAINTENANCE PREP }
-  class CyclePhase { <<enumeration>> ACCUMULATION DELOAD }
+  class Muscle { <<enumeration>> CHEST FRONT_DELT SIDE_DELT REAR_DELT LAT UPPER_BACK TRAP BICEP TRICEP FOREARM QUAD HAMSTRING GLUTE CALF ABS }
+  class Equipment { <<enumeration>> DUMBBELL BARBELL SMITH_MACHINE KETTLEBELL MACHINE CABLE BODYWEIGHT OTHER }
+  class ExerciseCategory { <<enumeration>> STRENGTH CARDIO }
+  class CardioMetric { <<enumeration>> DISTANCE DURATION PACE GRADE ELEVATION CADENCE }
   class SetType { <<enumeration>> WARMUP WORKING DROP FAILURE }
+  class SetKind { <<enumeration>> STRENGTH CARDIO }
   class LoadMode { <<enumeration>> BODYWEIGHT ADDED ASSISTED }
+  class CyclePhase { <<enumeration>> ACCUMULATION DELOAD }
+  class BlockType { <<enumeration>> HYPERTROPHY STRENGTH PEAK RESENSITIZATION MAINTENANCE PREP }
   class Laterality { <<enumeration>> BILATERAL ISOLATERAL UNILATERAL }
   class Mechanic { <<enumeration>> COMPOUND ISOLATION }
+  class Sex { <<enumeration>> MALE FEMALE UNSPECIFIED }
+  class Goal { <<enumeration>> GAIN_MUSCLE LOSE_FAT MAINTAIN GAIN_STRENGTH }
+  class ActivityLevel { <<enumeration>> SEDENTARY LIGHT MODERATE ACTIVE VERY_ACTIVE }
 ```
 
-> Every aggregate carries `userId` (tenant isolation — every repo ANDs it). Decimals are `BigDecimal`
-> (Decimal128 in Mongo, strings on the wire). The embedded set id is `setId`, not `id`. Also-present enums:
-> Equipment, ExerciseCategory, SetKind, CardioMetric, Sex, Goal, ActivityLevel.
+> **Reading it:** solid diamond ◆ = *embedding* (the child is a sub-document of the parent and saved with it);
+> dashed arrow ⇢ = *id reference* (a hex-string field resolved in app code — MongoDB does no joins). Every
+> collection root carries `userId`, the tenant key ANDed into every query. `Profile.goal` (the `Goal` enum) and
+> `Macrocycle.goal` (a String) are **different** vocabularies. Pace/speed are derived from distance/duration and
+> never stored. Full field-by-field notes live in `DESIGN.md`.
 
 ### 13. Sequence — log a planned session (the living plan)
 
