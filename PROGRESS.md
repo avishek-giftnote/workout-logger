@@ -24,6 +24,12 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   now? (synthetic only, irreversible); (3) test-DB strategy — per-run suffix+teardown vs a dropped
   `workoutlogger_ci`. Current-persistence-model **class diagram** is in the same doc. Entangled with the Atlas
   password rotation below (single shared credential mingles dev/test/prod data).
+- **Deployment: scaffolded, NOT executed.** Docker + compose + Cloudflare-Tunnel + OCI runbook merged
+  (PRs #24-26; `DEPLOY.md` is authoritative). Blocked on the VM-shape choice: **Path A** (add 4 GB swap +
+  cap the JVM heap on the free 1 GB x86 micro, ship now) vs **Path B, recommended** (PAYG upgrade → Ampere
+  A1 aarch64, roomier). Pre-deploy must-dos: rotate the Atlas password + a fresh `SECURITY_JWT_SECRET` (the
+  one pasted in an old chat is burned), allowlist the VM's reserved IP in Atlas. _(handoff.md consolidated
+  here + `DEPLOY.md` and removed 2026-07-07.)_
 - **Rotate the Atlas DB password + set a real JWT secret** — the `avishek_db_user` Atlas password was pasted
   in chat this session; the dev `SECURITY_JWT_SECRET` is a throwaway. Rotate before any real prod use.
 - **Deferred coaching findings** (`docs/eval-findings.md`, evals pin current behavior under TODO):
