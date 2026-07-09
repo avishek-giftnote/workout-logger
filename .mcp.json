@@ -19,6 +19,13 @@
       "env": {
         "MDB_MCP_READ_ONLY": "true"
       }
+    },
+    "railway": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "[ -f ./backend/.env.local ] && . ./backend/.env.local; [ -n \"$RAILWAY_API_TOKEN\" ] && export RAILWAY_API_TOKEN; exec npx -y @railway/cli mcp"
+      ]
     }
   }
 }

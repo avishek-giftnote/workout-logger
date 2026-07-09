@@ -475,6 +475,18 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
 - **Prod-readiness (beyond the CI gate)**: k6 load + data-volume probe (esp. the O(n) client-side
   full-workout-list scans in `pickPrevSets`/`topWorkingSet`/`weeklyMuscleSets`); observability
   (Sentry/health/uptime); secrets manager; Atlas backups/PITR; a `security-review` pass.
+  - **🚀 LIVE ON RAILWAY (2026-07-09):** `https://modest-balance-production-3d9a.up.railway.app` — project
+    `successful-nurturing` / service `modest-balance`, prod profile, Atlas DB **`workoutlogger_prod`** (fresh,
+    isolated from dev). Three code fixes were needed: **#36** frontend Docker build (`tsconfig.build.json`),
+    **#37** `server.port: ${PORT:8080}`, **#38** `SENTRY_AUTH_TOKEN` as a build ARG (Railway's builder rejects
+    `--mount=type=secret` — only `type=cache`). Railway vars set: `MONGODB_URI`, `SECURITY_JWT_SECRET`,
+    `SPRING_PROFILES_ACTIVE=prod`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT=production`, `SENTRY_TRACES_SAMPLE_RATE`.
+    Atlas Network Access opened to `0.0.0.0/0` (Railway egress is dynamic) — **the DB is now internet-reachable,
+    protected only by credentials; rotate the password + consider a low-privilege user.** Verified live: health
+    UP, SPA + deep-link `/start` 200, `/api/me` 401, register→JWT→84 seeded exercises→workout 201, indexes
+    created, smoke account cleaned. **Backend Sentry is live; FRONTEND Sentry is OFF** — `VITE_SENTRY_DSN` is
+    baked at build, so it must be a Railway **build** variable, not a runtime one. Railway MCP wired in
+    `.mcp.json` (auth via `railway login`, not a token — the tokens tried were invalid).
   - **SHIPPED #36 (2026-07-09):** Sentry Stages A–C + the frontend-Docker-build fix (`tsconfig.build.json`) +
     the 2 concurrency guards + `DebugController`, to **unblock a Railway deploy** whose build failed on the
     `coach.eval.test.ts` cross-boundary import. Verified with a full no-secret `docker build` (Railway's exact
