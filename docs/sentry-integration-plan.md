@@ -223,7 +223,7 @@ export default defineConfig({
 
 *Wired into the **Docker build** (the actual shipped artifact — CI's gate build isn't deployed, so uploading
 maps there would produce mismatched maps). `Dockerfile` Stage 1 takes `VITE_SENTRY_DSN`/`VITE_SENTRY_RELEASE`/
-`SENTRY_ORG`/`SENTRY_PROJECT` as build args + `SENTRY_AUTH_TOKEN` as a **BuildKit secret** (never in an image
+`SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` as **build args** (Railway's builder rejects secret mounts; the token lands in `docker history`, so keep the image
 layer); `docker-compose.yml` passes them (secret sourced from the `SENTRY_AUTH_TOKEN` env) + sets backend
 runtime `SENTRY_*`; `.env.example` + `DEPLOY.md` document all vars (build-time vs runtime) and the
 `SENTRY_RELEASE=$(git rev-parse --short HEAD)` deploy step. `docker compose config` validates; the frontend

@@ -14,17 +14,20 @@ COPY frontend/ ./
 #   VITE_SENTRY_DSN     — baked into the bundle so error monitoring runs in prod (public value)
 #   VITE_SENTRY_RELEASE — release tag (pass the git SHA) so events + maps group per deploy
 #   SENTRY_ORG/PROJECT  — slugs for source-map upload (not secret)
-# The auth token is a real secret → passed as a BuildKit secret (required=false), so it never lands in an
-# image layer or `docker history`. When present, @sentry/vite-plugin uploads the maps and DELETES the .map
-# files, so they never ship inside the jar; when absent, the build simply skips upload.
+#   SENTRY_AUTH_TOKEN   — enables source-map upload. When present, @sentry/vite-plugin uploads the maps and
+#                         DELETES the .map files so they never ship inside the jar; absent ⇒ upload skipped.
+#
+# The token is a plain ARG, NOT a BuildKit `--mount=type=secret`: Railway's builder only supports
+# `--mount=type=cache` and rejects secret mounts at Dockerfile parse. Caveat: a build ARG is recorded in
+# `docker history`, so keep this image private and use a short-lived token scoped to `project:releases`.
 ARG VITE_SENTRY_DSN=
 ARG VITE_SENTRY_RELEASE=
 ARG SENTRY_ORG=
 ARG SENTRY_PROJECT=
-RUN --mount=type=secret,id=sentry_auth_token,required=false \
-    SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null || true)" \
-    VITE_SENTRY_DSN="$VITE_SENTRY_DSN" VITE_SENTRY_RELEASE="$VITE_SENTRY_RELEASE" \
+ARG SENTRY_AUTH_TOKEN=
+RUN VITE_SENTRY_DSN="$VITE_SENTRY_DSN" VITE_SENTRY_RELEASE="$VITE_SENTRY_RELEASE" \
     SENTRY_ORG="$SENTRY_ORG" SENTRY_PROJECT="$SENTRY_PROJECT" \
+    SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" \
     npm run build
 
 # ── Stage 2: build the backend jar with the SPA bundled into static/ ──────────
