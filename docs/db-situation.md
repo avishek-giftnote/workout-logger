@@ -267,5 +267,5 @@ Genuine schema-level items already tracked elsewhere (not caused by this, don't 
 - **Drop the 13 stray test databases now?** (Synthetic data only; irreversible.)
 - **Test-DB strategy:** per-run suffix + teardown vs a single dropped `workoutlogger_ci` — either kills
   the leak; pick one and I'll wire it into the test config + CI.
-- Related and already open: **rotate the shared Atlas password** (PROGRESS "Pending decisions") — the
-  single shared credential is part of why dev/test/prod data mingles.
+- The single shared Atlas credential is part of why dev/test/prod data mingles; a per-environment,
+  least-privilege user would separate them properly.

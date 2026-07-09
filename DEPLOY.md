@@ -63,7 +63,6 @@ don't add host iptables rules beyond SSH.)
 ### 4. MongoDB Atlas
 - Network Access → add the VM's **reserved public IP** (a single `/32` — tighter than the `0.0.0.0/0` Fly would
   have forced).
-- (Recommended) rotate the `avishek_db_user` password (it was exposed in a transcript); copy the new SRV string.
 
 ### 5. JWT secret
 ```bash

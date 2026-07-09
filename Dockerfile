@@ -25,7 +25,14 @@ ARG VITE_SENTRY_RELEASE=
 ARG SENTRY_ORG=
 ARG SENTRY_PROJECT=
 ARG SENTRY_AUTH_TOKEN=
-RUN VITE_SENTRY_DSN="$VITE_SENTRY_DSN" VITE_SENTRY_RELEASE="$VITE_SENTRY_RELEASE" \
+# Railway injects RAILWAY_GIT_COMMIT_SHA on a GitHub-triggered deploy. Declaring it as an ARG lets the builder
+# pass it through, so the Sentry release defaults to the deployed commit and errors group per deploy with no
+# manual bookkeeping. (A Railway *variable reference* — ${{RAILWAY_GIT_COMMIT_SHA}} — does NOT work: it resolves
+# against the service's configured variables, where no RAILWAY_GIT_* exists, and silently stores "".)
+# `:-` treats an empty value as unset, so an explicit VITE_SENTRY_RELEASE still wins; blank off-Railway.
+ARG RAILWAY_GIT_COMMIT_SHA=
+RUN VITE_SENTRY_DSN="$VITE_SENTRY_DSN" \
+    VITE_SENTRY_RELEASE="${VITE_SENTRY_RELEASE:-$RAILWAY_GIT_COMMIT_SHA}" \
     SENTRY_ORG="$SENTRY_ORG" SENTRY_PROJECT="$SENTRY_PROJECT" \
     SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" \
     npm run build
