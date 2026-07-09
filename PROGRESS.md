@@ -485,9 +485,13 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
     served JS). Verified live: health UP, SPA + `/start` 200, `/api/me` 401, `/favicon.ico` + missing assets 404,
     zero backend 500s, register→JWT→84 seeded exercises→workout 201, indexes created, smoke account cleaned.
     Railway MCP wired in `.mcp.json` (auth via `railway login`; the API tokens tried were invalid).
-    **Open items:** (1) `VITE_SENTRY_RELEASE`/`SENTRY_RELEASE` set to `${{RAILWAY_GIT_COMMIT_SHA}}` did **not**
-    resolve (build log shows empty) → errors aren't grouped per release; fix if release tracking matters.
-    (2) Source-map upload is
+    **Release grouping fixed (#42):** a Railway variable *reference* `${{RAILWAY_GIT_COMMIT_SHA}}` resolves
+    against the service's configured vars (no `RAILWAY_GIT_*` there) and silently stores `""`. Declaring
+    `ARG RAILWAY_GIT_COMMIT_SHA` instead makes the builder pass it through — verified: the build ran with
+    `VITE_SENTRY_RELEASE="7052f5e…"` and that SHA is in the served bundle. Backend mirrors it at runtime via
+    `release: ${SENTRY_RELEASE:${RAILWAY_GIT_COMMIT_SHA:}}` (an empty-but-set var would defeat a Spring
+    default, so the two blank vars were deleted from the service).
+    **Open item:** Source-map upload is
     off (no `SENTRY_AUTH_TOKEN`) so frontend stack traces stay minified; note that setting it as a Railway var
     would expose it in build logs + `docker history` (the build-ARG trade-off).
   - **SHIPPED #36 (2026-07-09):** Sentry Stages A–C + the frontend-Docker-build fix (`tsconfig.build.json`) +
