@@ -46,7 +46,9 @@ importer:
 sentry:
   dsn: ${SENTRY_DSN:}
   environment: ${SENTRY_ENVIRONMENT:local}
-  release: ${SENTRY_RELEASE:}
+  # Prefer an explicit SENTRY_RELEASE; otherwise fall back to Railway's injected commit SHA so errors group
+  # per deploy. Both blank off-Railway ⇒ no release tag (unchanged behaviour for local/OCI).
+  release: ${SENTRY_RELEASE:${RAILWAY_GIT_COMMIT_SHA:}}
   traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0}
   send-default-pii: false
   exception-resolver-order: 2147483647   # Integer.MAX_VALUE = lowest precedence

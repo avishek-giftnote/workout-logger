@@ -42,11 +42,8 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
 - **Deployment: scaffolded, NOT executed.** Docker + compose + Cloudflare-Tunnel + OCI runbook merged
   (PRs #24-26; `DEPLOY.md` is authoritative). Blocked on the VM-shape choice: **Path A** (add 4 GB swap +
   cap the JVM heap on the free 1 GB x86 micro, ship now) vs **Path B, recommended** (PAYG upgrade → Ampere
-  A1 aarch64, roomier). Pre-deploy must-dos: rotate the Atlas password + a fresh `SECURITY_JWT_SECRET` (the
-  one pasted in an old chat is burned), allowlist the VM's reserved IP in Atlas. _(handoff.md consolidated
-  here + `DEPLOY.md` and removed 2026-07-07.)_
-- **Rotate the Atlas DB password + set a real JWT secret** — the `avishek_db_user` Atlas password was pasted
-  in chat this session; the dev `SECURITY_JWT_SECRET` is a throwaway. Rotate before any real prod use.
+  A1 aarch64, roomier). Pre-deploy must-dos: allowlist the VM's reserved IP in Atlas. _(handoff.md consolidated
+  here + `DEPLOY.md` and removed 2026-07-07.)_ **Superseded 2026-07-09 — the app now runs on Railway.**
 - **Deferred coaching findings** (`docs/eval-findings.md`, evals pin current behavior under TODO):
   - Deload-floor magnitude for low-ceiling blocks (PEAK / STRENGTH-non-focus) — currently a deload can equal
     accumulation; should it step down relative to the block's own ceiling?
@@ -166,7 +163,7 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   `prod` profile (dev/tests/e2e keep the ephemeral fallback → CI unaffected). Guards: `ApiIntegrationTest` **44**
   (health public / API still 401 / SPA routes forward) + `JwtServiceTest` **6** (+3 M7); gate green, e2e green.
   Deploy runbook + manual-steps checklist in **`DEPLOY.md`**. _Manual steps remaining (you): Fly account+login,
-  Atlas IP allowlist (0.0.0.0/0), rotate the exposed Atlas password, `fly secrets set MONGODB_URI/SECURITY_JWT_SECRET`,
+  Atlas IP allowlist (0.0.0.0/0), `fly secrets set MONGODB_URI/SECURITY_JWT_SECRET`,
   `fly deploy`._
 - _2026-06-30_ — **Fixed audit H2 + M1 + M2 + M4 + M5 (backend hardening cluster)** — PR #21, one sequential
   pass (these share `ApiIntegrationTest`/`ApiDtos`/`ApiExceptionHandler` → not lane-parallelizable). **H2:**
@@ -488,10 +485,9 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
     served JS). Verified live: health UP, SPA + `/start` 200, `/api/me` 401, `/favicon.ico` + missing assets 404,
     zero backend 500s, register→JWT→84 seeded exercises→workout 201, indexes created, smoke account cleaned.
     Railway MCP wired in `.mcp.json` (auth via `railway login`; the API tokens tried were invalid).
-    **Open items:** (1) Atlas Network Access is `0.0.0.0/0` — DB is internet-reachable, protected only by
-    credentials; **rotate `avishek_db_user` + use a low-privilege user scoped to `workoutlogger_prod`**.
-    (2) `VITE_SENTRY_RELEASE`/`SENTRY_RELEASE` set to `${{RAILWAY_GIT_COMMIT_SHA}}` did **not** resolve (build log
-    shows empty) → errors aren't grouped per release; fix if release tracking matters. (3) Source-map upload is
+    **Open items:** (1) `VITE_SENTRY_RELEASE`/`SENTRY_RELEASE` set to `${{RAILWAY_GIT_COMMIT_SHA}}` did **not**
+    resolve (build log shows empty) → errors aren't grouped per release; fix if release tracking matters.
+    (2) Source-map upload is
     off (no `SENTRY_AUTH_TOKEN`) so frontend stack traces stay minified; note that setting it as a Railway var
     would expose it in build logs + `docker history` (the build-ARG trade-off).
   - **SHIPPED #36 (2026-07-09):** Sentry Stages A–C + the frontend-Docker-build fix (`tsconfig.build.json`) +
