@@ -1545,6 +1545,15 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.bodyweightLog[0].weightKg").value("78.5"));
     }
 
+    /** A missing static asset must be a 404, not the opaque 500 it used to be (which also fired a Sentry
+     *  event on every browser /favicon.ico request). Real SPA deep-link forwarding needs the bundled
+     *  index.html (only present after the Docker build), so it is covered by the Playwright e2e, not here. */
+    @Test
+    void missingStaticResourceReturns404NotServerError() throws Exception {
+        mvc.perform(get("/assets/does-not-exist.js")).andExpect(status().isNotFound());
+        mvc.perform(get("/favicon.ico")).andExpect(status().isNotFound());
+    }
+
     // ── Concurrency regression pins: a delete/end must not be silently overwritten by a stale versioned save ──
     // (load-test council P1/P2). The council theorised a silent resurrection: softDelete/endActive use
     // updateFirst/updateMulti (no manual .inc("version")), so a concurrent full-edit/advance whose read straddled
