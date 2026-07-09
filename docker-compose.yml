@@ -11,12 +11,25 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Frontend Sentry inputs (build-time). All optional — leave blank in .env to disable.
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+        VITE_SENTRY_RELEASE: ${SENTRY_RELEASE:-}   # same git SHA as the backend release
+        SENTRY_ORG: ${SENTRY_ORG:-}
+        SENTRY_PROJECT: ${SENTRY_PROJECT:-}
+      secrets:
+        - sentry_auth_token                        # the one real secret; used only for source-map upload
     restart: always
     environment:
       # 'prod' activates the M7 JWT fail-fast — a blank SECURITY_JWT_SECRET refuses to boot.
       SPRING_PROFILES_ACTIVE: prod
       MONGODB_URI: ${MONGODB_URI:?set MONGODB_URI in .env}
       SECURITY_JWT_SECRET: ${SECURITY_JWT_SECRET:?set SECURITY_JWT_SECRET in .env}
+      # Backend Sentry (runtime). Blank SENTRY_DSN ⇒ the SDK stays disabled.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
     expose:
       - "8080"            # internal to the compose network only — NOT published to the host
     networks:
@@ -37,3 +50,9 @@ services:
 networks:
   web:
     driver: bridge
+
+# The Sentry source-map upload token, sourced from the SENTRY_AUTH_TOKEN env var (from .env). Passed to the
+# build as a BuildKit secret (never persisted in an image layer). Absent/blank ⇒ the build skips upload.
+secrets:
+  sentry_auth_token:
+    environment: SENTRY_AUTH_TOKEN

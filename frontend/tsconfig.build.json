@@ -1,0 +1,8 @@
+{
+  "//": "Build-scoped typecheck. Same as tsconfig.json but EXCLUDES test files, because coach.eval.test.ts",
+  "//2": "imports ../../backend/...default-exercises.json — a cross-project path that exists in the monorepo",
+  "//3": "but NOT in the frontend-only Docker build context. `npm run build` uses this; `npm run typecheck`",
+  "//4": "still checks everything (tests included) locally/CI where backend/ is present.",
+  "extends": "./tsconfig.json",
+  "exclude": ["src/**/*.test.ts", "src/**/*.eval.test.ts"]
+}

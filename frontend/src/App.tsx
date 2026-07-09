@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import * as Sentry from "@sentry/react";
 import { useAuth } from "./auth/auth";
 import ErrorBoundary from "./components/ErrorBoundary";
 import SettingsSidebar from "./components/SettingsSidebar";
@@ -14,6 +15,10 @@ import TemplateDetailPage from "./pages/TemplateDetailPage";
 import MuscleVolumePage from "./pages/MuscleVolumePage";
 import PlanPage from "./pages/PlanPage";
 import PastPlans from "./pages/PastPlans";
+
+// Sentry-instrumented <Routes> — records route transitions as spans for performance tracing.
+// No-ops when Sentry isn't initialised (no DSN), so it's safe to use unconditionally.
+const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
 function Brand() {
   const nav = useNavigate();
@@ -40,7 +45,7 @@ function Shell() {
           <button className="btn btn-ghost" title="Settings" onClick={() => setSettingsOpen(true)}>⚙</button>
         </div>
       </header>
-      <Routes>
+      <SentryRoutes>
         <Route path="/previous-workouts" element={<WorkoutsPage />} />
         <Route path="/previous-workouts/:id" element={<WorkoutDetailPage />} />
         <Route path="/previous-workouts/:id/edit" element={<EditWorkoutPage />} />
@@ -52,7 +57,7 @@ function Shell() {
         <Route path="/past-plans" element={<PastPlans />} />
         <Route path="/start" element={<LogWorkoutPage />} />
         <Route path="*" element={<Navigate to="/start" replace />} />
-      </Routes>
+      </SentryRoutes>
       <SettingsSidebar open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );

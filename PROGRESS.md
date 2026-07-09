@@ -475,6 +475,58 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
 - **Prod-readiness (beyond the CI gate)**: k6 load + data-volume probe (esp. the O(n) client-side
   full-workout-list scans in `pickPrevSets`/`topWorkingSet`/`weeklyMuscleSets`); observability
   (Sentry/health/uptime); secrets manager; Atlas backups/PITR; a `security-review` pass.
+  - **Sentry.io — Stage A (backend) BUILT + verified 2026-07-07; B/C await DSN** (`docs/sentry-integration-plan.md`).
+    Stage A done: `sentry-spring-boot-starter-jakarta` 8.47.0 dep; `sentry.*` config block (blank DSN → disabled,
+    `exception-resolver-order` pinned lowest so the auto-resolver never double-captures); explicit
+    `Sentry.captureException` in `ApiExceptionHandler.generic()` (500-only); `SentryConfig` `beforeSend` PII scrub
+    (strips Authorization/Cookie/body); `ApiExceptionHandlerSentryTest` guard (500→1 event, 4xx→0). Full gate green
+    (123 tests incl. `RUN_MONGO_TESTS=1`; context boots with Sentry autoconfig). **Stage B (frontend) also BUILT
+    + verified 2026-07-07:** `@sentry/react` 10.63.0 + `@sentry/vite-plugin` 5.3.0; init in `src/sentry.ts`
+    (DSN-guarded) with react-router-v6 tracing + **Session Replay ON, max-privacy** (maskAllText/Inputs,
+    blockAllMedia); `ErrorBoundary` reports; `vite.config.ts` gates source-map upload on `SENTRY_AUTH_TOKEN`
+    (build stays green without it); `vite-env.d.ts` types the vars. Gate green (tsc clean, 139 unit tests, build
+    OK, no maps leaked); runtime smoke fired a correct envelope POST to the FE ingest endpoint. Both DSNs live in
+    `.env.local` (git-ignored). **Neither stage shipped yet.** Stage C = source-map upload (`SENTRY_AUTH_TOKEN`),
+    `.env.example`/`DEPLOY.md` docs, release=SHA wiring, + live dashboard/replay-masking verification.
+  - **Stage C (source maps / ops) also BUILT + verified 2026-07-07.** Wired into the **Docker build** (the
+    shipped artifact, not CI's gate build — maps must match deployed JS): `Dockerfile` build args + BuildKit
+    secret for `SENTRY_AUTH_TOKEN` (never in an image layer), `docker-compose.yml` build-args/secret + backend
+    runtime `SENTRY_*`, `.env.example` + `DEPLOY.md` Sentry docs, `SENTRY_RELEASE=$(git rev-parse --short HEAD)`
+    deploy step. `docker compose config` valid; frontend Docker stage builds green. **Found + fixed a
+    pre-existing (non-Sentry) bug** that had broken the frontend Docker build since PR #26: `npm run build`'s
+    `tsc` choked on `coach.eval.test.ts`'s `../../backend/...json` import (absent in the FE-only Docker context).
+    Fix: build-scoped `tsconfig.build.json` excluding test files; `npm run build` typechecks prod code + works in
+    Docker, `npm run typecheck` stays full. Gate green (139 unit + eval sweep). **All three stages built,
+    verified, unshipped.** Remaining: user creates GH Actions secrets (done) / puts token in VM `.env`; live
+    dashboard + replay-masking eyeball; optional GHCR release workflow to consume the Actions secrets.
+  - **Live verification (2026-07-08):** added `web/DebugController.java` (`@Profile("!prod")`,
+    `GET /api/debug/sentry-error` throws → real 500 → Sentry) as the deterministic backend trigger, and an
+    Artifact reference map of the Sentry pipeline (`docs/`-style, hosted on claude.ai). **Frontend verification
+    runnable now** (dev server :5173, no backend needed). **Backend verification BLOCKED: MongoDB Atlas is
+    refusing TLS from this machine** (`tlsv1 alert internal error` across the Java driver AND the mongodb MCP) —
+    almost certainly the dev IP rolled overnight and dropped out of Atlas Network Access allowlist (current IP
+    120.19.96.63) — so the backend can't boot. Fix on Atlas side, then hit the debug endpoint.
+  - **Concurrent-load Sentry sweep (autopilot, 2026-07-08) — 0 real bugs; app robust on both ends.** A deciding
+    council (backend/arch/data/QA specialists) proposed 14 adversarial concurrency scenarios; built a
+    barrier-synced backend load harness (8 scenarios × 12 users vs an isolated `workoutlogger_loadtest` backend,
+    rate-limiter off, Sentry `env=loadtest`) + a 4-context frontend nav/refetch stress. **Backend: 0 unhandled
+    500s.** Optimistic-lock If-Match → exactly one 200 / rest 409; dup workout & register → one 201 / rest 409;
+    tenant isolation → all 404 (no leak); bodyweight atomic adds → no lost writes; settings LWW, plan-advance
+    race, mixed chaos → all clean. **Frontend: 0 uncaught errors** (SQLite-WASM contention degrades gracefully,
+    council F2). The council's two "CONFIRMED silent bugs" (P1 workout / P2 plan **resurrection** via a stale
+    versioned save racing an unversioned delete/end) were **empirically DISPROVEN**: Spring Data auto-increments
+    `@Version` on `updateFirst`/`updateMulti`, so the delete bumps version 0→1 and the stale `save()` loses with
+    a 409 — verified on a live doc via the Mongo MCP. Added 2 **regression-pin** tests
+    (`softDeletedWorkoutCannotBeResurrectedByAStaleVersionedWrite`, `endedPlanCannotBeResurrectedByAStaleAdvance`)
+    that pass on current code; full backend gate green (`RUN_MONGO_TESTS=1` → 79 `ApiIntegrationTest`, 0 fail).
+    Insight saved to memory `[[concurrency-version-aware-updates]]`. Load harnesses live in the session
+    scratchpad (not committed).
+    BE (`sentry-spring-boot-starter-jakarta` 8.47.0) + FE (`@sentry/react` 10.63.0). Design: 500-only capture
+    via explicit `Sentry.captureException` in the generic 500 handler (4xx never sent), `sendDefaultPii:false`
+    + Authorization/body scrubbing, **Session Replay ON in max-privacy mode** (maskAllText/Inputs, blockAllMedia,
+    no network bodies — masking verified on a real replay before prod PII), DSN wired to env (no-ops unset).
+    Scope confirmed BE+FE. Staged A/backend → B/frontend → C/ops, each a gated PR; guard test pins 500-only.
+    No code changed yet — awaiting DSNs (Avishek creating the Sentry projects).
 - **Subscription/entitlement layer** — gate cloud sync (flip `SYNC_ENABLED` per entitlement).
 - **More UI testing tiers** — component (RTL) tests, visual regression, cross-browser E2E.
 - **Tooling skills** (CLAUDE.md recommendations): `/restart-smoke`, `/diagrams`.

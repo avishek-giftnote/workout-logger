@@ -1545,4 +1545,68 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.bodyweightLog[0].weightKg").value("78.5"));
     }
 
+    // ── Concurrency regression pins: a delete/end must not be silently overwritten by a stale versioned save ──
+    // (load-test council P1/P2). The council theorised a silent resurrection: softDelete/endActive use
+    // updateFirst/updateMulti (no manual .inc("version")), so a concurrent full-edit/advance whose read straddled
+    // the delete could save() over it and revive deletedAt→null / status→ACTIVE with no 500 (a lost-delete Sentry
+    // can't catch). EMPIRICALLY the app is already SAFE: Spring Data MongoDB auto-increments the @Version property
+    // on updateFirst/updateMulti (since Data-Mongo 2.2), so the delete bumps version 0→1 and the stale save() loses
+    // with OptimisticLockingFailureException. These tests PASS on the current code — they pin that invariant so a
+    // future switch to a raw update, or dropping @Version, re-introduces the race and fails here.
+
+    @Test
+    void softDeletedWorkoutCannotBeResurrectedByAStaleVersionedWrite() throws Exception {
+        String token = register("resurrect-workout@example.com");
+        String exId = createExercise(token, "Bench", false);
+        String wid = createWorkout(token, exId, "60.0", 8);
+
+        // A concurrent full edit (PUT → replaceExercises → mongo.save(w)) read the live workout (version 0).
+        com.workoutlogger.domain.Workout stale = mongo.findById(wid, com.workoutlogger.domain.Workout.class);
+        assertThat(stale.getVersion()).isEqualTo(0L);
+        assertThat(stale.getDeletedAt()).isNull();
+
+        // The owner deletes it.
+        mvc.perform(delete("/api/workouts/" + wid).header("Authorization", bearer(token)))
+                .andExpect(status().is2xxSuccessful());
+
+        // The stale edit's save() must LOSE (softDelete bumped @Version) — not resurrect deletedAt→null.
+        stale.setExercises(java.util.List.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> mongo.save(stale))
+                .isInstanceOf(org.springframework.dao.OptimisticLockingFailureException.class);
+
+        // The workout stays deleted.
+        com.workoutlogger.domain.Workout current = mongo.findById(wid, com.workoutlogger.domain.Workout.class);
+        assertThat(current.getDeletedAt()).as("still soft-deleted, not resurrected").isNotNull();
+        mvc.perform(get("/api/workouts/" + wid).header("Authorization", bearer(token)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void endedPlanCannotBeResurrectedByAStaleAdvance() throws Exception {
+        String token = register("resurrect-plan@example.com");
+        String planRes = mvc.perform(post("/api/plan").header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(planBody("EndRace")))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String planId = json.readTree(planRes).get("id").asText();
+
+        // A concurrent advance() read the ACTIVE plan (version 0) before the end lands.
+        com.workoutlogger.domain.Macrocycle stale =
+                mongo.findById(planId, com.workoutlogger.domain.Macrocycle.class);
+        assertThat(stale.getVersion()).isEqualTo(0L);
+        assertThat(stale.getStatus()).isEqualTo("ACTIVE");
+
+        // The owner ends the plan.
+        mvc.perform(delete("/api/plan").header("Authorization", bearer(token)))
+                .andExpect(status().is2xxSuccessful());
+
+        // The stale advance's save() must LOSE (endActive bumped @Version) — not resurrect status→ACTIVE.
+        stale.setWeek(stale.getWeek() + 1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> mongo.save(stale))
+                .isInstanceOf(org.springframework.dao.OptimisticLockingFailureException.class);
+
+        com.workoutlogger.domain.Macrocycle current =
+                mongo.findById(planId, com.workoutlogger.domain.Macrocycle.class);
+        assertThat(current.getStatus()).as("stays ENDED, not resurrected to ACTIVE").isEqualTo("ENDED");
+    }
+
 }
