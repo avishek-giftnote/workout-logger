@@ -17,8 +17,10 @@ services:
         VITE_SENTRY_RELEASE: ${SENTRY_RELEASE:-}   # same git SHA as the backend release
         SENTRY_ORG: ${SENTRY_ORG:-}
         SENTRY_PROJECT: ${SENTRY_PROJECT:-}
-      secrets:
-        - sentry_auth_token                        # the one real secret; used only for source-map upload
+        # Source-map upload token. A plain build arg (not a BuildKit secret) because Railway's builder
+        # rejects secret mounts. It lands in `docker history` — keep the image private, use a short-lived
+        # token scoped to `project:releases`. Blank ⇒ upload skipped.
+        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
     restart: always
     environment:
       # 'prod' activates the M7 JWT fail-fast — a blank SECURITY_JWT_SECRET refuses to boot.
@@ -50,9 +52,3 @@ services:
 networks:
   web:
     driver: bridge
-
-# The Sentry source-map upload token, sourced from the SENTRY_AUTH_TOKEN env var (from .env). Passed to the
-# build as a BuildKit secret (never persisted in an image layer). Absent/blank ⇒ the build skips upload.
-secrets:
-  sentry_auth_token:
-    environment: SENTRY_AUTH_TOKEN

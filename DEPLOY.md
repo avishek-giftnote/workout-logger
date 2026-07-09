@@ -78,7 +78,8 @@ Sentry off. Fill them in `.env` (see the Sentry block in `.env.example`). Split 
 - **Runtime (backend):** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, `SENTRY_TRACES_SAMPLE_RATE`.
 - **Build-time (frontend, baked into the bundle):** `VITE_SENTRY_DSN`, `SENTRY_RELEASE`, and — for source-map
   upload — `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`. The token is passed to `docker build` as a
-  **BuildKit secret** (via compose's `secrets:`), so it never lands in an image layer. `SENTRY_AUTH_TOKEN` is
+  **build arg** (Railway's builder rejects BuildKit secret mounts). It is recorded in `docker history`, so keep
+  the image private and use a short-lived `project:releases`-scoped token. `SENTRY_AUTH_TOKEN` is
   **not** needed at runtime.
 
 ---
@@ -92,13 +93,12 @@ cd workout-logger
 cp .env.example .env && chmod 600 .env
 nano .env            # fill MONGODB_URI, SECURITY_JWT_SECRET, TUNNEL_TOKEN (+ optional Sentry block)
 export SENTRY_RELEASE=$(git rev-parse --short HEAD)   # tag events + source maps to this deploy (optional)
-DOCKER_BUILDKIT=1 docker compose up -d --build   # BuildKit required for the source-map upload secret
+docker compose up -d --build        # builds the image natively on ARM, starts app + cloudflared
 docker compose ps                   # app should become 'healthy'; cloudflared 'running'
 docker compose logs -f app          # watch startup (Mongo connect, Tomcat on 8080)
 ```
 > `SENTRY_RELEASE` is read from the shell here so it isn't pinned in `.env`; set it (to the commit SHA) on each
-> deploy so a new build's events + maps group correctly. BuildKit is on by default in modern Docker; the
-> explicit `DOCKER_BUILDKIT=1` is belt-and-suspenders for the `type=secret` mount.
+> deploy so a new build's events + maps group correctly.
 
 ### Smoke-test
 - `https://app.yourdomain.com/` loads the SPA; hard-refresh `/start` still loads (no 404).
