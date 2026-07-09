@@ -475,6 +475,15 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
 - **Prod-readiness (beyond the CI gate)**: k6 load + data-volume probe (esp. the O(n) client-side
   full-workout-list scans in `pickPrevSets`/`topWorkingSet`/`weeklyMuscleSets`); observability
   (Sentry/health/uptime); secrets manager; Atlas backups/PITR; a `security-review` pass.
+  - **SHIPPED #36 (2026-07-09):** Sentry Stages A–C + the frontend-Docker-build fix (`tsconfig.build.json`) +
+    the 2 concurrency guards + `DebugController`, to **unblock a Railway deploy** whose build failed on the
+    `coach.eval.test.ts` cross-boundary import. Verified with a full no-secret `docker build` (Railway's exact
+    path) + green CI. **`$PORT` binding shipped (#37):** `server.port: ${PORT:8080}` — verified Tomcat binds to
+    the injected port (booted with PORT=9099 → listened on 9099, health UP; defaults to 8080 elsewhere).
+    **Railway runtime next-steps still owner-side:** set env `MONGODB_URI`, `SECURITY_JWT_SECRET`
+    (≥32B), `SPRING_PROFILES_ACTIVE=prod` (M7 fail-fast + disables the `!prod` DebugController); **allowlist
+    Railway's egress in Atlas Network Access** (else the same TLS-reject we hit locally); frontend `VITE_SENTRY_DSN`
+    must be a **build arg** (baked at build), backend `SENTRY_DSN` a runtime env.
   - **Sentry.io — Stage A (backend) BUILT + verified 2026-07-07; B/C await DSN** (`docs/sentry-integration-plan.md`).
     Stage A done: `sentry-spring-boot-starter-jakarta` 8.47.0 dep; `sentry.*` config block (blank DSN → disabled,
     `exception-resolver-order` pinned lowest so the auto-resolver never double-captures); explicit
