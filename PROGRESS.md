@@ -478,7 +478,8 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
     fixes: **#36** frontend Docker build (`tsconfig.build.json`), **#37** `server.port: ${PORT:8080}`, **#38**
     `SENTRY_AUTH_TOKEN` as a build ARG (Railway's builder rejects `--mount=type=secret` — only `type=cache`),
     **#40** `NoResourceFoundException` → 404 (missing `/favicon.ico` + `/assets/*` were 500ing and firing a
-    Sentry event on *every browser page load*). Railway vars: `MONGODB_URI`, `SECURITY_JWT_SECRET`,
+    Sentry event on *every browser page load*), **#44** unknown `/api/*` → 404 JSON (below).
+    Railway vars: `MONGODB_URI`, `SECURITY_JWT_SECRET`,
     `SPRING_PROFILES_ACTIVE=prod`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT=production`, `SENTRY_TRACES_SAMPLE_RATE`,
     `VITE_SENTRY_DSN` (Railway maps service vars onto matching Dockerfile `ARG`s, so this bakes into the bundle).
     **Both ends of Sentry are now live** (backend 500-capture + frontend errors/masked Replay; DSN verified in the
@@ -491,9 +492,26 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
     `VITE_SENTRY_RELEASE="7052f5e…"` and that SHA is in the served bundle. Backend mirrors it at runtime via
     `release: ${SENTRY_RELEASE:${RAILWAY_GIT_COMMIT_SHA:}}` (an empty-but-set var would defeat a Spring
     default, so the two blank vars were deleted from the service).
-    **Open item:** Source-map upload is
-    off (no `SENTRY_AUTH_TOKEN`) so frontend stack traces stay minified; note that setting it as a Railway var
-    would expose it in build logs + `docker history` (the build-ARG trade-off).
+    **SPA catch-all swallowed unknown `/api` routes (#44).** Found in prod while confirming the `!prod`
+    `DebugController` was absent: an authed `GET /api/debug/sentry-error` returned **200 `text/html`**, not 404.
+    `SpaForwardController`'s extensionless `{p1}/{p2}/{p3}` catch-all matched any *unmapped* `/api` route of 1–3
+    segments once auth passed and forwarded it to `index.html` (4+ segments escaped, so `/api/does/not/exist`
+    already 404'd). Its javadoc claimed `/api/**` "never reaches here" — true only when a mapping exists. A
+    typo'd/removed endpoint therefore looked like a success and any JSON client (incl. our `client.ts`) would
+    choke parsing HTML. Auth-gated, no data leak. Fix: negative lookahead excluding `api|actuator|v3|swagger-ui`
+    from the first segment → falls through to `NoResourceFoundException` → the #40 handler. Guard-first (test
+    fails on old code); the pre-existing `src/test/resources/static/index.html` makes the SPA forward genuinely
+    resolve in tests, so deep links are pinned too. Gate green (81 `ApiIntegrationTest`); verified live.
+    **Sentry confirmed end-to-end in prod (2026-07-09).** Frontend: a real uncaught error on the live site →
+    Sentry ingest returned **HTTP 200 on all 4 envelopes** (error + session + replay). Backend: temporarily
+    flipped `SPRING_PROFILES_ACTIVE` off `prod` (it gates only the M7 blank-JWT fail-fast + `DebugController`;
+    the secret is set, so tokens stayed valid), fired `/api/debug/sentry-error` → **500 captured exactly once**,
+    the 404 control captured **zero**, no transport errors; profile restored and the endpoint verified gone.
+    **Open items:** (1) Source-map upload is
+    off (no `SENTRY_AUTH_TOKEN`) so frontend stack traces stay minified; setting it as a Railway var would expose
+    it in build logs + `docker history` (the build-ARG trade-off). (2) **Owner still to eyeball in the Sentry
+    dashboard:** the backend event carries no `Authorization`/body (the `beforeSend` scrub), and the frontend
+    replay masks email/password inputs. Neither is observable from a session.
   - **SHIPPED #36 (2026-07-09):** Sentry Stages A–C + the frontend-Docker-build fix (`tsconfig.build.json`) +
     the 2 concurrency guards + `DebugController`, to **unblock a Railway deploy** whose build failed on the
     `coach.eval.test.ts` cross-boundary import. Verified with a full no-secret `docker build` (Railway's exact
