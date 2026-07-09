@@ -10,7 +10,22 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+# Sentry build inputs (all optional — absent ⇒ Sentry stays off / no source-map upload):
+#   VITE_SENTRY_DSN     — baked into the bundle so error monitoring runs in prod (public value)
+#   VITE_SENTRY_RELEASE — release tag (pass the git SHA) so events + maps group per deploy
+#   SENTRY_ORG/PROJECT  — slugs for source-map upload (not secret)
+# The auth token is a real secret → passed as a BuildKit secret (required=false), so it never lands in an
+# image layer or `docker history`. When present, @sentry/vite-plugin uploads the maps and DELETES the .map
+# files, so they never ship inside the jar; when absent, the build simply skips upload.
+ARG VITE_SENTRY_DSN=
+ARG VITE_SENTRY_RELEASE=
+ARG SENTRY_ORG=
+ARG SENTRY_PROJECT=
+RUN --mount=type=secret,id=sentry_auth_token,required=false \
+    SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null || true)" \
+    VITE_SENTRY_DSN="$VITE_SENTRY_DSN" VITE_SENTRY_RELEASE="$VITE_SENTRY_RELEASE" \
+    SENTRY_ORG="$SENTRY_ORG" SENTRY_PROJECT="$SENTRY_PROJECT" \
+    npm run build
 
 # ── Stage 2: build the backend jar with the SPA bundled into static/ ──────────
 FROM maven:3.9-eclipse-temurin-21 AS backend

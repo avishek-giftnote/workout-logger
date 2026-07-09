@@ -84,6 +84,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> generic(Exception e) {
         log.error("Unhandled exception → 500", e);
+        // Report to Sentry ONLY here: this is the single place a genuinely unexpected 500 is produced. Every
+        // 4xx is caught by a more specific @ExceptionHandler above and returns before reaching this method, so
+        // this call site is inherently 500-only (no config-based exclusion list needed). No-op when the SDK is
+        // disabled (blank DSN). Pinned by ApiExceptionHandlerSentryTest.
+        io.sentry.Sentry.captureException(e);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error", null);
     }
 
