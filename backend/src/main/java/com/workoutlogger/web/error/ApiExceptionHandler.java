@@ -72,6 +72,17 @@ public class ApiExceptionHandler {
         return body(HttpStatus.FORBIDDEN, "Access denied", null);
     }
 
+    // Spring 6 throws NoResourceFoundException when a static resource is missing — /favicon.ico, a stale
+    // /assets/<hash>.js, or a .map probe. SpaForwardController deliberately excludes dotted paths, so those
+    // reach the resource handler and, with no mapping here, fell through to generic() → 500. That is wrong
+    // twice over: a missing file is a CLIENT error (404), and the 500 fired a Sentry event on *every browser
+    // favicon request*. Found live on Railway. Pinned by ApiExceptionHandlerSentryTest + ApiIntegrationTest.
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> noStaticResource(
+            org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        return body(HttpStatus.NOT_FOUND, "Not found", null);
+    }
+
     // preserve explicit status exceptions (e.g. login 401) before the generic fallback below
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
     public ResponseEntity<Map<String, Object>> responseStatus(org.springframework.web.server.ResponseStatusException e) {

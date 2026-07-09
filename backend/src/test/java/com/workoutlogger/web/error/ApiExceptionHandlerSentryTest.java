@@ -58,4 +58,16 @@ class ApiExceptionHandlerSentryTest {
         handler.optimisticLock(new OptimisticLockingFailureException("stale"));
         assertThat(CAPTURED.get() - before).isZero();
     }
+
+    /** A missing static resource (favicon.ico, a stale asset hash, a .map probe) is a 404 — never a Sentry
+     *  event. Before the NoResourceFoundException handler existed it fell through to generic() → 500, firing
+     *  an event on every browser favicon request. */
+    @Test
+    void missingStaticResourceIs404AndNeverReported() {
+        int before = CAPTURED.get();
+        var res = handler.noStaticResource(new org.springframework.web.servlet.resource.NoResourceFoundException(
+                org.springframework.http.HttpMethod.GET, "/favicon.ico"));
+        assertThat(res.getStatusCode().value()).isEqualTo(404);
+        assertThat(CAPTURED.get() - before).isZero();
+    }
 }
