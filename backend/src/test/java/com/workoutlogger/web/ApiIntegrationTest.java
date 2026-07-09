@@ -1546,12 +1546,35 @@ class ApiIntegrationTest {
     }
 
     /** A missing static asset must be a 404, not the opaque 500 it used to be (which also fired a Sentry
-     *  event on every browser /favicon.ico request). Real SPA deep-link forwarding needs the bundled
-     *  index.html (only present after the Docker build), so it is covered by the Playwright e2e, not here. */
+     *  event on every browser /favicon.ico request). */
     @Test
     void missingStaticResourceReturns404NotServerError() throws Exception {
         mvc.perform(get("/assets/does-not-exist.js")).andExpect(status().isNotFound());
         mvc.perform(get("/favicon.ico")).andExpect(status().isNotFound());
+    }
+
+    /** SpaForwardController's extensionless catch-all ({p1}/{p2}/{p3}) used to swallow UNKNOWN /api routes
+     *  once auth passed, returning the SPA shell as 200 text/html instead of a 404 JSON — so a typo'd or
+     *  removed endpoint looked like a success and any JSON client choked parsing HTML. (Four+ segments
+     *  escaped it, which is why /api/does/not/exist already 404'd.) Found in prod verifying that the
+     *  !prod DebugController was gone: it returned 200 HTML. Reserved prefixes are now excluded. */
+    @Test
+    void unknownApiRouteReturns404JsonNotTheSpaShell() throws Exception {
+        String t = register("api-404@example.com");
+
+        // real client-side routes still forward to the SPA shell
+        mvc.perform(get("/start")).andExpect(status().isOk());
+        mvc.perform(get("/previous-workouts/abc/edit")).andExpect(status().isOk());
+
+        // unknown /api routes must 404 with JSON, never the HTML shell
+        mvc.perform(get("/api/nope").header("Authorization", bearer(t)))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+        mvc.perform(get("/api/a/b").header("Authorization", bearer(t)))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+        mvc.perform(get("/api/does/not/exist").header("Authorization", bearer(t)))
+                .andExpect(status().isNotFound());
     }
 
     // ── Concurrency regression pins: a delete/end must not be silently overwritten by a stale versioned save ──
