@@ -29,8 +29,10 @@ images, so the build architecture is a non-issue.
 | File | Purpose |
 |---|---|
 | `Dockerfile` | The build Railway runs. 3 stages: Vite SPA → bundled into the Spring Boot jar → slim JRE runtime. |
-| `.env.example` | Template of every env var (runtime + build-time). Never commit a filled `.env`. |
-| `docker-compose.yml` | **Not the live path** — a self-host/local alternative (app + `cloudflared`). See "Superseded" below. |
+| `.env.example` | Reference for every env var (runtime + build-time). In prod these are set in Railway's Variables tab. |
+
+**Railway is the only deployment path.** There is no compose stack, no VM, no tunnel, and no second target to
+keep in sync — if you're adding infrastructure, it goes through Railway.
 
 The app already: serves the SPA + client-side deep links, returns **404 JSON on unknown `/api/*` routes** (PR #44),
 404s missing static assets instead of 500ing (PR #40), exposes only `/actuator/health`, calls the API at the
@@ -124,13 +126,4 @@ Then register → log a workout → refresh → it persists (proves Atlas + auth
 - **Phase 2 (deferred):** Stripe + a `subscribed` flag + a `403` sync-gate + delta-sync over the existing REST API
   (the local-first `LocalStore` seam already exists client-side).
 
-## Superseded: the OCI + Cloudflare Tunnel path
-
-The original target was an Oracle Cloud Always-Free Ampere VM behind a Cloudflare Tunnel (PRs #24-26). It was
-**never executed** and was **abandoned 2026-07-09 in favour of Railway**, which removes the VM, SSH hardening,
-patching, reboot-survival, and tunnel overhead entirely. What remains of it in the repo is `docker-compose.yml`
-(app + `cloudflared`) and the `TUNNEL_TOKEN` entry in `.env.example` — both still work for self-hosting, so
-they're kept rather than deleted. The full OCI runbook is in git history if it's ever wanted.
-**Open question:** delete the compose/tunnel scaffolding, or keep it as a documented self-host escape hatch?
-
-_Last updated: 2026-07-14 — Railway (live since 2026-07-09; replaced the unexecuted OCI/Cloudflare plan)._
+_Last updated: 2026-07-14 — Railway is the sole deployment path; all other deploy tooling has been removed._

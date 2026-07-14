@@ -1,5 +1,5 @@
-# Listen on the platform-assigned port when present (Railway/Heroku-style inject $PORT), else 8080.
-# The default keeps local dev, the OCI/Cloudflare compose deploy, CI, and the packaged jar on 8080 unchanged.
+# Listen on the platform-assigned port when present (Railway injects $PORT), else 8080.
+# The default keeps local dev, CI, and the packaged jar on 8080 unchanged.
 server:
   port: ${PORT:8080}
 

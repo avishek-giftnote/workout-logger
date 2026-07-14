@@ -20,10 +20,9 @@ _Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdow
   rebuilt via the deterministic importer at a 59 kg baseline, all 8 `@example.com` test accounts purged, and the
   diagrams consolidated + moved to `docs/`. No open decision remains (only the per-environment Atlas credential,
   tracked under Operational policy below).
-- **Deployment — settled.** The app runs on **Railway** (`https://workout-logger.up.railway.app`); the never-executed
-  OCI/Cloudflare-Tunnel runbook (PRs #24-26) was abandoned 2026-07-09 and `DEPLOY.md` was **rewritten Railway-first
-  2026-07-14**. One open question: `docker-compose.yml` (app + `cloudflared`) and `.env.example`'s `TUNNEL_TOKEN` are
-  all that remain of the OCI path — **delete the compose/tunnel scaffolding, or keep it as a self-host escape hatch?**
+- ~~**Deployment target / keep the compose+tunnel escape hatch?**~~ **Decided 2026-07-14: Railway is the lone
+  deployment tool.** All other deploy tooling deleted (`docker-compose.yml`, `TUNNEL_TOKEN`, every OCI/Cloudflare/
+  Ampere reference); `DEPLOY.md` rewritten Railway-first. See Done.
 - **Deferred coaching findings** (`docs/eval-findings.md`, evals pin current behavior under TODO):
   - Deload-floor magnitude for low-ceiling blocks (PEAK / STRENGTH-non-focus) — currently a deload can equal
     accumulation; should it step down relative to the block's own ceiling?
@@ -60,6 +59,15 @@ _Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdow
 
 ## Done
 
+- _2026-07-14_ — **Railway is now the lone deployment tool; all other deploy tooling deleted.** Removed
+  `docker-compose.yml` (the app + `cloudflared` stack), the `TUNNEL_TOKEN` var, and every Cloudflare / Oracle-Cloud
+  (OCI) / Ampere reference from `.env.example`, the `Dockerfile` comments, and `application.yml`. `.env.example` is
+  reframed around Railway's Variables tab. Nothing in CI or tooling referenced compose, so nothing broke.
+  **Left the `Dockerfile`'s HEALTHCHECK + `curl` install in place on purpose** — deleting compose removed its only
+  consumer and it hardcodes 8080 while the app binds `$PORT` (so it's inert on Railway), but Docker isn't available
+  in this environment to verify an image build, and CI doesn't build the image either — so an unverified Dockerfile
+  edit could only be caught by a failed Railway deploy. Documented in-file as inert; remove it when a build can be
+  verified.
 - _2026-07-14_ — **`DEPLOY.md` rewritten Railway-first.** The doc still walked a reader through provisioning an
   Oracle Cloud VM + a Cloudflare Tunnel + manual `docker compose up` — a path that was **never executed** and was
   abandoned 2026-07-09. Anyone following it would have built infrastructure the app doesn't use. Now documents the
