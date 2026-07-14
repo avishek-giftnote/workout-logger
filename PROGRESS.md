@@ -20,9 +20,10 @@ _Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdow
   rebuilt via the deterministic importer at a 59 kg baseline, all 8 `@example.com` test accounts purged, and the
   diagrams consolidated + moved to `docs/`. No open decision remains (only the per-environment Atlas credential,
   tracked under Operational policy below).
-- **Deployment — superseded 2026-07-09.** The Docker/compose/Cloudflare-Tunnel/OCI runbook (PRs #24-26) was
-  abandoned; the app now runs on **Railway** (see the Railway entry under Done). ⚠️ `DEPLOY.md` still documents the
-  OCI path and is **stale pending a Railway-first rewrite**.
+- **Deployment — settled.** The app runs on **Railway** (`https://workout-logger.up.railway.app`); the never-executed
+  OCI/Cloudflare-Tunnel runbook (PRs #24-26) was abandoned 2026-07-09 and `DEPLOY.md` was **rewritten Railway-first
+  2026-07-14**. One open question: `docker-compose.yml` (app + `cloudflared`) and `.env.example`'s `TUNNEL_TOKEN` are
+  all that remain of the OCI path — **delete the compose/tunnel scaffolding, or keep it as a self-host escape hatch?**
 - **Deferred coaching findings** (`docs/eval-findings.md`, evals pin current behavior under TODO):
   - Deload-floor magnitude for low-ceiling blocks (PEAK / STRENGTH-non-focus) — currently a deload can equal
     accumulation; should it step down relative to the block's own ceiling?
@@ -59,6 +60,16 @@ _Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdow
 
 ## Done
 
+- _2026-07-14_ — **`DEPLOY.md` rewritten Railway-first.** The doc still walked a reader through provisioning an
+  Oracle Cloud VM + a Cloudflare Tunnel + manual `docker compose up` — a path that was **never executed** and was
+  abandoned 2026-07-09. Anyone following it would have built infrastructure the app doesn't use. Now documents the
+  real deploy: push to `main` → Railway builds the `Dockerfile` from GitHub → container binds `$PORT` → Atlas +
+  Sentry. Keeps the runtime-vs-build-time variable split (`VITE_SENTRY_DSN` must be a build var — Railway maps
+  service vars onto Dockerfile `ARG`s) and the four hard-won **Railway gotchas** (bind `$PORT`; the builder rejects
+  BuildKit secret mounts so `SENTRY_AUTH_TOKEN` is a build ARG; a `${{RAILWAY_GIT_COMMIT_SHA}}` variable *reference*
+  silently resolves to `""` — declare it as an `ARG`; an empty-but-set var defeats a Spring default). Verified the
+  live service while writing it (health UP, SPA + `/start` 200, `/api/me` 401). The compose/`cloudflared`
+  scaffolding is retained + flagged as an open call rather than deleted, since it still works for self-hosting.
 - _2026-07-14_ — **Repo cleanup + doc-leanness pass (PR #46, `735a4e0`).** Goal: as lean as possible without
   sacrificing Claude's context, the human mental model, or functionality. **Cruft: ~250 MB reclaimed** — two
   abandoned agent worktrees in `.claude/worktrees/` (206 MB, removed via `git worktree remove`), `backend/target/`,
