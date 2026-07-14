@@ -57,10 +57,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 # Single fat jar from the package stage (finalName is artifactId-version).
 COPY --from=backend /app/target/*.jar /app/app.jar
 EXPOSE 8080
-# Container health = the actuator probe. Docker/compose restarts the container if this fails;
-# with the Cloudflare Tunnel, an unhealthy app means cloudflared has nothing to route to.
+# Container health = the actuator probe, for any runtime that honours a Docker HEALTHCHECK.
+# NOTE: Railway does not use this (it runs its own healthcheck against the service URL), and this line
+# hardcodes 8080 while the app binds $PORT — so on Railway it is inert. Kept as generic container
+# metadata; see DEPLOY.md if you ever want it removed.
 HEALTHCHECK --interval=15s --timeout=3s --start-period=45s --retries=3 \
     CMD curl -fsS http://localhost:8080/actuator/health || exit 1
-# MaxRAMPercentage 75% — on an Ampere A1 VM (e.g. 6–24 GB) this gives the JVM a multi-GB heap;
-# override with -e JAVA_OPTS / JAVA_TOOL_OPTIONS if you pin a smaller machine shape.
+# MaxRAMPercentage 75% — let the JVM size its heap from the container's memory limit rather than a
+# fixed -Xmx; override with -e JAVA_OPTS / JAVA_TOOL_OPTIONS to pin it.
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/app.jar"]
