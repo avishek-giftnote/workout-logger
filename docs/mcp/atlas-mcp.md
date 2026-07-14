@@ -17,15 +17,17 @@ Add this under `mcpServers` in the project `.mcp.json`:
 
 ```json
 "mongodb": {
-  "command": "npx",
-  "args": ["-y", "mongodb-mcp-server@latest"],
-  "env": {
-    "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}",
-    "MDB_MCP_READ_ONLY": "true"
-  }
+  "command": "bash",
+  "args": [
+    "-c",
+    "[ -f ./backend/.env.local ] && . ./backend/.env.local; export MDB_MCP_CONNECTION_STRING=\"$MONGODB_URI\"; exec npx -y mongodb-mcp-server@latest"
+  ],
+  "env": { "MDB_MCP_READ_ONLY": "true" }
 }
 ```
 
+The `bash -c` wrapper sources the gitignored `backend/.env.local` so the connection string comes from
+`MONGODB_URI` there (rather than a committed `${MONGODB_URI}` reference Claude Code would flag as unset).
 `MDB_MCP_READ_ONLY=true` drops all write tools before the server registers them — they never appear
 to the client. This DB-only default needs just one env var (`MONGODB_URI`). **Don't reference env vars
 you haven't set** — Claude Code flags `${VAR}` references with no value as "Missing environment

@@ -246,26 +246,15 @@ them) over thin additive backend persistence — no breaking schema change.
   newest-first by `startedAt`.
   **Existing endpoints:** GET · POST · POST /advance · POST /mesocycle · DELETE.
   Additive fields on existing docs: `Workout.soreMuscles`, `Workout.cyclePhase` (DELOAD excluded from trends),
-  `TemplateExercise.{reps,targetRir}`, `Exercise.{laterality,mechanic,loadable}`, `BodyweightEntry.id`.
-- **Planner — `frontend/src/periodization.ts`:** `planMacrocycle(goal, weeks, targetDate, focus, days,
-  catalog, measuredPhase)` → ordered blocks (goal recipe, `clampPhase` by the Coach's measured energy phase) +
-  a generated split. `targetSets` = MEV→ceiling ramp ~+2 sets/wk + a bounded **phase band-step** (`PHASE_MODIFIERS`,
-  orthogonal to `blockType`). `generateSplit` selects exercises by the shared **`trainsMuscle` ≥0.5 basis**,
-  keeps every prime mover ≥2×/week, enforces **distinct stimulus** per slot (blocking near-identical isolation
-  variants), caps each day at **`SESSION_TOTAL_CAP = 20`** working sets (redistributing excess to lighter days),
-  and `orderForRecovery` / `scheduleWeek` place training days in a 7-slot week grid so each muscle gets ≥48 h.
-  `PlanPreview` carries a **`schedule: number[]`** field (weekday index per template, 0=Mon…6=Sun) — this is
-  what the user edits in `WeekCalendar` and what `Split.weekdays` persists to the backend.
-- **Prescription — `frontend/src/prescription.ts`:** `rpePct` (RTS `100−2.5(reps−1)−5·RIR`), `e1rm`,
-  `nextLoad`/`progressedSeed` (double progression; bodyweight on reps), `rirWave` (3→0), `readiness`
-  (eases a sore/under-recovered muscle, strictly-prior). `LogWorkoutPage` seeds the next session live.
-- **Energy Coach — `backend/coach/EnergyService.java`:** Mifflin–St Jeor × PAL + least-squares slope/CI,
-  ≥6 weigh-ins / ≥14–21 d gate, ±0.1%bw/wk dead-band (anchored to ȳ), CI-derived confidence; feeds
-  `measuredPhase`.
-- **Catalog:** `DefaultExerciseSeeder` seeds 84 exercises (muscle map + equipment + laterality + mechanic +
-  loadable) into every new user; `restore-defaults` back-fills existing users.
-- **Eval harness (`npm run eval`):** `coach.eval.test.ts` (planner R1–R18) + `prescription.eval.test.ts`
-  (engine R10–R22) — every coaching invariant is pinned as an `R##` guard, separate from the `npm test` gate.
+  `TemplateExercise.{reps,targetRir}`, `Exercise.{laterality,mechanic,loadable}`, `BodyweightEntry.id`,
+  `Split.weekdays` (weekday per template slot — persists the `WeekCalendar` schedule the user edits, mirroring
+  `PlanPreview.schedule`).
+- **The pure-function engine** — planner (`frontend/src/periodization.ts`), prescription
+  (`frontend/src/prescription.ts`), energy coach (`backend/coach/EnergyService.java`), the default catalog
+  (`DefaultExerciseSeeder`, 84 exercises), and the `R##` eval catalog — is **specified in `docs/coach.md`**, the
+  authoritative source, and is not restated here to avoid drift. (This section previously carried a copy that went
+  stale on the rule count — the split is what prevents that.) The engine is pure so `npm run eval` sweeps it;
+  persistence is the additive `plans` / `Split` / `Workout` fields listed above.
 
 ## 8. Deferred / operational (noted, not built now)
 

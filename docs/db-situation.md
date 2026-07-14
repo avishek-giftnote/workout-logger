@@ -260,12 +260,13 @@ Genuine schema-level items already tracked elsewhere (not caused by this, don't 
    databases. All contain only synthetic accounts (table above), but it is irreversible, so it does not
    happen without a go-ahead.
 
-## Open calls for Avishek
+## Resolution (2026-07-07, shipped `cd260a7` / #34)
 
-- **Recreate the demo account?** If yes: confirm the email (`import@giftnote.com` vs a new one) and
-  supply/choose a password; I re-run the importer against `workoutlogger` (needs `strong_workouts.csv`).
-- **Drop the 13 stray test databases now?** (Synthetic data only; irreversible.)
-- **Test-DB strategy:** per-run suffix + teardown vs a single dropped `workoutlogger_ci` — either kills
-  the leak; pick one and I'll wire it into the test config + CI.
-- The single shared Atlas credential is part of why dev/test/prod data mingles; a per-environment,
-  least-privilege user would separate them properly.
+The leak is fixed and the open questions above are answered:
+- **Test-DB strategy** — a per-run disposable namespace with **drop-on-teardown** (`TestDbCleanup` for the
+  backend suites, `frontend/e2e/global-teardown.ts` for e2e); the 13 stray `workoutlogger_*` databases were
+  dropped out-of-band. This is why those test files cite this doc as the rationale.
+- **Demo account** — rebuilt via the deterministic importer (the reproducible-seed step above).
+
+**Still open:** the single shared Atlas credential is part of why dev/test/prod data mingles; a
+per-environment, least-privilege user would separate them properly.
