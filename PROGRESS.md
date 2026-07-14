@@ -59,6 +59,25 @@ _Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdow
 
 ## Done
 
+- _2026-07-14_ — **Repo cleanup + doc-leanness pass (PR #46, `735a4e0`).** Goal: as lean as possible without
+  sacrificing Claude's context, the human mental model, or functionality. **Cruft: ~250 MB reclaimed** — two
+  abandoned agent worktrees in `.claude/worktrees/` (206 MB, removed via `git worktree remove`), `backend/target/`,
+  `frontend/test-results/`, `.playwright-mcp/` session logs, an orphaned root `node_modules/.vite`, and 14
+  `.DS_Store`. **Docs: −736 lines** (99 insertions / 835 deletions, markdown only — no product code, tests, or
+  config touched; all three CI gates green). Deleted 4 completed one-off process docs (sentry-integration-plan,
+  planner-council-simulation `.md`+`.pdf`, uiux-prod-audit) — git history retains them; **kept `db-situation.md`**
+  because live test code (`TestDbCleanup`, `global-teardown.ts`) cites it as rationale. Consolidated duplicated
+  facts to one authoritative home: `CLAUDE.md` (always-loaded) now points at `DESIGN.md`/`docs/coach.md` for the
+  coaching engine, eval catalog, local-first seam and component list, keeping only the file map — the short safety
+  invariants (Decimal128-as-string, tenant isolation, `setId`) stay duplicated on purpose, that repetition is
+  load-bearing. **The redundancy had already drifted into real errors, now fixed:** the eval catalog was recorded
+  as "R1–R18/R10–R22" in three places (actually **R1–R40**); Playwright was "3 specs / 6 cases" (actually **11 /
+  22**); an orphaned PROGRESS fragment claimed "No code changed yet — awaiting DSNs" directly beneath the "LIVE ON
+  RAILWAY, verified in prod" entry; eval decisions D1–D5 were called deferred though they're resolved;
+  `atlas-mcp.md`'s `.mcp.json` block didn't match the live file; `db-situation.md`'s "Open calls" were all already
+  answered. Captured the whole procedure as a **global `repo-clean` skill** (`~/AvisheksIntelligence/.claude/
+  skills/repo-clean/`) — two-tier (auto-delete regenerable cruft; survey-then-propose for tracked docs), with a
+  hard stop against ever editing product code. Also set local `main` to track `origin/main` (was untracked).
 - _2026-07-07_ — **Cardio logging completed end-to-end via `/autopilot`.** Cardio was already substantially
   wired (domain, DTO round-trip, live logging engine, picker, 7 seeded exercises, per-exercise history); a
   council scoped the two real gaps + additions. **Shipped:** (1) **backend validation** — cardio DTO fields had
