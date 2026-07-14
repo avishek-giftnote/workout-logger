@@ -10,7 +10,8 @@ discipline kept *separate* from the unit gate.
 ## Your domain
 - **Two sweeps, `npm run eval`** (`vitest.eval.config.ts`, globs `src/**/*.eval.test.ts`, prints a scorecard on
   green): `coach.eval.test.ts` sweeps the planner over every goal × days × duration × focus (240 configs,
-  rules **R1–R18**); `prescription.eval.test.ts` sweeps the engine over its parameter space (**R10–R22**).
+  planner rules **R1–R40**); `prescription.eval.test.ts` sweeps the engine over its parameter space
+  (**R10–R22 + R37**). The full numbered catalog lives in `docs/coach.md`.
   Energy invariants live in `EnergyServiceTest`; the catalog selectability check in `DefaultExerciseSeederTest`.
 - **The contract:** "decision → executable guard, same change." The moment a rule is stated (every prime mover
   ≥2×/week, deficit never adds load, RIR ∈ [floor,3] and non-increasing, template targetRir == wave week-1,

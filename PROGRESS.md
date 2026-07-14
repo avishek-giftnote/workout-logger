@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-07-07 (database-situation audit + current-model class diagram)_
+_Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdown; latest project event: Sentry verified live in prod + Railway deploy, 2026-07-09)._
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -13,37 +13,16 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
 
 ## Pending decisions (needs Avishek)
 
-- **Database situation — audited + largely REMEDIATED 2026-07-07 (`docs/db-situation.md`).** Root cause was
-  DB-lifecycle hygiene, not the schema (one Atlas cluster with 16 databases because test/smoke runs named an
-  isolated `workoutlogger_*` DB per run and never dropped it — all synthetic). **Done:** (1) **test-DB teardown
-  wired + verified** — backend `@AfterAll` (`TestDbCleanup`, guarded to only ever drop a `workoutlogger_*` DB,
-  never the dev DB) on `ApiIntegrationTest` + `RateLimitIntegrationTest`, and a Playwright `globalTeardown`
-  (remote-only; CI's ephemeral `mongo:7` is a no-op); both confirmed to drop the run's DB. (2) **13 stray test
-  DBs dropped** — the cluster is now **3** (only `workoutlogger` dev + `admin`/`local`). (3) **Demo account
-  recreated + test users purged 2026-07-07.** `import@giftnote.com` / **`workout123`** rebuilt into
-  `workoutlogger`. The git-ignored `strong_workouts.csv` was unrecoverable (never committed — correct), but the
-  importer's verified output survived in the git-ignored `tools/import_preview.json`; inverted it back to raw
-  CSV rows and re-ran the **tested** importer (`--importer.persist=true`), so the exact-count assertion
-  (1,533/47/30/195/61) proved the reconstruction faithful. **Re-imported at a 59 kg bodyweight baseline** (not
-  75) so bodyweight-exercise loads are coherent with the person's real weight (Pull Up effective 59 / 69), since
-  historical set weights are stored, not recomputed at read. Added **18 realistic weigh-ins** (mean-reverting
-  58.5–59.3, ±0.5 around 59) across the last two months via the validated `PUT /api/me/bodyweight`, dropped the
-  flat estimated baseline row. **Deleted all 8 `@example.com` test accounts** (`probe-*`/`runskill-*`/`e2e+*`)
-  + their per-user data (50 workouts, 702 exercises, 4 templates) across every collection — the DB now holds a
-  single clean user. Verified: login `workout123` → token, wrong pw → 401, `GET /api/workouts` → 47,
-  decimals-as-strings on the wire, `entryId`/Decimal128 in Mongo. (4) **Diagrams consolidated + moved to
-  `docs/`.** `DIAGRAMS.md` + `DIAGRAMS.pdf` moved from repo root → `docs/` (builder paths, `CLAUDE.md`,
-  `DESIGN.md`, `.dockerignore`, `autopilot.md` updated). Diagram **#12 rewritten as the full domain class
-  diagram shown as STORED** (Mongo storage types — `ObjectId`/`Decimal128`/`ISODate`/String refs — every field
-  of all 6 collections + embedded types + all 14 enums; fixed the `BodyweightEntry.id`→`entryId` error and added
-  the missing cardio/`version` fields). #2 ERD gained the `plans` (Macrocycle/Mesocycle) collection + a
-  `BODYWEIGHT_ENTRY` block; #3 gained `PlanController`/`MeRepository`/`PlanRepository`. **PDF regenerated 17/17**
-  and visually verified readable. The standalone `data-model.md` was folded into #12 and removed.
-- **Deployment: scaffolded, NOT executed.** Docker + compose + Cloudflare-Tunnel + OCI runbook merged
-  (PRs #24-26; `DEPLOY.md` is authoritative). Blocked on the VM-shape choice: **Path A** (add 4 GB swap +
-  cap the JVM heap on the free 1 GB x86 micro, ship now) vs **Path B, recommended** (PAYG upgrade → Ampere
-  A1 aarch64, roomier). Pre-deploy must-dos: allowlist the VM's reserved IP in Atlas. _(handoff.md consolidated
-  here + `DEPLOY.md` and removed 2026-07-07.)_ **Superseded 2026-07-09 — the app now runs on Railway.**
+- **Database situation — RESOLVED 2026-07-07** (`docs/db-situation.md` is authoritative). Root cause was
+  DB-lifecycle hygiene, not the schema: per-run `workoutlogger_*` test DBs were never dropped (16 DBs on one
+  cluster, all synthetic). Fixed — test-DB teardown wired (`TestDbCleanup` + e2e `global-teardown.ts`, both
+  guarded to a `workoutlogger_*` name), 13 stray DBs dropped (cluster now 3), demo account `import@giftnote.com`
+  rebuilt via the deterministic importer at a 59 kg baseline, all 8 `@example.com` test accounts purged, and the
+  diagrams consolidated + moved to `docs/`. No open decision remains (only the per-environment Atlas credential,
+  tracked under Operational policy below).
+- **Deployment — superseded 2026-07-09.** The Docker/compose/Cloudflare-Tunnel/OCI runbook (PRs #24-26) was
+  abandoned; the app now runs on **Railway** (see the Railway entry under Done). ⚠️ `DEPLOY.md` still documents the
+  OCI path and is **stale pending a Railway-first rewrite**.
 - **Deferred coaching findings** (`docs/eval-findings.md`, evals pin current behavior under TODO):
   - Deload-floor magnitude for low-ceiling blocks (PEAK / STRENGTH-non-focus) — currently a deload can equal
     accumulation; should it step down relative to the block's own ceiling?
@@ -60,20 +39,11 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   brief: backend-eng sizes it 1.5-2wk (the `If-Match` retrofit across 8 endpoints, not delta-read, is the critical
   path); data-modeler flags the `@Version` backfill trap (annotating Exercise/Template/Split without a `version=0`
   backfill breaks Spring's insert-vs-update branch).
-- **Phase-0 hardening — IMPLEMENTED via `/autopilot` (2026-07-02), gate green, review council in flight.**
-  `WorkoutRepository.updateSet` now enforces the `@Version` precondition via an optional `If-Match` header
-  (optional-when-present, additive), returns a 3-state `SetUpdateResult` → controller maps stale→**409** (with
-  the server's current copy in `.detail`), missing/other-tenant/soft-deleted/set-missing→**404** (no existence
-  leak). `WorkoutDto` gained a read-only nullable `version` (+ `types.ts` mirror, optional); malformed `If-Match`
-  →400. A deciding council set the contract (unanimous: If-Match header, optional, expose version, re-query
-  disambiguation, server-only scope — frontend send/rebase deferred to sync Phase-1). 11 new `ApiIntegrationTest`
-  guards (RED→GREEN). The guards surfaced + fixed a **pre-existing** bug: a phantom version bump on a missing
-  `setId` (update matched the doc regardless of the arrayFilter); now set-existence is part of the match. Gate:
-  ApiIntegrationTest 56/56, backend pure BUILD SUCCESS, frontend tsc+124 vitest+build. **Review council PASSED**
-  (backend-engineer + data-modeler CLEAN; eval-engineer/systems-architect findings triaged — two test-coverage
-  gaps fixed in-loop: legacy-null-version *write* path + cross-tenant no-`detail`-leak assertion). **SHIPPED as
-  PR #27** (squash-merged to `main` as `bd2100c`, 2026-07-02; CI green: frontend + backend/Mongo + Playwright e2e).
-  First end-to-end run of the new `/autopilot` harness ([[autopilot-harness]]).
+- **Phase-0 hardening — SHIPPED PR #27** (`bd2100c`, 2026-07-02; first `/autopilot` run [[autopilot-harness]]).
+  `WorkoutRepository.updateSet` enforces the `@Version` precondition via an optional `If-Match` header
+  (stale→**409** with the server's current copy, missing/other-tenant/soft-deleted→**404**, malformed→400);
+  read-only nullable `version` on `WorkoutDto`. Surfaced + fixed a pre-existing phantom-version-bump bug on a
+  missing `setId`. Gate + review council green (CI: frontend + backend/Mongo + e2e).
   - _Deferred to the version-audit (review council flagged, out of scope for Phase-0, logged not dropped):_
     (1) **409 body divergence** — the pre-existing `PUT /workouts` + Plan `save()` paths return 409 with
     `detail:null` via the generic `OptimisticLockingFailureException` handler, while the new PATCH returns the
@@ -214,7 +184,7 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   **1 account + login 200**; 15 concurrent createPlan → **1 ACTIVE plan** (DB-confirmed). Fail-fast caveat: the
   boot-time unique-index build throws if the live DB already holds duplicate emails — dedupe before deploying.
   **Still open from the audit:** C2 (rate limiting) + the HIGH/MEDIUM UX/validation items.
-- _2026-06-30_ — **UI/UX + prod-readiness council audit** (`docs/uiux-prod-audit.md`). 5-lens code council
+- _2026-06-30_ — **UI/UX + prod-readiness council audit**. 5-lens code council
   (contract-drift, backend-validation, concurrency, security, UX) **cross-checked by a live multi-user
   concurrency simulation** against a running backend on an isolated `workoutlogger_conctest` Atlas DB.
   **Verified-live findings:** (C1) registration TOCTOU → 23 duplicate accounts for one email (DB-confirmed) →
@@ -261,7 +231,7 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   (same layout → same key incl. different defaults; changed muscle/count/day-name → different). tsc · 115 unit (+2)
   · eval 240/240 · build · plan-slots e2e. **Verified live**: customized a chest pick + a weekday, changed duration
   6→9mo (non-structural recompute), both survived (before: reset to defaults).
-- _2026-06-25_ — **Reliability hardening — the council's 3 HIGH hazards** (`docs/planner-council-simulation.{md,pdf}`).
+- _2026-06-25_ — **Reliability hardening — the council's 3 HIGH hazards**.
   Built by 3 synchronous sub-agents on disjoint files. (1) **Input validation** — mirrored `UpdateSetRequest`
   bounds onto `CreateSetRequest` (reps `@Min/@Max`, rpe, a weight `@Pattern`) + cascade `@Valid` so the bulk save
   path actually validates; `ApiIntegrationTest` asserts bogus reps/rpe → 400 (35/35). (2) **Error/offline states**
@@ -270,7 +240,7 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   the `LocalStore` seam (debounced) with a Resume/Discard prompt on reload + a `beforeunload` guard; plus a
   non-blocking large-jump weight warning. Gate green: tsc · 113 unit (+13) · eval 240/240 · build · backend 35/35
   · **e2e 6/6**. Verified live: started a session → reload fired the beforeunload guard → restore prompt rendered.
-- _2026-06-25_ — **Council planner-simulation** (`docs/planner-council-simulation.{md,pdf}`, 8-page PDF) — 44-agent
+- _2026-06-25_ — **Council planner-simulation** (8-page PDF) — 44-agent
   workflow role-played "Sam" through the full lifecycle (User → Coach → Exercise Scientist conversing per stage,
   findings fact-checked vs code). Verdict: engine sound, UI under-explains it. Top findings → the agenda below;
   the 3 HIGH reliability hazards are now done (above).
@@ -430,21 +400,10 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   MAX_SLOTS_PER_MUSCLE + R38. Current behavior = the batch-2 cap (caps at 20 by shaving, leaves thin stubs). Low
   priority; the HIGH junk-volume issue is already resolved by the cap.
 
-- **Council planner-simulation findings** (`docs/planner-council-simulation.{md,pdf}`, 2026-06-25). 44-agent council
-  role-played "Sam" through the full lifecycle; verdict: *the coaching engine is sound, the UI doesn't explain it*.
-  Actionable items, by priority:
-  - **Reliability hazards (HIGH):** (1) no `isError`/offline state on any query-gated page — a dropped GET mid-gym
-    spins forever or seeds from empty `?? []`; add error branches + an error boundary. (2) in-progress workout is
-    pure React state — refresh/lock/nav-tap wipes the session; persist the live draft to the existing `LocalStore`
-    seam + `beforeunload`. (3) `CreateSetRequest` has **no** validation (only `UpdateSetRequest` does) — a typo'd
-    weight poisons e1RM/progression; mirror the bounds + a client "large jump" warning.
-  - **Planner (HIGH/MED):** session-level total-set cap (Upper B prescribes ~29 sets — junk volume; `PER_SESSION_CAP`
-    is per-muscle only); silent reset of weekday/slot picks on any macro-param change (`PlanPage.tsx:260–268`) — diff
-    structurally; cross-block load bump at hypertrophy→strength (anchor to e1RM on block-type change); strength block
-    in a build-muscle plan needs a "why" caption; 3- and 4-month both yield 14 weeks (`periodization.ts:505`).
-  - **Quick wins (surfacing):** onboarding card + "Log weight" CTA on GATHERING_DATA; render the Mifflin estimate
-    during gathering; legible block-timeline text (9px→≥13px); two-step confirm on "Complete week"; duration-mismatch
-    notice. Full prioritized table + per-finding detail in the doc.
+- **Council planner-simulation findings** (2026-06-25) — 44-agent lifecycle sim; verdict: *the coaching engine is
+  sound, the UI doesn't explain it*. **All actioned** — the reliability hazards (input validation, error/offline
+  states, durable draft persistence), planner fixes (session-total cap, cross-block e1RM re-anchor, silent-reset
+  fix, duration-truncation), and surfacing quick wins are in the Done entries dated 2026-06-25 and later.
 
 - **Edit-time recovery notes use slot primary muscles only** — `scheduleNotes` (the live warning when you drag a
   session in the builder) reads muscles off rendered slots, so it's slightly less sensitive than the synergist-aware
@@ -452,19 +411,11 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
   `scheduleNotes` (e.g. pass the catalog or precompute per-template effective muscles). Small, low priority.
 
 - **Non-dismissible recovery-adjacency warning** — "Side delts lands on back-to-back days" on every builder load.
-  _Root-cause day-ordering attempted 2026-06-25 (via `/pursue`); proven a dead end for this case._ Made
-  `orderForRecovery` **provably adjacency-optimal** (exhaustive over ≤6 days, replacing the greedy nearest-neighbour
-  that's optimal-blind to its fixed start) + pinned with eval **R36** (failing-guard-first: greedy left 1 conflict
-  where 0 was achievable; now matches the global optimum across an adversarial + 40-case random battery). Gate green
-  (tsc · 96 unit · eval 240/240 + R36 · build). **But the Side-delts warning is mathematically unavoidable:** side
-  delts is effectively trained on **3 of 4 days** (Upper A + Lower A explicit, Upper B via press synergy), and 3
-  training days can't be mutually non-adjacent in a 4-slot week → ≥1 back-to-back is forced. The optimal order hits
-  that minimum (1), so reordering can't remove it; the default 4-day split was already optimally ordered (no visible
-  change there — R36's value is the correctness proof + regression guard + fixing suboptimal *other* configs).
-  **Still open — to actually kill the noise needs a different lever:** (A) reclassify "Catalog gaps" → split
-  actionable gaps from advisory **recovery notes** + make the latter dismissible (persisted); or (B) reduce side-delt
-  effective frequency (training-design change). Awaiting the call.
-- **Cardio logging** — additive `distanceM`/`durationS` + CARDIO category (DESIGN.md-deferred; 0% in Strong data).
+  R36 made `orderForRecovery` **provably adjacency-optimal** (exhaustive over ≤6 days; failing-guard-first, gate
+  green) — but proved the warning is **mathematically unavoidable**: side delts is trained on 3 of 4 days, and 3
+  days can't be mutually non-adjacent in a 4-slot week, so even the optimal order forces ≥1 back-to-back.
+  **Still open — killing the noise needs a different lever:** (A) split actionable "Catalog gaps" from advisory,
+  dismissible **recovery notes**; or (B) reduce side-delt effective frequency by design. Awaiting the call.
 - **Offline-first for the full data model** — extend the `LocalStore` pattern from settings to
   workouts/exercises/templates/plans with the planned delta-sync (`updatedSince` + `deletedAt` tombstones +
   an outbox). The deferred mobile phase; large, warrants a council. Native shells swap in
@@ -512,46 +463,6 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
     it in build logs + `docker history` (the build-ARG trade-off). (2) **Owner still to eyeball in the Sentry
     dashboard:** the backend event carries no `Authorization`/body (the `beforeSend` scrub), and the frontend
     replay masks email/password inputs. Neither is observable from a session.
-  - **SHIPPED #36 (2026-07-09):** Sentry Stages A–C + the frontend-Docker-build fix (`tsconfig.build.json`) +
-    the 2 concurrency guards + `DebugController`, to **unblock a Railway deploy** whose build failed on the
-    `coach.eval.test.ts` cross-boundary import. Verified with a full no-secret `docker build` (Railway's exact
-    path) + green CI. **`$PORT` binding shipped (#37):** `server.port: ${PORT:8080}` — verified Tomcat binds to
-    the injected port (booted with PORT=9099 → listened on 9099, health UP; defaults to 8080 elsewhere).
-    **Railway runtime next-steps still owner-side:** set env `MONGODB_URI`, `SECURITY_JWT_SECRET`
-    (≥32B), `SPRING_PROFILES_ACTIVE=prod` (M7 fail-fast + disables the `!prod` DebugController); **allowlist
-    Railway's egress in Atlas Network Access** (else the same TLS-reject we hit locally); frontend `VITE_SENTRY_DSN`
-    must be a **build arg** (baked at build), backend `SENTRY_DSN` a runtime env.
-  - **Sentry.io — Stage A (backend) BUILT + verified 2026-07-07; B/C await DSN** (`docs/sentry-integration-plan.md`).
-    Stage A done: `sentry-spring-boot-starter-jakarta` 8.47.0 dep; `sentry.*` config block (blank DSN → disabled,
-    `exception-resolver-order` pinned lowest so the auto-resolver never double-captures); explicit
-    `Sentry.captureException` in `ApiExceptionHandler.generic()` (500-only); `SentryConfig` `beforeSend` PII scrub
-    (strips Authorization/Cookie/body); `ApiExceptionHandlerSentryTest` guard (500→1 event, 4xx→0). Full gate green
-    (123 tests incl. `RUN_MONGO_TESTS=1`; context boots with Sentry autoconfig). **Stage B (frontend) also BUILT
-    + verified 2026-07-07:** `@sentry/react` 10.63.0 + `@sentry/vite-plugin` 5.3.0; init in `src/sentry.ts`
-    (DSN-guarded) with react-router-v6 tracing + **Session Replay ON, max-privacy** (maskAllText/Inputs,
-    blockAllMedia); `ErrorBoundary` reports; `vite.config.ts` gates source-map upload on `SENTRY_AUTH_TOKEN`
-    (build stays green without it); `vite-env.d.ts` types the vars. Gate green (tsc clean, 139 unit tests, build
-    OK, no maps leaked); runtime smoke fired a correct envelope POST to the FE ingest endpoint. Both DSNs live in
-    `.env.local` (git-ignored). **Neither stage shipped yet.** Stage C = source-map upload (`SENTRY_AUTH_TOKEN`),
-    `.env.example`/`DEPLOY.md` docs, release=SHA wiring, + live dashboard/replay-masking verification.
-  - **Stage C (source maps / ops) also BUILT + verified 2026-07-07.** Wired into the **Docker build** (the
-    shipped artifact, not CI's gate build — maps must match deployed JS): `Dockerfile` build args + BuildKit
-    secret for `SENTRY_AUTH_TOKEN` (never in an image layer), `docker-compose.yml` build-args/secret + backend
-    runtime `SENTRY_*`, `.env.example` + `DEPLOY.md` Sentry docs, `SENTRY_RELEASE=$(git rev-parse --short HEAD)`
-    deploy step. `docker compose config` valid; frontend Docker stage builds green. **Found + fixed a
-    pre-existing (non-Sentry) bug** that had broken the frontend Docker build since PR #26: `npm run build`'s
-    `tsc` choked on `coach.eval.test.ts`'s `../../backend/...json` import (absent in the FE-only Docker context).
-    Fix: build-scoped `tsconfig.build.json` excluding test files; `npm run build` typechecks prod code + works in
-    Docker, `npm run typecheck` stays full. Gate green (139 unit + eval sweep). **All three stages built,
-    verified, unshipped.** Remaining: user creates GH Actions secrets (done) / puts token in VM `.env`; live
-    dashboard + replay-masking eyeball; optional GHCR release workflow to consume the Actions secrets.
-  - **Live verification (2026-07-08):** added `web/DebugController.java` (`@Profile("!prod")`,
-    `GET /api/debug/sentry-error` throws → real 500 → Sentry) as the deterministic backend trigger, and an
-    Artifact reference map of the Sentry pipeline (`docs/`-style, hosted on claude.ai). **Frontend verification
-    runnable now** (dev server :5173, no backend needed). **Backend verification BLOCKED: MongoDB Atlas is
-    refusing TLS from this machine** (`tlsv1 alert internal error` across the Java driver AND the mongodb MCP) —
-    almost certainly the dev IP rolled overnight and dropped out of Atlas Network Access allowlist (current IP
-    120.19.96.63) — so the backend can't boot. Fix on Atlas side, then hit the debug endpoint.
   - **Concurrent-load Sentry sweep (autopilot, 2026-07-08) — 0 real bugs; app robust on both ends.** A deciding
     council (backend/arch/data/QA specialists) proposed 14 adversarial concurrency scenarios; built a
     barrier-synced backend load harness (8 scenarios × 12 users vs an isolated `workoutlogger_loadtest` backend,
@@ -567,12 +478,6 @@ _Last updated: 2026-07-07 (database-situation audit + current-model class diagra
     that pass on current code; full backend gate green (`RUN_MONGO_TESTS=1` → 79 `ApiIntegrationTest`, 0 fail).
     Insight saved to memory `[[concurrency-version-aware-updates]]`. Load harnesses live in the session
     scratchpad (not committed).
-    BE (`sentry-spring-boot-starter-jakarta` 8.47.0) + FE (`@sentry/react` 10.63.0). Design: 500-only capture
-    via explicit `Sentry.captureException` in the generic 500 handler (4xx never sent), `sendDefaultPii:false`
-    + Authorization/body scrubbing, **Session Replay ON in max-privacy mode** (maskAllText/Inputs, blockAllMedia,
-    no network bodies — masking verified on a real replay before prod PII), DSN wired to env (no-ops unset).
-    Scope confirmed BE+FE. Staged A/backend → B/frontend → C/ops, each a gated PR; guard test pins 500-only.
-    No code changed yet — awaiting DSNs (Avishek creating the Sentry projects).
 - **Subscription/entitlement layer** — gate cloud sync (flip `SYNC_ENABLED` per entitlement).
 - **More UI testing tiers** — component (RTL) tests, visual regression, cross-browser E2E.
 - **Tooling skills** (CLAUDE.md recommendations): `/restart-smoke`, `/diagrams`.

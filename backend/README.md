@@ -22,7 +22,7 @@ The importer transform is the production mirror of the runnable reference in
 
 ## Prerequisites
 
-The toolchain is not yet installed on this machine. With Homebrew:
+Toolchain: JDK 21 + Maven. With Homebrew:
 
 ```bash
 brew install openjdk@21 maven      # JDK 21 + Maven
