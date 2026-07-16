@@ -1,0 +1,425 @@
+<title>Workout Logger — Setup &amp; Build Console</title>
+<style>
+  :root {
+    --bg:#0c0d0e; --bg-2:#08090a;
+    --surface:#141618; --surface-2:#1a1d20; --surface-3:#22262a;
+    --line:#2b3036; --line-2:#383f46;
+    --ink:#f3f1ea; --ink-dim:#b9bcc0; --muted:#7e848c; --faint:#565b62;
+    --volt:#cdf138; --volt-deep:#9fc213; --ember:#ff7a45; --ice:#66d9ff;
+    --font-display:"Archivo","Helvetica Neue",system-ui,sans-serif;
+    --font-body:system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font-mono:ui-monospace,"SF Mono","Spline Sans Mono","JetBrains Mono",Menlo,monospace;
+    --maxw:1060px; --r:10px;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; font-family:var(--font-body); color:var(--ink); line-height:1.58;
+    background:radial-gradient(1200px 600px at 82% -12%, rgba(205,241,56,0.05), transparent 60%), linear-gradient(180deg,var(--bg),var(--bg-2));
+    background-attachment:fixed; -webkit-font-smoothing:antialiased;
+  }
+  body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:0.025; z-index:0;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .wrap { position:relative; z-index:1; max-width:var(--maxw); margin:0 auto; padding:clamp(18px,4vw,44px) clamp(14px,4vw,38px) 70px; }
+  h1,h2,h3 { font-family:var(--font-display); line-height:1.02; letter-spacing:-0.02em; text-wrap:balance; margin:0; }
+  .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  a { color:var(--volt); text-decoration:none; border-bottom:1px solid rgba(205,241,56,0.3); }
+  a:hover { border-bottom-color:var(--volt); }
+  :focus-visible { outline:2px solid var(--volt); outline-offset:2px; border-radius:4px; }
+
+  /* Masthead */
+  .brand { display:inline-flex; align-items:center; gap:10px; font-family:var(--font-mono); font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:var(--muted); margin-bottom:18px; }
+  .brand .tick { width:9px; height:20px; background:var(--volt); box-shadow:-6px 0 0 -1px var(--bg-2), 6px 0 0 -1px var(--bg-2); }
+  h1 { font-size:clamp(28px,5vw,46px); font-weight:800; }
+  h1 .accent { color:var(--volt); }
+  .dek { color:var(--ink-dim); font-size:clamp(14px,2vw,16px); max-width:60ch; margin-top:12px; }
+  .statusbar { display:flex; flex-wrap:wrap; gap:10px 12px; align-items:center; margin-top:20px; }
+  .pill { display:inline-flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:12px; letter-spacing:0.03em; padding:7px 12px; border-radius:100px; border:1px solid var(--line-2); background:var(--surface-2); color:var(--ink-dim); }
+  .pill.live { border-color:rgba(205,241,56,0.4); color:var(--ink); }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--volt); box-shadow:0 0 10px var(--volt); }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+  @media (prefers-reduced-motion:no-preference){ .dot{ animation:pulse 2.4s ease-in-out infinite; } }
+  .url { font-family:var(--font-mono); font-size:13px; color:var(--volt); word-break:break-all; }
+
+  /* Tab nav */
+  .tabs { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:6px; margin:34px 0 8px; padding:8px; border:1px solid var(--line); border-radius:12px;
+    background:linear-gradient(180deg, rgba(20,22,24,0.94), rgba(12,13,14,0.9)); backdrop-filter:blur(8px); }
+  .tab { appearance:none; cursor:pointer; border:1px solid transparent; background:transparent; color:var(--ink-dim);
+    font-family:var(--font-mono); font-size:12.5px; letter-spacing:0.02em; padding:9px 14px; border-radius:8px; display:inline-flex; align-items:center; gap:8px; transition:background .15s, color .15s, border-color .15s; }
+  .tab:hover { color:var(--ink); background:var(--surface-2); }
+  .tab[aria-selected="true"] { color:var(--bg); background:var(--volt); border-color:var(--volt); font-weight:600; box-shadow:0 0 18px -6px var(--volt); }
+  .tab .idx { font-size:10px; opacity:0.7; }
+
+  /* Panels */
+  .panel { padding-top:26px; animation:fade .28s ease; }
+  .panel[hidden]{ display:none; }
+  @keyframes fade { from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:none; } }
+  @media (prefers-reduced-motion:reduce){ .panel{ animation:none; } }
+  .eyebrow { font-family:var(--font-mono); font-size:12px; letter-spacing:0.16em; text-transform:uppercase; color:var(--volt-deep); margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+  .eyebrow::before { content:""; width:22px; height:1px; background:var(--volt-deep); }
+  .panel h2 { font-size:clamp(21px,3.2vw,28px); font-weight:800; }
+  .lead { color:var(--ink-dim); margin:12px 0 0; max-width:66ch; font-size:15px; }
+
+  /* Interactive diagram */
+  .diagram { margin-top:24px; }
+  .flow { padding:22px 18px; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); overflow-x:auto; }
+  .flow-lane { display:flex; align-items:stretch; gap:10px; min-width:min-content; }
+  .fnode { flex:1 1 0; min-width:118px; cursor:pointer; text-align:center; border:1px solid var(--line-2); border-radius:9px; background:var(--surface-2); color:var(--ink);
+    padding:14px 12px; font:inherit; transition:border-color .15s, background .15s, transform .12s, box-shadow .15s; }
+  .fnode:hover { transform:translateY(-2px); border-color:var(--line-2); background:var(--surface-3); }
+  .fnode .fn-label { font-weight:700; font-size:14px; font-family:var(--font-display); }
+  .fnode .fn-sub { font-family:var(--font-mono); font-size:10px; color:var(--muted); letter-spacing:0.04em; margin-top:5px; }
+  .fnode[aria-pressed="true"] { border-color:var(--volt); background:var(--surface-3); box-shadow:0 0 20px -8px var(--volt); }
+  .fnode[aria-pressed="true"] .fn-sub { color:var(--volt-deep); }
+  .fnode.err[aria-pressed="true"] { border-color:var(--ember); box-shadow:0 0 20px -8px var(--ember); }
+  .fnode.err[aria-pressed="true"] .fn-sub { color:var(--ember); }
+  .farrow { display:flex; align-items:center; color:var(--faint); font-family:var(--font-mono); font-size:16px; flex:0 0 auto; }
+  .flow-branch { margin-top:12px; padding-top:14px; border-top:1px dashed var(--line-2); }
+  .fb-label { font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ember); margin-bottom:10px; }
+
+  .readout { margin-top:12px; border:1px solid var(--line); border-left:2px solid var(--volt); border-radius:var(--r); background:var(--surface-2); padding:16px 18px; min-height:92px; }
+  .readout.err { border-left-color:var(--ember); }
+  .readout .r-key { font-family:var(--font-mono); font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--volt); margin-bottom:6px; }
+  .readout.err .r-key { color:var(--ember); }
+  .readout h3 { font-size:17px; margin-bottom:6px; }
+  .readout p { margin:0; color:var(--ink-dim); font-size:14.5px; }
+  .readout code { font-family:var(--font-mono); font-size:12.5px; color:var(--ink); background:var(--surface-3); padding:1px 5px; border-radius:4px; }
+  .hint { font-family:var(--font-mono); font-size:11px; color:var(--faint); margin-top:10px; letter-spacing:0.03em; }
+
+  /* Cards */
+  .grid { display:grid; gap:12px; margin-top:20px; }
+  .grid.two { grid-template-columns:repeat(auto-fit,minmax(255px,1fr)); }
+  .grid.three { grid-template-columns:repeat(auto-fit,minmax(205px,1fr)); }
+  .card { background:linear-gradient(180deg,var(--surface),var(--surface-2)); border:1px solid var(--line); border-radius:var(--r); padding:17px 18px 18px; }
+  .card h3 { font-size:15px; font-weight:700; letter-spacing:-0.01em; margin-bottom:7px; }
+  .card p { margin:0; color:var(--ink-dim); font-size:14px; }
+  .card .tag { font-family:var(--font-mono); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); display:block; margin-bottom:11px; }
+  .card code { font-family:var(--font-mono); font-size:12.5px; color:var(--ink); background:var(--surface-3); padding:1px 5px; border-radius:4px; }
+  .card.info { border-color:rgba(102,217,255,0.24); } .card.info .tag { color:var(--ice); }
+
+  /* Setup rows */
+  .setup { margin-top:22px; display:grid; gap:2px; }
+  .srow { display:grid; grid-template-columns:168px 1fr; gap:20px; padding:14px 0; border-top:1px solid var(--line); align-items:baseline; }
+  .srow:first-child { border-top:none; }
+  .srow .s-key { font-family:var(--font-mono); font-size:12.5px; color:var(--volt); }
+  .srow .s-key small { display:block; color:var(--muted); font-size:10px; letter-spacing:0.08em; text-transform:uppercase; margin-top:4px; }
+  .srow .s-val { font-size:14px; color:var(--ink-dim); }
+  .srow .s-val code { font-family:var(--font-mono); font-size:12.5px; color:var(--ink); background:var(--surface-3); padding:1px 5px; border-radius:4px; }
+  @media (max-width:560px){ .srow{ grid-template-columns:1fr; gap:6px; } }
+
+  /* Interactive deploy stepper */
+  .stepper { margin-top:30px; }
+  .stepper-h { font-size:14px; color:var(--muted); font-family:var(--font-mono); letter-spacing:0.08em; text-transform:uppercase; font-weight:600; margin-bottom:14px; }
+  .track { display:flex; gap:6px; align-items:center; }
+  .seg { flex:1; cursor:pointer; border:none; background:transparent; padding:0; }
+  .seg .bar { height:6px; border-radius:6px; background:var(--line-2); transition:background .2s; }
+  .seg .cap { font-family:var(--font-mono); font-size:11px; color:var(--faint); margin-top:8px; text-align:center; transition:color .2s; }
+  .seg[aria-current="step"] .bar, .seg.done .bar { background:var(--volt); }
+  .seg[aria-current="step"] .cap { color:var(--volt); }
+  .step-detail { margin-top:16px; border:1px solid var(--line); border-radius:var(--r); background:var(--surface-2); padding:16px 18px; }
+  .step-detail .sd-n { font-family:var(--font-mono); font-size:11px; color:var(--volt); letter-spacing:0.08em; }
+  .step-detail h3 { font-size:16px; margin:4px 0 6px; }
+  .step-detail p { margin:0; color:var(--ink-dim); font-size:14.5px; }
+  .step-detail code { font-family:var(--font-mono); font-size:12.5px; color:var(--ink); background:var(--surface-3); padding:1px 5px; border-radius:4px; }
+  .step-nav { display:flex; gap:8px; margin-top:14px; }
+  .btn { appearance:none; cursor:pointer; font-family:var(--font-mono); font-size:12px; padding:8px 14px; border-radius:8px; border:1px solid var(--line-2); background:var(--surface-3); color:var(--ink); transition:border-color .15s, background .15s; }
+  .btn:hover { border-color:var(--volt); }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  /* Feature: agentic */
+  .feature-head { border:1px solid rgba(205,241,56,0.22); border-radius:14px; padding:clamp(18px,3vw,26px); background:linear-gradient(180deg,rgba(205,241,56,0.04),transparent); }
+  .feature-head .eyebrow { color:var(--volt); } .feature-head .eyebrow::before { background:var(--volt); }
+  .principle { margin-top:16px; padding:15px 17px; border:1px solid var(--line); border-radius:var(--r); background:var(--surface-2); }
+  .principle p { margin:0; font-size:14.5px; color:var(--ink-dim); } .principle b { color:var(--volt); font-weight:600; }
+
+  /* Accordion */
+  .acc { margin-top:18px; display:grid; gap:8px; }
+  .ai { border:1px solid var(--line); border-radius:var(--r); background:var(--surface); overflow:hidden; }
+  .ai-btn { width:100%; cursor:pointer; display:flex; align-items:center; gap:14px; padding:15px 17px; background:transparent; border:none; color:var(--ink); text-align:left; font:inherit; }
+  .ai-btn:hover { background:var(--surface-2); }
+  .ai-btn .a-name { font-family:var(--font-mono); font-size:13px; color:var(--volt); font-weight:600; }
+  .ai-btn .a-kind { font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); }
+  .ai-btn .a-line { flex:1; color:var(--ink-dim); font-size:13.5px; }
+  .ai-btn .chev { color:var(--muted); font-family:var(--font-mono); transition:transform .2s; flex:0 0 auto; }
+  .ai-btn[aria-expanded="true"] .chev { transform:rotate(90deg); color:var(--volt); }
+  .ai-body { max-height:0; overflow:hidden; transition:max-height .28s ease; }
+  @media (prefers-reduced-motion:reduce){ .ai-body{ transition:none; } }
+  .ai-body-inner { padding:0 17px 16px 17px; color:var(--ink-dim); font-size:14px; }
+  .ai-body-inner b { color:var(--ink); font-weight:600; }
+  .ai-top { display:flex; flex-direction:column; gap:2px; min-width:132px; }
+  @media (max-width:560px){ .ai-btn .a-line{ display:none; } }
+
+  .wins { margin-top:18px; display:grid; gap:11px; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); }
+  .win { border:1px solid var(--line); border-left:2px solid var(--volt); border-radius:8px; padding:15px 17px; background:var(--surface); }
+  .win .w-tag { font-family:var(--font-mono); font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--volt-deep); }
+  .win p { margin:7px 0 0; font-size:13.5px; color:var(--ink-dim); }
+
+  /* Limitations */
+  .limits { margin-top:22px; display:grid; gap:9px; }
+  .limit { display:grid; grid-template-columns:20px 1fr; gap:13px; align-items:baseline; padding:12px 15px; border:1px solid var(--line); border-radius:8px; background:var(--surface); }
+  .limit .mark { color:var(--ember); font-family:var(--font-mono); }
+  .limit p { margin:0; font-size:14px; color:var(--ink-dim); } .limit strong { color:var(--ink); font-weight:600; }
+
+  footer { margin-top:52px; padding-top:20px; border-top:1px solid var(--line); color:var(--faint); font-family:var(--font-mono); font-size:12px; letter-spacing:0.03em; display:flex; flex-wrap:wrap; gap:6px 18px; justify-content:space-between; }
+  strong.k { color:var(--ink); font-weight:600; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="brand"><span class="tick"></span> Workout Logger · Setup &amp; Build Console</div>
+    <h1>How it's <span class="accent">set up</span>, and how it was <span class="accent">built</span></h1>
+    <p class="dek">A console for reviewing the deployment wiring, the honest limitations in it, and the agentic Claude Code workflow behind it. Pick a tab; poke the diagram and the deploy stepper.</p>
+    <div class="statusbar">
+      <span class="pill live"><span class="dot"></span> LIVE · health <span class="mono">UP</span></span>
+      <span class="pill"><span class="mono">Verified 2026-07-16</span></span>
+      <span class="url"><a href="https://workout-logger.up.railway.app">workout-logger.up.railway.app</a></span>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Brief sections">
+    <button class="tab" role="tab" id="tab-overview" aria-controls="p-overview" aria-selected="true"><span class="idx">01</span> Overview</button>
+    <button class="tab" role="tab" id="tab-hosting" aria-controls="p-hosting" aria-selected="false"><span class="idx">02</span> Hosting</button>
+    <button class="tab" role="tab" id="tab-data" aria-controls="p-data" aria-selected="false"><span class="idx">03</span> Data &amp; Monitoring</button>
+    <button class="tab" role="tab" id="tab-build" aria-controls="p-build" aria-selected="false"><span class="idx">04</span> Build method</button>
+    <button class="tab" role="tab" id="tab-limits" aria-controls="p-limits" aria-selected="false"><span class="idx">05</span> Limitations</button>
+  </nav>
+
+  <!-- 01 OVERVIEW -->
+  <section class="panel" id="p-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+    <div class="eyebrow">Request path · click a hop</div>
+    <h2>One image, one origin</h2>
+    <p class="lead">The React site is bundled inside the Spring Boot jar and served from the same address as the <span class="mono">/api</span> — no separate frontend host, no CORS. Select any box to see how that hop is wired.</p>
+    <div class="diagram">
+      <div class="flow">
+        <div class="flow-lane" id="lane-main"></div>
+        <div class="flow-branch">
+          <div class="fb-label">On an unexpected error</div>
+          <div class="flow-lane" id="lane-err"></div>
+        </div>
+      </div>
+      <div class="readout" id="readout" aria-live="polite">
+        <div class="r-key" id="r-key">The path</div>
+        <h3 id="r-title">Browser → Railway → App → Atlas</h3>
+        <p id="r-body">Every request is TLS-terminated at Railway's edge, handled by one Spring Boot container that serves both the site and the API, and backed by MongoDB Atlas. Errors branch off to Sentry and then Slack.</p>
+      </div>
+      <div class="hint">Tip — the boxes are buttons. Keyboard: Tab to a box, Enter to inspect.</div>
+    </div>
+  </section>
+
+  <!-- 02 HOSTING -->
+  <section class="panel" id="p-hosting" role="tabpanel" aria-labelledby="tab-hosting" tabindex="0" hidden>
+    <div class="eyebrow">Hosting · Railway</div>
+    <h2>How the deploy is wired</h2>
+    <div class="setup">
+      <div class="srow"><div class="s-key">trigger<small>deploy</small></div><div class="s-val">Push to <code>main</code> on GitHub → Railway rebuilds and redeploys automatically. No manual step. Rollback = redeploy a prior build.</div></div>
+      <div class="srow"><div class="s-key">build<small>docker</small></div><div class="s-val">A 3-stage Docker build: compile the React site → bundle it into the backend and package one jar → copy that jar onto a slim Java runtime image.</div></div>
+      <div class="srow"><div class="s-key">edge<small>networking</small></div><div class="s-val">Railway terminates TLS, assigns the public HTTPS domain, and injects the listen port. The app binds <code>$PORT</code>, not a hardcoded number.</div></div>
+      <div class="srow"><div class="s-key">runtime<small>profile</small></div><div class="s-val">Runs under Spring's <code>prod</code> profile, which refuses to boot without a real auth secret. Railway probes <code>/actuator/health</code> to gate traffic cutover.</div></div>
+      <div class="srow"><div class="s-key">config<small>secrets</small></div><div class="s-val">All secrets are Railway variables, never committed. Frontend values must exist at build time to bake into the bundle; backend ones are read at runtime.</div></div>
+    </div>
+
+    <div class="stepper">
+      <div class="stepper-h">What one deploy does · step through it</div>
+      <div class="track" id="track"></div>
+      <div class="step-detail" id="stepDetail" aria-live="polite"></div>
+      <div class="step-nav">
+        <button class="btn" id="stepPrev">‹ Prev</button>
+        <button class="btn" id="stepNext">Next ›</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 DATA & MONITORING -->
+  <section class="panel" id="p-data" role="tabpanel" aria-labelledby="tab-data" tabindex="0" hidden>
+    <div class="eyebrow">Data · MongoDB Atlas</div>
+    <h2>How storage is wired</h2>
+    <div class="grid three">
+      <div class="card info"><span class="tag">database</span><h3>workoutlogger_prod</h3><p>Prod data sits in its own database, fully separate from the dev one.</p></div>
+      <div class="card info"><span class="tag">connection</span><h3>Secret, not committed</h3><p>Reached over a single <code>MONGODB_URI</code> set as a Railway variable.</p></div>
+      <div class="card info"><span class="tag">isolation</span><h3>Scoped per user</h3><p>Every query is filtered to the logged-in user; no account reads another's.</p></div>
+    </div>
+
+    <div class="eyebrow" style="margin-top:40px;">Monitoring · Sentry → Slack</div>
+    <h2>How errors reach me</h2>
+    <div class="grid two">
+      <div class="card"><span class="tag">backend</span><h3>500s only, on purpose</h3><p>Capture is deliberate — only genuine unhandled server errors are sent. Expected 4xx (bad password, 404, validation) is never reported, so alerts stay signal.</p></div>
+      <div class="card"><span class="tag">frontend</span><h3>Crashes + masked replay</h3><p>Browser errors are captured with a session replay — every field, input, and network body masked, so the flow is visible without the personal data.</p></div>
+      <div class="card info"><span class="tag">routing</span><h3>New issue → Slack</h3><p>A Sentry alert rule forwards each new production issue to my Slack, tagged with the exact deploy (git commit) it came from.</p></div>
+      <div class="card info"><span class="tag">privacy</span><h3>No secrets leave the app</h3><p>Auth tokens, cookies, and request bodies are stripped in code on both ends before anything ships to Sentry.</p></div>
+    </div>
+  </section>
+
+  <!-- 04 BUILD METHOD -->
+  <section class="panel" id="p-build" role="tabpanel" aria-labelledby="tab-build" tabindex="0" hidden>
+    <div class="feature-head">
+      <div class="eyebrow">The build method · agentic Claude Code</div>
+      <h2>An agent workflow, not just autocomplete</h2>
+      <p class="lead">The point isn't that an AI wrote code — it's the <strong class="k">structure</strong> around it: designs got argued, invariants got pinned as tests <em>before</em> code, and nothing shipped ungated. Each item is a reusable Claude Code primitive wired for this project — expand one to see how it was used.</p>
+      <div class="principle">
+        <p><b>The core discipline —</b> the moment a design decision states a rule (weights stored as exact decimals, every muscle trained ≥2×/week, a data-sufficiency gate), it becomes a <strong class="k">failing test first</strong>, then the code. Every bug this project hit was a known hazard that recurred until a test pinned it — so the workflow front-loads that test.</p>
+      </div>
+    </div>
+
+    <div class="acc" id="acc"></div>
+
+    <div class="wins">
+      <div class="win"><div class="w-tag">Win · autopilot, end to end</div><p>A concurrency-hardening change (two people editing the same workout at once) went from request to shipped PR autonomously — council-decided, test-first, gate-passed, review-council-approved.</p></div>
+      <div class="win"><div class="w-tag">Win · caught a false alarm</div><p>The QA skill found bot traffic firing false Sentry alerts. The fix — return the correct client error instead of a 500 — stopped the Slack alert flood at its source, and a test now pins it.</p></div>
+    </div>
+  </section>
+
+  <!-- 05 LIMITATIONS -->
+  <section class="panel" id="p-limits" role="tabpanel" aria-labelledby="tab-limits" tabindex="0" hidden>
+    <div class="eyebrow">Honest limitations in the setup</div>
+    <h2>The edges, stated plainly</h2>
+    <p class="lead">Deliberate, logged trade-offs — not oversights. None block the demo; each is the next thing to harden before real users.</p>
+    <div class="limits">
+      <div class="limit"><span class="mark">▹</span><p><strong>Single instance.</strong> The rate limiter and in-progress draft state live in app memory — correct for one running copy; scaling out needs a shared store (e.g. Redis).</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Free-tier database.</strong> Atlas M0: shared, 512&nbsp;MB, no SLA, limited automated backup. Fine for a demo; real data needs a paid tier + a backup schedule.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Broad DB network access.</strong> Railway's plan gives no fixed outbound IP, so Atlas currently accepts connections from anywhere — a known tightening item.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Minified frontend traces.</strong> Sentry source-map upload is off by choice (it would expose a token in the build), so browser traces aren't fully de-minified yet.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>No data-migration path.</strong> A change to the data shape currently means re-importing into a fresh database — needs a real migration story before there's live data to preserve.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Subscription / cloud-sync deferred.</strong> The seam exists in the code, but billing and multi-device sync are a parked next phase, not built.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Workout Logger · setup &amp; build console</span>
+    <span>Prepared for mentor review · 2026-07-16</span>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Tabs ---------- */
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  var panels = tabs.map(function (t) { return document.getElementById(t.getAttribute("aria-controls")); });
+  function selectTab(i) {
+    tabs.forEach(function (t, k) {
+      var on = k === i;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      panels[k].hidden = !on;
+    });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { selectTab(i); });
+    t.addEventListener("keydown", function (e) {
+      var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!d) return;
+      e.preventDefault();
+      var n = (i + d + tabs.length) % tabs.length;
+      tabs[n].focus(); selectTab(n);
+    });
+  });
+
+  /* ---------- Interactive diagram ---------- */
+  var mainNodes = [
+    { id: "browser", label: "Browser", sub: "TLS", key: "Client", title: "The browser", body: "Serves the single React bundle over HTTPS and calls the API at the relative <code>/api</code> — same origin, so no CORS and nothing cross-site to configure." },
+    { id: "edge", label: "Railway edge", sub: "HTTPS · domain", key: "Edge", title: "Railway edge", body: "Terminates TLS, provides the public HTTPS domain, and injects the listen port. There is no reverse proxy or certificate for me to manage." },
+    { id: "app", label: "App container", sub: "Spring Boot · $PORT", key: "Runtime", title: "The app container", body: "One Spring Boot process serves the site <em>and</em> the API. Binds <code>$PORT</code> from Railway, runs the <code>prod</code> profile, and reports <code>UP</code> at <code>/actuator/health</code> before traffic cuts over." },
+    { id: "atlas", label: "MongoDB Atlas", sub: "workoutlogger_prod", key: "Data", title: "MongoDB Atlas", body: "Managed database reached over <code>MONGODB_URI</code> (a Railway secret). Prod data lives in <code>workoutlogger_prod</code>, and every query is scoped to the logged-in user." }
+  ];
+  var errNodes = [
+    { id: "eapp", label: "App container", sub: "frontend + backend", key: "Error source", err: true, title: "Error captured", body: "Only genuine unhandled failures are captured — backend 500s and browser crashes. Expected 4xx flows are never reported, so the signal stays clean." },
+    { id: "sentry", label: "Sentry", sub: "grouped by deploy", key: "Monitoring", err: true, title: "Sentry", body: "Groups each issue and tags it with the exact deploy (git commit). Auth tokens, cookies and request bodies are stripped before anything is sent." },
+    { id: "slack", label: "Slack", sub: "alert", key: "Alerting", err: true, title: "Slack", body: "A Sentry alert rule forwards each new production issue straight to my Slack, so a real problem reaches me without watching a dashboard." }
+  ];
+  var laneMain = document.getElementById("lane-main");
+  var laneErr = document.getElementById("lane-err");
+  var rKey = document.getElementById("r-key"), rTitle = document.getElementById("r-title"), rBody = document.getElementById("r-body"), readout = document.getElementById("readout");
+  var allNodes = {};
+
+  function buildLane(lane, nodes) {
+    nodes.forEach(function (n, i) {
+      var b = document.createElement("button");
+      b.className = "fnode" + (n.err ? " err" : "");
+      b.type = "button";
+      b.setAttribute("aria-pressed", "false");
+      b.innerHTML = '<span class="fn-label">' + n.label + '</span><span class="fn-sub">' + n.sub + '</span>';
+      b.addEventListener("click", function () { pick(n); });
+      lane.appendChild(b);
+      allNodes[n.id] = b;
+      if (i < nodes.length - 1) {
+        var a = document.createElement("span");
+        a.className = "farrow"; a.setAttribute("aria-hidden", "true"); a.textContent = "→";
+        lane.appendChild(a);
+      }
+    });
+  }
+  function pick(n) {
+    Object.keys(allNodes).forEach(function (k) { allNodes[k].setAttribute("aria-pressed", "false"); });
+    allNodes[n.id].setAttribute("aria-pressed", "true");
+    readout.classList.toggle("err", !!n.err);
+    rKey.textContent = n.key; rTitle.textContent = n.title; rBody.innerHTML = n.body;
+  }
+  buildLane(laneMain, mainNodes);
+  buildLane(laneErr, errNodes);
+
+  /* ---------- Deploy stepper ---------- */
+  var steps = [
+    { cap: "Push", n: "Step 1", title: "Push to GitHub", body: "Code lands on <code>main</code>; GitHub notifies Railway. This is the only trigger — there is no manual deploy." },
+    { cap: "Build FE", n: "Step 2", title: "Build the frontend", body: "Docker stage 1 compiles the React/Vite site into static files." },
+    { cap: "Bundle", n: "Step 3", title: "Bundle + package", body: "Stage 2 drops those files into the Spring Boot app and packages a single jar — one artifact, both tiers." },
+    { cap: "Runtime", n: "Step 4", title: "Slim runtime image", body: "Stage 3 copies the jar onto a minimal Java image — the container Railway actually runs." },
+    { cap: "Health", n: "Step 5", title: "Start + health-check", body: "Container boots, binds <code>$PORT</code>, connects to Atlas. Once <code>/actuator/health</code> is <code>UP</code>, traffic cuts over to the new deploy." }
+  ];
+  var track = document.getElementById("track");
+  var stepDetail = document.getElementById("stepDetail");
+  var stepPrev = document.getElementById("stepPrev"), stepNext = document.getElementById("stepNext");
+  var cur = 0, segs = [];
+  steps.forEach(function (s, i) {
+    var seg = document.createElement("button");
+    seg.className = "seg"; seg.type = "button";
+    seg.setAttribute("aria-label", s.title);
+    seg.innerHTML = '<div class="bar"></div><div class="cap">' + s.cap + '</div>';
+    seg.addEventListener("click", function () { setStep(i); });
+    track.appendChild(seg); segs.push(seg);
+  });
+  function setStep(i) {
+    cur = i;
+    segs.forEach(function (seg, k) {
+      seg.classList.toggle("done", k < i);
+      if (k === i) seg.setAttribute("aria-current", "step"); else seg.removeAttribute("aria-current");
+    });
+    var s = steps[i];
+    stepDetail.innerHTML = '<div class="sd-n">' + s.n + ' / 5</div><h3>' + s.title + '</h3><p>' + s.body + '</p>';
+    stepPrev.disabled = i === 0; stepNext.disabled = i === steps.length - 1;
+  }
+  stepPrev.addEventListener("click", function () { if (cur > 0) setStep(cur - 1); });
+  stepNext.addEventListener("click", function () { if (cur < steps.length - 1) setStep(cur + 1); });
+  setStep(0);
+
+  /* ---------- Accordion (agentic primitives) ---------- */
+  var prims = [
+    { name: "the council", kind: "12 sub-agents", line: "A parallel panel of specialists argues a design decision.", body: "Backend engineer, periodization coach, data modeler, energy analyst, systems architect and more, <b>convened in parallel</b> to argue a cross-cutting decision, then synthesized into one recommendation with the dissent kept visible. Cross-cutting design never rested on a single pass." },
+    { name: "/autopilot", kind: "autonomous workflow", line: "From a one-line request to a shipped, reviewed PR.", body: "A council <b>decides</b> the design (no back-and-forth), writes the failing test, implements, runs the gate, and a second <b>review council</b> checks correctness — looping until green and surfacing to me only for a few named exceptions." },
+    { name: "/gate", kind: "skill", line: "One command = the whole pre-commit check.", body: "Runs typecheck, unit tests, the coaching-rule eval sweeps, the build, and the backend suite against a real database — so <b>“done” always means verified</b>, never a manual glance. A commit hook enforces it too." },
+    { name: "sub-agent delegation", kind: "context + cost", line: "Heavy work runs off the main thread.", body: "Exploration, research and QA ran in <b>isolated sub-agents</b> so only conclusions returned to the main context — keeping it clean and letting cheaper model tiers do mechanical work while hard reasoning stayed on the top tier." },
+    { name: "qa-run", kind: "skill", line: "Drives the live hosted app to hunt bugs.", body: "Opens the <b>live production app</b> in a real browser to find UI/UX and security bugs, reproducing each before logging it. It's what surfaced the false-alert issue in the wins below." },
+    { name: "hooks + memory", kind: "automation", line: "Guardrails that persist across sessions.", body: "A pre-commit hook blocks a commit if tests aren't green; another blocks turn-end if the progress log falls behind the code. <b>Persistent memory notes</b> carry hard-won lessons forward so the same trap isn't re-learned." }
+  ];
+  var acc = document.getElementById("acc");
+  prims.forEach(function (p, i) {
+    var item = document.createElement("div"); item.className = "ai";
+    var bodyId = "acc-body-" + i;
+    item.innerHTML =
+      '<button class="ai-btn" aria-expanded="false" aria-controls="' + bodyId + '">' +
+        '<span class="ai-top"><span class="a-name">' + p.name + '</span><span class="a-kind">' + p.kind + '</span></span>' +
+        '<span class="a-line">' + p.line + '</span>' +
+        '<span class="chev" aria-hidden="true">›</span>' +
+      '</button>' +
+      '<div class="ai-body" id="' + bodyId + '"><div class="ai-body-inner">' + p.body + '</div></div>';
+    acc.appendChild(item);
+    var btn = item.querySelector(".ai-btn");
+    var body = item.querySelector(".ai-body");
+    btn.addEventListener("click", function () {
+      var open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", open ? "false" : "true");
+      body.style.maxHeight = open ? "0" : (body.firstElementChild.scrollHeight + 8) + "px";
+    });
+  });
+})();
+</script>

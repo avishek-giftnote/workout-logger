@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-07-16 (`/autopilot` fixed QA-01: wrong-method/media-type/Accept now 405/415/406 not 500 — stops the Sentry false-flood; review council found a masked 406 flood; backend gate green)._
+_Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained interactive deploy/infra brief for mentor review)._
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -58,6 +58,17 @@ _Last updated: 2026-07-16 (`/autopilot` fixed QA-01: wrong-method/media-type/Acc
   **Decided 2026-06-30: partial-unique index** (`plans {userId}|status=ACTIVE`), built at boot. See Done.
 
 ## Done
+
+- _2026-07-16_ — **Interactive deploy/infra brief for mentor review — `docs/setup-brief.html`.** A single-file,
+  self-contained (no external deps, no network) interactive page: tabbed sections (Overview · Hosting · Data &
+  Monitoring · Build method · Limitations), a clickable request-path diagram (Browser → Railway → App → Atlas +
+  the error → Sentry → Slack branch, each hop explains its wiring), a step-through deploy pipeline, and an
+  expandable breakdown of the agentic Claude Code workflow (council · `/autopilot` · `/gate` · sub-agent
+  delegation · `qa-run` · hooks+memory). Deliberately in the app's own dark "Iron Instrument" palette (pulled from
+  `frontend/src/styles.css`). Scope is setup + honest limitations + build method — no product/code internals.
+  Facts sourced from `DEPLOY.md`, the `Dockerfile`, `application.yml`, and a live health check (UP). Also shared
+  as a Claude Artifact. **Note:** the "LIVE · UP" pill is a static verified value, not a real-time ping (a
+  self-contained page can't call out).
 
 - _2026-07-16_ — **QA-01 fixed via `/autopilot`: client-triggerable 4xx no longer 500s or floods Sentry.**
   A wrong HTTP method / bad Content-Type / unsatisfiable Accept on a mapped `/api` route was hitting the
