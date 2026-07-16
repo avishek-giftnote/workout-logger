@@ -1,4 +1,4 @@
-<title>Workout Logger — Setup &amp; Build Console</title>
+<title>Workout Logger - Setup &amp; Build Console</title>
 <style>
   :root {
     --bg:#0c0d0e; --bg-2:#08090a;
@@ -168,7 +168,7 @@
   <header>
     <div class="brand"><span class="tick"></span> Workout Logger · Setup &amp; Build Console</div>
     <h1>How it's <span class="accent">set up</span>, and how it was <span class="accent">built</span></h1>
-    <p class="dek">A console for reviewing the deployment wiring, the honest limitations in it, and the agentic Claude Code workflow behind it. Pick a tab; poke the diagram and the deploy stepper.</p>
+    <p class="dek">How this app is deployed, and how I built it. Each tab takes one piece - the hosting wiring, where the data lives, how errors reach me, and the agentic Claude Code workflow behind all of it. The diagram and the deploy stepper are interactive, so click around.</p>
     <div class="statusbar">
       <span class="pill live"><span class="dot"></span> LIVE · health <span class="mono">UP</span></span>
       <span class="pill"><span class="mono">Verified 2026-07-16</span></span>
@@ -188,7 +188,7 @@
   <section class="panel" id="p-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
     <div class="eyebrow">Request path · click a hop</div>
     <h2>One image, one origin</h2>
-    <p class="lead">The React site is bundled inside the Spring Boot jar and served from the same address as the <span class="mono">/api</span> — no separate frontend host, no CORS. Select any box to see how that hop is wired.</p>
+    <p class="lead">The React site gets bundled into the Spring Boot jar and served from the same address as the <span class="mono">/api</span>, meaning there's no separate frontend host and no CORS to deal with. Click any box to see how that hop is wired.</p>
     <div class="diagram">
       <div class="flow">
         <div class="flow-lane" id="lane-main"></div>
@@ -200,9 +200,9 @@
       <div class="readout" id="readout" aria-live="polite">
         <div class="r-key" id="r-key">The path</div>
         <h3 id="r-title">Browser → Railway → App → Atlas</h3>
-        <p id="r-body">Every request is TLS-terminated at Railway's edge, handled by one Spring Boot container that serves both the site and the API, and backed by MongoDB Atlas. Errors branch off to Sentry and then Slack.</p>
+        <p id="r-body">Every request hits Railway's edge for TLS, gets handled by one Spring Boot container (it serves both the site and the API), and reads and writes to MongoDB Atlas. Anything that breaks branches off to Sentry, then Slack.</p>
       </div>
-      <div class="hint">Tip — the boxes are buttons. Keyboard: Tab to a box, Enter to inspect.</div>
+      <div class="hint">The boxes are buttons - click one, or Tab to it and hit Enter.</div>
     </div>
   </section>
 
@@ -242,8 +242,8 @@
     <div class="eyebrow" style="margin-top:40px;">Monitoring · Sentry → Slack</div>
     <h2>How errors reach me</h2>
     <div class="grid two">
-      <div class="card"><span class="tag">backend</span><h3>500s only, on purpose</h3><p>Capture is deliberate — only genuine unhandled server errors are sent. Expected 4xx (bad password, 404, validation) is never reported, so alerts stay signal.</p></div>
-      <div class="card"><span class="tag">frontend</span><h3>Crashes + masked replay</h3><p>Browser errors are captured with a session replay — every field, input, and network body masked, so the flow is visible without the personal data.</p></div>
+      <div class="card"><span class="tag">backend</span><h3>500s only, on purpose</h3><p>Capture is deliberate: only real unhandled server errors (500s) get sent. Expected 4xx (wrong password, 404, validation) never fires an alert, meaning Slack stays signal and not noise.</p></div>
+      <div class="card"><span class="tag">frontend</span><h3>Crashes + masked replay</h3><p>Browser errors come with a session replay, but every field, input, and network body is masked. So I can see what the user did without seeing their data.</p></div>
       <div class="card info"><span class="tag">routing</span><h3>New issue → Slack</h3><p>A Sentry alert rule forwards each new production issue to my Slack, tagged with the exact deploy (git commit) it came from.</p></div>
       <div class="card info"><span class="tag">privacy</span><h3>No secrets leave the app</h3><p>Auth tokens, cookies, and request bodies are stripped in code on both ends before anything ships to Sentry.</p></div>
     </div>
@@ -254,17 +254,17 @@
     <div class="feature-head">
       <div class="eyebrow">The build method · agentic Claude Code</div>
       <h2>An agent workflow, not just autocomplete</h2>
-      <p class="lead">The point isn't that an AI wrote code — it's the <strong class="k">structure</strong> around it: designs got argued, invariants got pinned as tests <em>before</em> code, and nothing shipped ungated. Each item is a reusable Claude Code primitive wired for this project — expand one to see how it was used.</p>
+      <p class="lead">The interesting part isn't that an AI wrote code. It's the <strong class="k">structure</strong> I put around it: designs got argued out, invariants got pinned as failing tests <em>before</em> any code, and nothing shipped without passing the gate. Each item below is a reusable Claude Code primitive I wired up for this project. Expand one to see how I used it.</p>
       <div class="principle">
-        <p><b>The core discipline —</b> the moment a design decision states a rule (weights stored as exact decimals, every muscle trained ≥2×/week, a data-sufficiency gate), it becomes a <strong class="k">failing test first</strong>, then the code. Every bug this project hit was a known hazard that recurred until a test pinned it — so the workflow front-loads that test.</p>
+        <p><b>The core discipline.</b> The moment a decision states a rule (weights stored as exact decimals, every muscle trained ≥2×/week, a data-sufficiency gate), it becomes a <strong class="k">failing test first</strong>, then the code. Every bug this project hit was a known hazard that kept recurring until a test pinned it, so the workflow front-loads that test.</p>
       </div>
     </div>
 
     <div class="acc" id="acc"></div>
 
     <div class="wins">
-      <div class="win"><div class="w-tag">Win · autopilot, end to end</div><p>A concurrency-hardening change (two people editing the same workout at once) went from request to shipped PR autonomously — council-decided, test-first, gate-passed, review-council-approved.</p></div>
-      <div class="win"><div class="w-tag">Win · caught a false alarm</div><p>The QA skill found bot traffic firing false Sentry alerts. The fix — return the correct client error instead of a 500 — stopped the Slack alert flood at its source, and a test now pins it.</p></div>
+      <div class="win"><div class="w-tag">Win · autopilot, end to end</div><p>A concurrency fix (two people editing the same workout at once) went from a one-line request to a shipped PR on its own: council-decided, test-first, gate-passed, and signed off by a review council.</p></div>
+      <div class="win"><div class="w-tag">Win · caught a false alarm</div><p>The QA skill caught bot traffic firing false Sentry alerts. The fix was to return the right client error instead of a 500, which killed the Slack flood at its source. A test now pins it so it can't come back.</p></div>
     </div>
   </section>
 
@@ -272,14 +272,14 @@
   <section class="panel" id="p-limits" role="tabpanel" aria-labelledby="tab-limits" tabindex="0" hidden>
     <div class="eyebrow">Honest limitations in the setup</div>
     <h2>The edges, stated plainly</h2>
-    <p class="lead">Deliberate, logged trade-offs — not oversights. None block the demo; each is the next thing to harden before real users.</p>
+    <p class="lead">These are deliberate, logged trade-offs, not things I missed. None of them block the demo; each is the next thing to harden before real users show up.</p>
     <div class="limits">
-      <div class="limit"><span class="mark">▹</span><p><strong>Single instance.</strong> The rate limiter and in-progress draft state live in app memory — correct for one running copy; scaling out needs a shared store (e.g. Redis).</p></div>
-      <div class="limit"><span class="mark">▹</span><p><strong>Free-tier database.</strong> Atlas M0: shared, 512&nbsp;MB, no SLA, limited automated backup. Fine for a demo; real data needs a paid tier + a backup schedule.</p></div>
-      <div class="limit"><span class="mark">▹</span><p><strong>Broad DB network access.</strong> Railway's plan gives no fixed outbound IP, so Atlas currently accepts connections from anywhere — a known tightening item.</p></div>
-      <div class="limit"><span class="mark">▹</span><p><strong>Minified frontend traces.</strong> Sentry source-map upload is off by choice (it would expose a token in the build), so browser traces aren't fully de-minified yet.</p></div>
-      <div class="limit"><span class="mark">▹</span><p><strong>No data-migration path.</strong> A change to the data shape currently means re-importing into a fresh database — needs a real migration story before there's live data to preserve.</p></div>
-      <div class="limit"><span class="mark">▹</span><p><strong>Subscription / cloud-sync deferred.</strong> The seam exists in the code, but billing and multi-device sync are a parked next phase, not built.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Single instance.</strong> The rate limiter and in-progress draft state live in the app's memory. That's correct for one running copy, but scaling to several would need a shared store (Redis, say).</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Free-tier database.</strong> Atlas M0: shared, 512&nbsp;MB, no SLA, limited automated backup. Fine for a demo, but real data needs a paid tier and a backup schedule.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Broad DB network access.</strong> Railway's plan gives no fixed outbound IP, so Atlas currently accepts connections from anywhere. Known thing to tighten.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Minified frontend traces.</strong> Sentry source-map upload is off by choice (turning it on would leak a token into the build), so browser traces aren't fully de-minified yet.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>No data-migration path.</strong> A change to the data shape currently means re-importing into a fresh database. That needs a real migration story before there's live user data worth preserving.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Subscription and cloud-sync deferred.</strong> The seam is already in the code, but billing and multi-device sync are a parked next phase, not built.</p></div>
     </div>
   </section>
 
@@ -317,13 +317,13 @@
 
   /* ---------- Interactive diagram ---------- */
   var mainNodes = [
-    { id: "browser", label: "Browser", sub: "TLS", key: "Client", title: "The browser", body: "Serves the single React bundle over HTTPS and calls the API at the relative <code>/api</code> — same origin, so no CORS and nothing cross-site to configure." },
+    { id: "browser", label: "Browser", sub: "TLS", key: "Client", title: "The browser", body: "Serves the one React bundle over HTTPS and calls the API at the relative <code>/api</code>, meaning it's all same-origin. No CORS, nothing cross-site to configure." },
     { id: "edge", label: "Railway edge", sub: "HTTPS · domain", key: "Edge", title: "Railway edge", body: "Terminates TLS, provides the public HTTPS domain, and injects the listen port. There is no reverse proxy or certificate for me to manage." },
     { id: "app", label: "App container", sub: "Spring Boot · $PORT", key: "Runtime", title: "The app container", body: "One Spring Boot process serves the site <em>and</em> the API. Binds <code>$PORT</code> from Railway, runs the <code>prod</code> profile, and reports <code>UP</code> at <code>/actuator/health</code> before traffic cuts over." },
     { id: "atlas", label: "MongoDB Atlas", sub: "workoutlogger_prod", key: "Data", title: "MongoDB Atlas", body: "Managed database reached over <code>MONGODB_URI</code> (a Railway secret). Prod data lives in <code>workoutlogger_prod</code>, and every query is scoped to the logged-in user." }
   ];
   var errNodes = [
-    { id: "eapp", label: "App container", sub: "frontend + backend", key: "Error source", err: true, title: "Error captured", body: "Only genuine unhandled failures are captured — backend 500s and browser crashes. Expected 4xx flows are never reported, so the signal stays clean." },
+    { id: "eapp", label: "App container", sub: "frontend + backend", key: "Error source", err: true, title: "Error captured", body: "Only real unhandled failures get captured (backend 500s and browser crashes). Expected 4xx flows never report, so the signal stays clean." },
     { id: "sentry", label: "Sentry", sub: "grouped by deploy", key: "Monitoring", err: true, title: "Sentry", body: "Groups each issue and tags it with the exact deploy (git commit). Auth tokens, cookies and request bodies are stripped before anything is sent." },
     { id: "slack", label: "Slack", sub: "alert", key: "Alerting", err: true, title: "Slack", body: "A Sentry alert rule forwards each new production issue straight to my Slack, so a real problem reaches me without watching a dashboard." }
   ];
@@ -360,10 +360,10 @@
 
   /* ---------- Deploy stepper ---------- */
   var steps = [
-    { cap: "Push", n: "Step 1", title: "Push to GitHub", body: "Code lands on <code>main</code>; GitHub notifies Railway. This is the only trigger — there is no manual deploy." },
+    { cap: "Push", n: "Step 1", title: "Push to GitHub", body: "Code lands on <code>main</code> and GitHub notifies Railway. That's the only trigger; there's no manual deploy step." },
     { cap: "Build FE", n: "Step 2", title: "Build the frontend", body: "Docker stage 1 compiles the React/Vite site into static files." },
-    { cap: "Bundle", n: "Step 3", title: "Bundle + package", body: "Stage 2 drops those files into the Spring Boot app and packages a single jar — one artifact, both tiers." },
-    { cap: "Runtime", n: "Step 4", title: "Slim runtime image", body: "Stage 3 copies the jar onto a minimal Java image — the container Railway actually runs." },
+    { cap: "Bundle", n: "Step 3", title: "Bundle + package", body: "Stage 2 drops those files into the Spring Boot app and packages a single jar, so one artifact carries both tiers." },
+    { cap: "Runtime", n: "Step 4", title: "Slim runtime image", body: "Stage 3 copies the jar onto a minimal Java image, which is the container Railway actually runs." },
     { cap: "Health", n: "Step 5", title: "Start + health-check", body: "Container boots, binds <code>$PORT</code>, connects to Atlas. Once <code>/actuator/health</code> is <code>UP</code>, traffic cuts over to the new deploy." }
   ];
   var track = document.getElementById("track");
@@ -394,10 +394,10 @@
 
   /* ---------- Accordion (agentic primitives) ---------- */
   var prims = [
-    { name: "the council", kind: "12 sub-agents", line: "A parallel panel of specialists argues a design decision.", body: "Backend engineer, periodization coach, data modeler, energy analyst, systems architect and more, <b>convened in parallel</b> to argue a cross-cutting decision, then synthesized into one recommendation with the dissent kept visible. Cross-cutting design never rested on a single pass." },
-    { name: "/autopilot", kind: "autonomous workflow", line: "From a one-line request to a shipped, reviewed PR.", body: "A council <b>decides</b> the design (no back-and-forth), writes the failing test, implements, runs the gate, and a second <b>review council</b> checks correctness — looping until green and surfacing to me only for a few named exceptions." },
-    { name: "/gate", kind: "skill", line: "One command = the whole pre-commit check.", body: "Runs typecheck, unit tests, the coaching-rule eval sweeps, the build, and the backend suite against a real database — so <b>“done” always means verified</b>, never a manual glance. A commit hook enforces it too." },
-    { name: "sub-agent delegation", kind: "context + cost", line: "Heavy work runs off the main thread.", body: "Exploration, research and QA ran in <b>isolated sub-agents</b> so only conclusions returned to the main context — keeping it clean and letting cheaper model tiers do mechanical work while hard reasoning stayed on the top tier." },
+    { name: "the council", kind: "12 sub-agents", line: "A parallel panel of specialists argues a design decision.", body: "Backend engineer, periodization coach, data modeler, energy analyst, systems architect and more, <b>convened in parallel</b> to argue a cross-cutting decision, then synthesized into one recommendation with the dissent kept visible. No cross-cutting design rested on a single pass." },
+    { name: "/autopilot", kind: "autonomous workflow", line: "From a one-line request to a shipped, reviewed PR.", body: "A council <b>decides</b> the design (no back-and-forth), writes the failing test, implements, then runs the gate, and a second <b>review council</b> checks correctness. It loops until green and only comes back to me for a few named exceptions." },
+    { name: "/gate", kind: "skill", line: "One command runs the whole pre-commit check.", body: "Runs typecheck, unit tests, the coaching-rule eval sweeps, the build, and the backend suite against a real database, so <b>“done” always means verified</b> and never a manual glance. A commit hook enforces it too." },
+    { name: "sub-agent delegation", kind: "context + cost", line: "Heavy work runs off the main thread.", body: "Exploration, research and QA ran in <b>isolated sub-agents</b>, so only the conclusions came back to the main context. That keeps it clean, and lets cheaper model tiers handle the mechanical work while the hard reasoning stays on the top tier." },
     { name: "qa-run", kind: "skill", line: "Drives the live hosted app to hunt bugs.", body: "Opens the <b>live production app</b> in a real browser to find UI/UX and security bugs, reproducing each before logging it. It's what surfaced the false-alert issue in the wins below." },
     { name: "hooks + memory", kind: "automation", line: "Guardrails that persist across sessions.", body: "A pre-commit hook blocks a commit if tests aren't green; another blocks turn-end if the progress log falls behind the code. <b>Persistent memory notes</b> carry hard-won lessons forward so the same trap isn't re-learned." }
   ];
