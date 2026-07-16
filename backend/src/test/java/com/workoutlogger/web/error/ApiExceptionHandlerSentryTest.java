@@ -70,4 +70,41 @@ class ApiExceptionHandlerSentryTest {
         assertThat(res.getStatusCode().value()).isEqualTo(404);
         assertThat(CAPTURED.get() - before).isZero();
     }
+
+    /** QA-01: a wrong HTTP method on a mapped route is a 405 (with an Allow header) — never a Sentry event.
+     *  Before this handler existed HttpRequestMethodNotSupportedException fell through to generic() → 500,
+     *  firing a false event on every mis-verbed request. */
+    @Test
+    void wrongMethodIs405WithAllowHeaderAndNeverReported() {
+        int before = CAPTURED.get();
+        var res = handler.methodNotSupported(new org.springframework.web.HttpRequestMethodNotSupportedException(
+                "DELETE", java.util.List.of("GET", "POST")));
+        assertThat(res.getStatusCode().value()).isEqualTo(405);
+        assertThat(res.getHeaders().getAllow()).contains(
+                org.springframework.http.HttpMethod.GET, org.springframework.http.HttpMethod.POST);
+        assertThat(CAPTURED.get() - before).isZero();
+    }
+
+    /** QA-01: an unsupported request Content-Type is a 415 — never a Sentry event. */
+    @Test
+    void unsupportedMediaTypeIs415AndNeverReported() {
+        int before = CAPTURED.get();
+        var res = handler.unsupportedMediaType(
+                new org.springframework.web.HttpMediaTypeNotSupportedException("text/plain not supported"));
+        assertThat(res.getStatusCode().value()).isEqualTo(415);
+        assertThat(CAPTURED.get() - before).isZero();
+    }
+
+    /** QA-01: an unsatisfiable Accept header is a 406 with a forced JSON body (so it can't re-enter content
+     *  negotiation) — never a Sentry event. Uniquely insidious: unmapped it fired Sentry in generic() while
+     *  the client still saw 406 from the failed re-write of the 500 body. */
+    @Test
+    void notAcceptableIs406WithJsonBodyAndNeverReported() {
+        int before = CAPTURED.get();
+        var res = handler.notAcceptable(
+                new org.springframework.web.HttpMediaTypeNotAcceptableException("application/xml not producible"));
+        assertThat(res.getStatusCode().value()).isEqualTo(406);
+        assertThat(res.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.APPLICATION_JSON);
+        assertThat(CAPTURED.get() - before).isZero();
+    }
 }

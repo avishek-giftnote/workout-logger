@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdown; latest project event: Sentry verified live in prod + Railway deploy, 2026-07-09)._
+_Last updated: 2026-07-16 (`/autopilot` fixed QA-01: wrong-method/media-type/Accept now 405/415/406 not 500 — stops the Sentry false-flood; review council found a masked 406 flood; backend gate green)._
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -59,6 +59,45 @@ _Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdow
 
 ## Done
 
+- _2026-07-16_ — **QA-01 fixed via `/autopilot`: client-triggerable 4xx no longer 500s or floods Sentry.**
+  A wrong HTTP method / bad Content-Type / unsatisfiable Accept on a mapped `/api` route was hitting the
+  `generic(Exception)` catch-all — the sole `Sentry.captureException` site — returning 500 + a false Sentry
+  event on every scanner/mis-verbed probe (root cause: `ExceptionHandlerExceptionResolver` runs the
+  `@ExceptionHandler(Exception.class)` catch-all *before* Spring's `DefaultHandlerExceptionResolver`, so
+  framework dispatch exceptions were swallowed into 500). Fix: three specific handlers in `ApiExceptionHandler`
+  — `HttpRequestMethodNotSupportedException` → **405** (+ RFC-7231 `Allow` header), `HttpMediaTypeNotSupportedException`
+  → **415**, `HttpMediaTypeNotAcceptableException` → **406** (forced JSON body) — each returning before `generic()`.
+  **Deciding step skipped** (mechanical, precedented by the shipped #40/#44 not-found fixes). **Review council
+  (3 lenses) earned its keep:** backend-eng confirmed correctness/ordering (hierarchy-closest match, not
+  declaration order); systems-architect found the 406 gap (only reachable remaining one — no `@RequestParam`/
+  required `@RequestHeader`/multipart/`@Validated` on the surface, so the other candidate exceptions are
+  unreachable); eval-eng caught that a **status assertion is a false green** for the anti-flood property — a
+  bad `Accept` *already* returned 406 to the client while `generic()` ran and fired Sentry underneath (the 500
+  body couldn't be written as XML, re-negotiation surfaced the 406, masking the capture). The
+  dispatch-level capture guard proved this empirically (RED before the 406 handler, GREEN after). Guards: 3
+  unit cases (`ApiExceptionHandlerSentryTest`, now 6) + 2 integration cases (`ApiIntegrationTest`, now 83) incl.
+  `clientErrorsFireNoSentryEventAtDispatch` (counts real-dispatch Sentry captures = 0 across 405/415/406).
+  Backend gate green (`RUN_MONGO_TESTS=1 mvn test`, isolated Atlas DB, auto-dropped); frontend untouched.
+  Lesson saved to memory [[sentry-flood-unhandled-framework-exceptions]]. **Not yet committed** (awaiting the
+  ship call). Details: `docs/qa-findings-hosted.md` (QA-01).
+- _2026-07-15_ — **Full UI/UX QA sweep of the hosted prod app** (`https://workout-logger.up.railway.app`)
+  via the ui-bug-finder `qa-run` skill, Playwright MCP against `workoutlogger_prod` (prod + strict-cleanup
+  ledger). Report: **`docs/qa-findings-hosted.md`**. Every finding reproduced before logging. **1 MODERATE
+  bug (QA-01):** any unmapped HTTP method on a *mapped* `/api` route returns **500 "Internal error"** instead
+  of **405** (verified on 6 route/method pairs; unmapped paths correctly 404) — `HttpRequestMethodNotSupportedException`
+  falls through to the generic `Exception` handler, and each 500 fires a Sentry event (same class as the shipped
+  #40/#44 not-found fixes). **5 MINOR:** core logging inputs (weight/reps/RPE) lack programmatic labels (a11y);
+  raw validation message leaks the field path (`exercises[0].sets[0].weight …`) + no client-side weight bound;
+  pervasive "1 exercises · 1 sets" pluralization; in-session Discard has no confirm even with a completed set;
+  icon buttons named only by glyph. **Verified holding:** Decimal128-as-string end-to-end (workout + edit +
+  bodyweight, incl. Mongo `$numberDecimal`), tenant isolation (cross-tenant GET/DELETE → 404), auth (401 on
+  no/garbage/forged token), XSS refuted (React escaping), network-failure resilience (friendly error + draft
+  preserved in-page AND across reload via beforeunload + Resume/Discard + retry works), F01 not-found fix live,
+  coaching engine (plan builder / volume landmarks / energy gate) renders correctly. **Cleanup partial:** 2 test
+  workouts deleted (204); 2 test accounts + 1 custom exercise + 1 bodyweight entry **remain on prod** (no
+  delete-account/exercise endpoint — they 500 per QA-01; Mongo MCP is read-only) — needs a manual Atlas/mongosh
+  purge (ids + snippet in the session cleanup ledger). Added the Railway origin to `.mcp.json`'s Playwright
+  `--allowed-origins` so the hosted site is reachable for future QA.
 - _2026-07-14_ — **Railway is now the lone deployment tool; all other deploy tooling deleted.** Removed
   `docker-compose.yml` (the app + `cloudflared` stack), the `TUNNEL_TOKEN` var, and every Cloudflare / Oracle-Cloud
   (OCI) / Ampere reference from `.env.example`, the `Dockerfile` comments, and `application.yml`. `.env.example` is
@@ -391,6 +430,13 @@ _Last updated: 2026-07-14 (doc-leanness pass — trimmed redundant/stale markdow
 
 ## On the agenda (backlog, not started)
 
+- **QA sweep follow-ups (2026-07-15, `docs/qa-findings-hosted.md`)** — ~~(1) QA-01 wrong-method → 405~~ **DONE
+  2026-07-16** (405/415/406, see Done). Remaining: (2) a11y — add `aria-label`/`<label>` to the set-row inputs
+  + plan comboboxes + icon buttons; (3) humanize the weight validation message + add a client-side max;
+  (4) fix the "1 exercises/1 sets" pluralization; (5) confirm-on-Discard when a session has a logged set.
+  ~~**Also:** purge the residual prod test accounts + custom exercise~~ **DONE 2026-07-16** (2 accounts +
+  169 exercises + 2 workouts + embedded bodyweight purged from `workoutlogger_prod` via a temporarily-writable
+  Mongo MCP, all verified count=0; MCP flipped back to read-only).
 - **DB lifecycle hygiene (fix the stray-database leak) — scoped 2026-07-07 (`docs/db-situation.md`).** Once the
   pending-decisions above are answered: (1) make integration/e2e suites **drop their database on teardown** so
   Atlas runs stop leaking `workoutlogger_*` DBs (CI's `mongo:7` already disposes; only manual/Atlas runs leak);

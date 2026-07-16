@@ -83,6 +83,48 @@ public class ApiExceptionHandler {
         return body(HttpStatus.NOT_FOUND, "Not found", null);
     }
 
+    // A wrong HTTP method on a *mapped* route (e.g. DELETE /api/workouts, which maps only GET/POST). Spring
+    // raises HttpRequestMethodNotSupportedException; with no mapping here it fell through to generic() → 500,
+    // which is wrong twice over: a method mismatch is a CLIENT error (405), and the 500 fired a Sentry event on
+    // every mis-verbed request (scanners, mis-coded clients) — the same false-flood class as the #40 static-404
+    // fix. Found live on Railway (QA-01, hosted sweep). The Allow header advertises the supported methods
+    // (RFC 7231 §7.4.1). Pinned by ApiExceptionHandlerSentryTest + ApiIntegrationTest.
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> methodNotSupported(
+            org.springframework.web.HttpRequestMethodNotSupportedException e) {
+        var res = body(HttpStatus.METHOD_NOT_ALLOWED, "Method not allowed", null);
+        var supported = e.getSupportedHttpMethods();
+        if (supported != null && !supported.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                    .allow(supported.toArray(new org.springframework.http.HttpMethod[0]))
+                    .body(res.getBody());
+        }
+        return res;
+    }
+
+    // An unsupported request Content-Type on a body route (e.g. text/plain to a JSON-consuming POST). Spring
+    // raises HttpMediaTypeNotSupportedException; unmapped it fell through to generic() → 500. It's a CLIENT
+    // error → 415, and like every 4xx must never reach the Sentry-reporting generic handler. (QA-01)
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> unsupportedMediaType(
+            org.springframework.web.HttpMediaTypeNotSupportedException e) {
+        return body(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported media type", null);
+    }
+
+    // A client Accept header this JSON-only app can't satisfy (e.g. Accept: application/xml). Reachable on
+    // every read endpoint. This one was insidious: unmapped, generic() ran (firing Sentry) AND returned a
+    // 500 body that itself couldn't be written as the requested type, so re-negotiation surfaced a 406 to the
+    // client — the status looked fine while a false Sentry event fired underneath (caught only by the
+    // dispatch-level capture guard, not a status assertion). Force JSON on the error body so the 406 itself
+    // writes cleanly and never re-enters this negotiation. 406 is a CLIENT error → no Sentry. (QA-01)
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<Map<String, Object>> notAcceptable(
+            org.springframework.web.HttpMediaTypeNotAcceptableException e) {
+        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(body(HttpStatus.NOT_ACCEPTABLE, "Not acceptable", null).getBody());
+    }
+
     // preserve explicit status exceptions (e.g. login 401) before the generic fallback below
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
     public ResponseEntity<Map<String, Object>> responseStatus(org.springframework.web.server.ResponseStatusException e) {
