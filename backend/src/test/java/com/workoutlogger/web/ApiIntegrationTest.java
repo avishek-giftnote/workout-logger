@@ -98,6 +98,69 @@ class ApiIntegrationTest {
         mvc.perform(get("/previous-workouts/abc123")).andExpect(status().isOk());
     }
 
+    /**
+     * QA-01 (2026-07-15 hosted-app sweep): a wrong HTTP method on a *mapped* /api route must return 405
+     * Method Not Allowed — not the opaque 500 the generic handler produced. Live in prod, DELETE/PUT on
+     * mapped routes returned 500 "Internal error" AND fired a Sentry event (same class of bug as the #40
+     * missing-static → 404 fix: an unhandled framework exception falling through to generic()). An
+     * unsupported request Content-Type on a body route must likewise be 415, not 500. Authenticated so
+     * the security chain (401) doesn't intercept before the dispatcher raises the method/media-type mismatch.
+     */
+    @Test
+    void wrongMethodIs405AndUnsupportedMediaTypeIs415() throws Exception {
+        String token = register("methods@example.com");
+        // /api/workouts maps GET + POST; DELETE / PUT on the collection are unmapped methods → 405 (was 500).
+        mvc.perform(delete("/api/workouts").header("Authorization", bearer(token)))
+                .andExpect(status().isMethodNotAllowed());
+        mvc.perform(put("/api/workouts").header("Authorization", bearer(token)))
+                .andExpect(status().isMethodNotAllowed());
+        // 405 carries an Allow header advertising the supported methods (RFC 7231 §6.5.5 / §7.4.1).
+        mvc.perform(delete("/api/workouts").header("Authorization", bearer(token)))
+                .andExpect(header().exists("Allow"));
+        // POST /api/workouts consumes JSON; a text/plain body is an unsupported media type → 415 (was 500).
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(token))
+                        .contentType(MediaType.TEXT_PLAIN).content("not json"))
+                .andExpect(status().isUnsupportedMediaType());
+        // A JSON-only endpoint asked for a media type it can't produce (Accept: application/xml) → 406 (was
+        // 500). Reachable on every read endpoint via a hostile/mis-coded Accept header (scanners); same
+        // false-Sentry-flood class as the 405/415 above (review council, 2026-07-15).
+        mvc.perform(get("/api/workouts").header("Authorization", bearer(token))
+                        .accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable());
+    }
+
+    /**
+     * The whole point of QA-01: a client-triggerable 4xx must fire ZERO Sentry events. Status ≠ 500 is
+     * necessary but NOT sufficient — a mis-Accept can surface as 406 to the client while generic() still ran
+     * (and captured) underneath, because a 500 body re-negotiated against Accept: xml can itself become a 406.
+     * So assert the capture count DIRECTLY at real dispatch. The Spring context's Sentry hub is blank-DSN
+     * (disabled → uncountable), so init our own countable hub with a counting beforeSend, then restore.
+     */
+    @Test
+    void clientErrorsFireNoSentryEventAtDispatch() throws Exception {
+        String token = register("nosentry@example.com");
+        var captured = new java.util.concurrent.atomic.AtomicInteger();
+        io.sentry.Sentry.init(o -> {
+            o.setDsn("https://public@localhost/1");
+            o.setBeforeSend((event, hint) -> { captured.incrementAndGet(); return null; });
+        });
+        try {
+            mvc.perform(delete("/api/workouts").header("Authorization", bearer(token)))
+                    .andExpect(status().isMethodNotAllowed());
+            mvc.perform(put("/api/workouts").header("Authorization", bearer(token)))
+                    .andExpect(status().isMethodNotAllowed());
+            mvc.perform(post("/api/workouts").header("Authorization", bearer(token))
+                            .contentType(MediaType.TEXT_PLAIN).content("x"))
+                    .andExpect(status().isUnsupportedMediaType());
+            mvc.perform(get("/api/workouts").header("Authorization", bearer(token))
+                            .accept(MediaType.APPLICATION_XML))
+                    .andExpect(status().isNotAcceptable());
+            assertThat(captured.get()).isZero();   // no 4xx reached generic() → no false Sentry flood
+        } finally {
+            io.sentry.Sentry.close();
+        }
+    }
+
     @Test
     void usersCannotSeeEachOthersWorkouts() throws Exception {
         String tokenA = register("a@example.com");
