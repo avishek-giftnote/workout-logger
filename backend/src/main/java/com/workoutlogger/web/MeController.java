@@ -4,6 +4,7 @@ import com.workoutlogger.coach.EnergyService;
 import com.workoutlogger.domain.BodyweightEntry;
 import com.workoutlogger.domain.User;
 import com.workoutlogger.repo.MeRepository;
+import com.workoutlogger.repo.WorkoutRepository;
 import com.workoutlogger.web.dto.ApiDtos.EnergyDto;
 import com.workoutlogger.web.dto.ApiDtos.MeDto;
 import com.workoutlogger.web.dto.ApiDtos.SettingsDto;
@@ -34,16 +35,21 @@ public class MeController {
 
     private final MeRepository me;
     private final EnergyService energy;
+    private final WorkoutRepository workouts;
 
-    public MeController(MeRepository me, EnergyService energy) {
+    public MeController(MeRepository me, EnergyService energy, WorkoutRepository workouts) {
         this.me = me;
         this.energy = energy;
+        this.workouts = workouts;
     }
 
-    /** Read-time energy-balance estimate (derived; never stored). */
+    /** Read-time energy-balance estimate (derived; never stored). The trailing-7-day session count feeds the
+     *  display-only workout-energy term — resolved here (tenant-scoped) and passed as a plain int so
+     *  {@link EnergyService} stays a pure, repository-free function. */
     @GetMapping("/energy")
     public EnergyDto energy() {
-        return energy.estimate(current());
+        int recentSessions = (int) workouts.countSince(Instant.now().minus(java.time.Duration.ofDays(7)));
+        return energy.estimate(current(), recentSessions);
     }
 
     /** The user's synced UI preferences (the local-first base lives in the client's SQLite). */

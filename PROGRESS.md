@@ -26,7 +26,12 @@ _Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained in
 - **Deferred coaching findings** (`docs/eval-findings.md`, evals pin current behavior under TODO):
   - Deload-floor magnitude for low-ceiling blocks (PEAK / STRENGTH-non-focus) — currently a deload can equal
     accumulation; should it step down relative to the block's own ceiling?
-  - Dead-band anchor weight (regression-mean vs latest) in `EnergyService`.
+  - ~~Dead-band anchor weight (regression-mean vs latest) in `EnergyService`.~~ **Resolved 2026-07-21**
+    (energy council): anchor is the **latest EWMA-smoothed weight** (noise-robust + current). See Done.
+  - **NEW — structural-break guardrail** (energy council added it, deferred): flag estimates "provisional /
+    wider-banded" for 3–4 weeks after a goal/phase change to contain the `7700 kcal/kg` early-water bias. Needs
+    a segment-start marker (no such field yet); the tightened `ciWk` gate already partly contains it. Next
+    energy follow-up — see `docs/eval-findings.md`.
 - **Operational policy** (`DESIGN.md §8`): backup/PITR cadence; GDPR hard-delete vs tombstone retention
   (`rawImport` embeds PII); `startedAt`/bodyweight timezone policy; offline auth/token-refresh lifecycle.
 - **Subscription model** — when/how to gate cloud sync (only the `SYNC_ENABLED` seam exists today; no billing).
@@ -58,6 +63,27 @@ _Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained in
   **Decided 2026-06-30: partial-unique index** (`plans {userId}|status=ACTIVE`), built at boot. See Done.
 
 ## Done
+
+- _2026-07-21_ — **Coach energy model brought up to its designed spec (`/autopilot`, council-decided).** Closed the
+  gap between the shipped Layer-2 `EnergyService` and `docs/coach.md`. A deciding council (energy-analyst ·
+  sports-data-expert · data-modeler · systems-architect) ruled: **EWMA over Kalman** (a fixed-gain EWMA *is* the
+  steady-state scalar Kalman — no unfittable magic numbers at ~1-user scale); **workout energy as a separate
+  additive display term** (`MeController` passes a trailing-7d session count as a plain int so `EnergyService`
+  stays pure; `neatBmrKcal`+`workoutKcal` in the DTO; PAL not rescaled); **dead-band anchored to the latest EWMA
+  weight** (resolved the deferred finding); **female gate 28 days** (was a buggy 21); **UNSPECIFIED −78** kept +
+  documented (maintenance ±12%); a **5-level status ladder** INSUFFICIENT_DATA → TREND_ONLY → PHASE_LOW/MEDIUM/
+  HIGH (only PHASE_HIGH feeds the planner clamp); **`modelVersion` + `EnergyModel`** versioned constants.
+  **Implementer deviation (evidence-logged):** the slope is **Theil–Sen** (median of pairwise slopes), not the
+  council's literal OLS-on-EWMA-smoothed — the latter empirically attenuated a clean +0.40 kg/wk trend to +0.25
+  and inflated its CI; Theil–Sen is unbiased, zero-tunable, and one wild weigh-in can't move the rate. CI is
+  honest raw scatter about the robust line (Student-t, df=n−2). Guards `E8`–`E21` (failing-first) + an
+  `ApiIntegrationTest` endpoint/tenant guard; `CoachCard` renders all 3 states (verified live). **Review council
+  (energy-analyst · eval-engineer · backend-eng · test-user) caught + fixed a HIGH bug:** the `TREND_ONLY` gate
+  was absolute, suppressing decisive one-sided-CI cuts/bulks from ever reaching PHASE_HIGH — fixed to
+  straddle-only (`E21` regression), plus the `600–600` kcal render, `−0.00` rate, stale Javadoc, df-31 cliff.
+  Deferred (logged in `docs/eval-findings.md`): a structural-break "provisional" flag, same-day weigh-in dedup,
+  a formal Theil–Sen CI, and pill-prominence UX. Backend `mvn test` + Atlas `ApiIntegrationTest` + frontend
+  typecheck/test/eval/build all green. See `docs/coach.md` "Energy model", `docs/eval-findings.md`, DIAGRAMS #15.
 
 - _2026-07-16_ — **Interactive deploy/infra brief for mentor review — `docs/setup-brief.html`.** A single-file,
   self-contained (no external deps, no network) interactive page: tabbed sections (Overview · Hosting · Data &

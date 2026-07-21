@@ -202,7 +202,10 @@ export interface SettingsDto {
 }
 
 export interface EnergyDto {
-  status: "GATHERING_DATA" | "READY";
+  /** 5-level ladder: below-gate → CI straddles the band too widely → the classification's confidence tier.
+   *  PHASE_LOW is only ever a low-confidence MAINTENANCE; a decisive SURPLUS/DEFICIT is always ≥ PHASE_MEDIUM.
+   *  Only PHASE_HIGH feeds the planner clamp. */
+  status: "INSUFFICIENT_DATA" | "TREND_ONLY" | "PHASE_LOW" | "PHASE_MEDIUM" | "PHASE_HIGH";
   phase: "SURPLUS" | "DEFICIT" | "MAINTENANCE" | "UNKNOWN";
   confidence: "NONE" | "LOW" | "MEDIUM" | "HIGH";
   weighIns: number;
@@ -215,4 +218,10 @@ export interface EnergyDto {
   surplusDeficitKcalLow: number | null;
   surplusDeficitKcalHigh: number | null;
   missingProfile: string[];
+  /** Constant-set stamp (see backend EnergyModel). */
+  modelVersion: number;
+  /** BMR×PAL maintenance midpoint. */
+  neatBmrKcal: number | null;
+  /** Display-only avg daily training expenditure from trailing-7-day frequency — may overlap the activity multiplier. */
+  workoutKcal: number | null;
 }

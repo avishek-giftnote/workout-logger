@@ -288,8 +288,9 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
   const usesDate = goal === "CONTEST_PREP";
   const toggle = (m: Muscle) => setFocus((f) => (f.includes(m) ? f.filter((x) => x !== m) : f.length >= 3 ? f : [...f, m]));
 
-  // clamp the plan's block phases by the Coach's measured phase, but only when confidently measured
-  const measuredPhase = energy.data?.status === "READY" && energy.data.confidence === "HIGH" && energy.data.phase !== "UNKNOWN"
+  // clamp the plan's block phases by the Coach's measured phase, but only at the top of the ladder (PHASE_HIGH
+  // = a HIGH-confidence measured phase). Lower levels / TREND_ONLY / INSUFFICIENT_DATA never clamp.
+  const measuredPhase = energy.data?.status === "PHASE_HIGH" && energy.data.phase !== "UNKNOWN"
     ? energy.data.phase : null;
   const preview = useMemo(() => {
     if (!exercises.data) return null;
@@ -388,7 +389,7 @@ function MacroPlanner({ onCreated, initial }: MacroPlannerProps) {
   if (exercises.isError) return <QueryError onRetry={exercises.refetch} />;
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const coachPhase = energy.data?.status === "READY" && energy.data.phase !== "UNKNOWN" ? energy.data.phase : null;
+  const coachPhase = energy.data?.status?.startsWith("PHASE_") && energy.data.phase !== "UNKNOWN" ? energy.data.phase : null;
 
   return (
     <main className="screen">

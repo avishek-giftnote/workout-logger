@@ -718,22 +718,30 @@ sequenceDiagram
   participant CC as CoachCard / PlanPage
   participant API as Api client
   participant MC as MeController
+  participant WR as WorkoutRepository
   participant ES as EnergyService
   CC->>API: energy()
   API->>MC: GET /api/me/energy
-  MC->>ES: estimate(currentUser)
+  MC->>WR: countSince(now − 7d) (tenant-scoped)
+  WR-->>MC: recentSessionCount
+  MC->>ES: estimate(currentUser, recentSessionCount)
   ES->>ES: profile gate (sex, DOB, height, activity)
-  ES->>ES: real weigh-ins ≥6 over ≥14d (21d female)?
-  alt insufficient
-    ES-->>CC: GATHERING_DATA (+ Mifflin range if profile complete)
-  else ready
-    ES->>ES: least-squares slope ± 95% CI (kg/wk)
-    ES->>ES: Mifflin–St Jeor × PAL → maintenance ±8%
-    ES->>ES: phase vs ±0.1%bw/wk dead-band (anchored to ȳ)
-    ES->>ES: confidence from CI half-width · kcal = slope×7700 (null at maintenance)
-    ES-->>CC: EnergyDto (phase, confidence, rate, kcal)
+  ES->>ES: Mifflin×PAL → maintenance ±8% (±12% unspec) · neatBmr · workoutKcal (display-only)
+  ES->>ES: real weigh-ins ≥6 over ≥14d (28d female)?
+  alt below gate
+    ES-->>CC: INSUFFICIENT_DATA (+ Mifflin range if profile complete)
+  else has trend
+    ES->>ES: EWMA smooth (α≈0.067 · 0.046 female) → anchor = latest smoothed
+    ES->>ES: Theil–Sen slope (robust) · CI from RAW residuals · Student-t (df=n−2)
+    ES->>ES: phase vs ±0.1%bw/wk dead-band (±0.2% female · anchored to latest EWMA)
+    alt CI straddles band AND ciWk > 3× it
+      ES-->>CC: TREND_ONLY (rate only · no phase · null kcal)
+    else
+      ES->>ES: confidence HIGH/MED/LOW · kcal = slope×7700 (null at maintenance)
+      ES-->>CC: PHASE_HIGH/MEDIUM/LOW (phase, rate, kcal, modelVersion)
+    end
   end
-  CC->>CC: render pill · PlanPage clamps block phase by measured phase
+  CC->>CC: render pill/states · PlanPage clamps block phase only at PHASE_HIGH
 ```
 
 ### 16. Sequence — registration → default-catalog seeding
