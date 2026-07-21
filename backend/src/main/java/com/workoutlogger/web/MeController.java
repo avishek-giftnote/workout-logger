@@ -5,6 +5,8 @@ import com.workoutlogger.domain.BodyweightEntry;
 import com.workoutlogger.domain.User;
 import com.workoutlogger.repo.MeRepository;
 import com.workoutlogger.repo.WorkoutRepository;
+import com.workoutlogger.web.auth.AccountWipeService;
+import com.workoutlogger.web.dto.ApiDtos.DeleteAccountRequest;
 import com.workoutlogger.web.dto.ApiDtos.EnergyDto;
 import com.workoutlogger.web.dto.ApiDtos.MeDto;
 import com.workoutlogger.web.dto.ApiDtos.SettingsDto;
@@ -16,7 +18,10 @@ import com.workoutlogger.web.error.ApiExceptions.BadRequestException;
 import com.workoutlogger.web.error.ApiExceptions.NotFoundException;
 import jakarta.validation.Valid;
 import org.bson.types.ObjectId;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,11 +41,16 @@ public class MeController {
     private final MeRepository me;
     private final EnergyService energy;
     private final WorkoutRepository workouts;
+    private final AccountWipeService wipe;
+    private final PasswordEncoder encoder;
 
-    public MeController(MeRepository me, EnergyService energy, WorkoutRepository workouts) {
+    public MeController(MeRepository me, EnergyService energy, WorkoutRepository workouts,
+                        AccountWipeService wipe, PasswordEncoder encoder) {
         this.me = me;
         this.energy = energy;
         this.workouts = workouts;
+        this.wipe = wipe;
+        this.encoder = encoder;
     }
 
     /** Read-time energy-balance estimate (derived; never stored). The trailing-7-day session count feeds the
@@ -153,5 +163,24 @@ public class MeController {
             throw new NotFoundException("User not found");
         }
         return DtoMapper.toDto(current());
+    }
+
+    /**
+     * "Confirm Account Wipe": permanently delete the account and ALL its data. The REAL guard is a server-side
+     * BCrypt re-verification of the current password (a stolen/leftover bearer token must not be able to nuke
+     * everything on its own); the typed confirmation phrase is UI-friction, not checked here. Wrong password ⇒
+     * 403 and NOTHING is deleted. On success the cascade runs (children first, the User doc last — see
+     * {@link AccountWipeService}) and returns 204; the next request with the now-dead token 401s (the User doc
+     * is gone), which the client turns into a sign-out. Rate-limited (RateLimitConfig) so it can't be used as a
+     * password-guessing oracle.
+     */
+    @PostMapping("/delete")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAccount(@Valid @RequestBody DeleteAccountRequest req) {
+        User u = current();
+        if (u.getPasswordHash() == null || !encoder.matches(req.password(), u.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Incorrect password");
+        }
+        wipe.wipeCurrentTenant(u.getEmail());   // email read BEFORE the User doc is deleted (authChallenges purge)
     }
 }

@@ -40,6 +40,12 @@ public class ExerciseRepository {
         return new Query(where("userId").is(tenant.userId()).and("deletedAt").is(null));
     }
 
+    /** Account-wipe cascade: purge ALL of this tenant's exercises (bare userId, NOT owned(), so soft-deleted
+     *  rows go too — see WorkoutRepository#deleteAllForTenant). */
+    public long deleteAllForTenant() {
+        return mongo.remove(new Query(where("userId").is(tenant.userId())), Exercise.class).getDeletedCount();
+    }
+
     public List<Exercise> list() {
         return mongo.find(owned().with(Sort.by(Sort.Direction.ASC, "name")), Exercise.class);
     }

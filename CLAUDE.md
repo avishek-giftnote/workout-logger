@@ -40,8 +40,15 @@ path (there is **no** `/register`). Codes live in `authChallenges` (peppered `SH
 lockout + send cap — all `findAndModify`, never read-modify-write). JWTs carry a `tokenVersion` `tv` claim re-checked
 every request (`JwtAuthenticationFilter`) so reset/wipe can revoke. Email delivery is a **pluggable `EmailSender` seam**
 (`email/`, chosen by `EMAIL_SENDER`): **`smtp`** = real delivery via `JavaMailSender` (any SMTP provider); `log`/`file`
-for dev/E2E; `noop` = prod boots without delivery. Reset / remember-me / account-wipe are **deferred follow-up slices**. Frontend flow
-is `LoginPage.tsx` (email → code + password ×2); the `ApiIntegrationTest.register()` helper drives the real flow.
+for dev/E2E; `noop` = prod boots without delivery. **Password recovery + account wipe shipped 2026-07-21**
+(auth slice 2, `[[auth-recovery-wipe-council]]`): `POST /api/auth/recover/{request,verify}` (6-digit `RESET`
+code, atomic `$set passwordHash`+`$inc tokenVersion` then auto-sign-in — reset revokes all other sessions) and
+`POST /api/me/delete {password, confirmPhrase}` (server-side BCrypt re-verify → 204; cascade = per-repo
+`deleteAllForTenant()` on bare `userId`, children-first/user-doc-last, authChallenges by email). `requestSignup`/
+`requestRecovery` **swallow** email-send failures (`sendQuietly`) so a failed send can't 500 → enumeration
+oracle. **remember-me is the one still-deferred slice.** Frontend flow is `LoginPage.tsx` (login / register /
+`recover` modes: email → code + password ×2) + the SettingsSidebar danger-zone wipe modal; the
+`ApiIntegrationTest.register()` helper drives the real flow.
 
 ### Frontend (`cd frontend`, Node)
 - `npm install`, then `npm run dev` (`:5173`, dev-proxies `/api` → `:8080`).
@@ -110,13 +117,15 @@ tests still pass.
    above) to review the system end-to-end for correctness, missed edge cases, and regressions — worth it when a
    change spans backend+frontend+data model or has safety implications.
 
-Current suite size (keep roughly current when you add tests): **backend ~62** (`mvn test` runs ~37 pure
-classes — incl. `EnergyServiceTest`'s dead-band/PAL boundary cases; `RUN_MONGO_TESTS=1` adds the 35-test
-`ApiIntegrationTest`, incl. the plan state-machine + history + completion), **frontend 116** (`npm test`)
+Current suite size (keep roughly current when you add tests): **backend ~65** (`mvn test` runs the pure
+classes — incl. `EnergyServiceTest`'s dead-band/PAL boundary cases + `AuthServiceTest`'s send-swallow guard;
+`RUN_MONGO_TESTS=1` adds the ~110-test `ApiIntegrationTest`, incl. the plan state-machine + history +
+completion + auth `AUTH-1..11`/`RECOVER-1..7`/`WIPE-7..14`), **frontend 139** (`npm test`)
 **+ 3 eval sweeps** (`npm run eval`: coach planner R1–R40, prescription engine incl. block-transition guard,
-logging path). Playwright E2E (`npm run e2e`, `frontend/e2e/`) — 11 spec files, 22 test cases across the
-critical journeys (register/login/log+edit/settings, tenant isolation, bodyweight decimals, exercise catalog,
-plan lifecycle + slots, coach gate, cardio, workout delete, empty/error states). See `docs/e2e-findings.md`.
+logging path). Playwright E2E (`npm run e2e`, `frontend/e2e/`) — 13 spec files across the critical journeys
+(register/login/log+edit/settings, **password recovery**, **account wipe**, tenant isolation, bodyweight
+decimals, exercise catalog, plan lifecycle + slots, coach gate, cardio, workout delete, empty/error states).
+See `docs/e2e-findings.md`.
 
 **Eval harness** (`cd frontend && npm run eval`, plus the backend boundary tests) — a council-ratified
 invariant catalog, subdivided by domain. Each rule is numbered (`L##` logging, `R##` planner+prescription,

@@ -19,6 +19,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -148,6 +149,10 @@ public final class ApiDtos {
     /** Partial profile update — only non-null fields are applied. dateOfBirth is ISO yyyy-MM-dd. */
     public record UpdateProfileRequest(String dateOfBirth, String heightCm, Sex sex, Goal goal,
                                        ActivityLevel activityLevel, Integer initialIntakeKcal) {}
+
+    /** "Confirm Account Wipe": the current password re-entered (the REAL, server-verified guard) plus the
+     *  typed confirmation phrase (UI-friction only — the server does not treat it as a security control). */
+    public record DeleteAccountRequest(@NotBlank String password, String confirmPhrase) {}
 
     /** Read-time energy-balance estimate (see docs/coach.md). Derived, never stored. NOT medical advice.
      *  {@code status} is the 5-level ladder INSUFFICIENT_DATA → TREND_ONLY → PHASE_LOW → PHASE_MED → PHASE_HIGH;

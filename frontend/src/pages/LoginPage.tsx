@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Api, ApiError } from "../api/client";
 import { useAuth } from "../auth/auth";
 
-type Mode = "login" | "signup";
+type Mode = "login" | "signup" | "recover";
 type Step = "email" | "verify";
 
 export default function LoginPage() {
@@ -34,12 +34,16 @@ export default function LoginPage() {
         const res = await Api.login(email, password);
         signIn(res.token);
       } else if (step === "email") {
-        await Api.signupRequest(email);      // always 202; a code is on its way if the email is free
+        // Both flows are enumeration-neutral: always 202, a code is on its way only if the email is eligible.
+        if (mode === "signup") await Api.signupRequest(email);
+        else await Api.recoverRequest(email);
         setStep("verify");
       } else {
         if (password !== confirm) { setError("Passwords do not match."); return; }
-        const res = await Api.signupVerify(email, code.trim(), password, confirm);
-        signIn(res.token);
+        const res = mode === "signup"
+          ? await Api.signupVerify(email, code.trim(), password, confirm)
+          : await Api.recoverVerify(email, code.trim(), password, confirm);
+        signIn(res.token);   // recovery signs the device in and revokes every other session
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
@@ -50,11 +54,20 @@ export default function LoginPage() {
 
   // Browser autocomplete hints — attribute values, not credentials.
   const pwAutocomplete = mode === "login" ? "current-password" : "new-password"; // pragma: allowlist secret
+  const verifying = mode !== "login" && step === "verify";
   const heading = mode === "login" ? "Welcome back."
-    : step === "email" ? "Start lifting." : "Check your email.";
+    : mode === "recover"
+      ? (step === "email" ? "Retake ownership." : "Check your email.")
+      : (step === "email" ? "Start lifting." : "Check your email.");
   const sub = mode === "login" ? "Sign in to pick up where you left off."
-    : step === "email" ? "Enter your email and we'll send a verification code."
-    : `We sent a 6-digit code to ${email}. Enter it and choose a password.`;
+    : step === "verify" ? `We sent a 6-digit code to ${email}. Enter it and choose a ${mode === "recover" ? "new " : ""}password.`
+    : mode === "recover" ? "Enter your account email and we'll send a recovery code."
+    : "Enter your email and we'll send a verification code.";
+  const submitLabel = busy ? "…"
+    : mode === "login" ? "Sign in"
+    : step === "email" ? "Send code"
+    : mode === "recover" ? "Reset password"
+    : "Create account";
 
   return (
     <div className="auth">
@@ -67,7 +80,7 @@ export default function LoginPage() {
         <p className="sub">{sub}</p>
 
         <form onSubmit={submit}>
-          {/* Email — shown for login and for the first sign-up step; locked once a code is sent. */}
+          {/* Email — shown for login and for the first request step of sign-up / recovery; locked once a code is sent. */}
           {(mode === "login" || step === "email") && (
             <div className="field">
               <label htmlFor="email">Email</label>
@@ -76,25 +89,25 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Sign-up: verification code. */}
-          {mode === "signup" && step === "verify" && (
+          {/* Verification / recovery code. */}
+          {verifying && (
             <div className="field">
-              <label htmlFor="code">Verification code</label>
+              <label htmlFor="code">{mode === "recover" ? "Recovery code" : "Verification code"}</label>
               <input id="code" className="input mono" inputMode="numeric" autoComplete="one-time-code" required
                 value={code} onChange={(e) => setCode(e.target.value)} placeholder="6-digit code" />
             </div>
           )}
 
-          {/* Password — login, or the sign-up verify step (entered twice). */}
-          {(mode === "login" || (mode === "signup" && step === "verify")) && (
+          {/* Password — login, or the verify step of sign-up / recovery (entered twice). */}
+          {(mode === "login" || verifying) && (
             <div className="field">
-              <label htmlFor="password">Password</label>
+              <label htmlFor="password">{mode === "recover" ? "New password" : "Password"}</label>
               <input id="password" className="input" type="password" required minLength={8}
                 autoComplete={pwAutocomplete}
                 value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
             </div>
           )}
-          {mode === "signup" && step === "verify" && (
+          {verifying && (
             <div className="field">
               <label htmlFor="confirm">Confirm password</label>
               <input id="confirm" className="input" type="password" required minLength={8} autoComplete="new-password"
@@ -104,23 +117,26 @@ export default function LoginPage() {
 
           {error && <p className="err mt">{error}</p>}
 
-          <button className="btn btn-volt btn-block btn-lg mt" type="submit" disabled={busy}>
-            {busy ? "…"
-              : mode === "login" ? "Sign in"
-              : step === "email" ? "Send code"
-              : "Create account"}
-          </button>
+          <button className="btn btn-volt btn-block btn-lg mt" type="submit" disabled={busy}>{submitLabel}</button>
         </form>
 
-        {mode === "signup" && step === "verify" && (
+        {verifying && (
           <p className="swap">
             Didn't get it?{" "}
             <button type="button" onClick={() => { setStep("email"); setError(null); setCode(""); }}>Use a different email</button>
           </p>
         )}
 
+        {/* Forgot-password entry point, only from the login screen. */}
+        {mode === "login" && (
+          <p className="swap">
+            Forgot your password?{" "}
+            <button type="button" onClick={() => resetTo("recover")}>Retake ownership</button>
+          </p>
+        )}
+
         <p className="swap">
-          {mode === "login" ? "No account yet?" : "Already lifting?"}{" "}
+          {mode === "login" ? "No account yet?" : mode === "recover" ? "Remembered it?" : "Already lifting?"}{" "}
           <button type="button" onClick={() => resetTo(mode === "login" ? "signup" : "login")}>
             {mode === "login" ? "Register" : "Sign in"}
           </button>

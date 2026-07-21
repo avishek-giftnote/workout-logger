@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Api } from "../api/client";
+import { Api, ApiError } from "../api/client";
 import { useAuth } from "../auth/auth";
 import { useSettings } from "../settings";
 import { EXERCISE_CHARTS, TEMPLATE_CHARTS } from "../charts";
@@ -47,6 +47,21 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
     setKcal(p?.initialIntakeKcal != null ? String(p.initialIntakeKcal) : "");
   }, [p?.dateOfBirth, p?.heightCm, p?.initialIntakeKcal]);
   const realWeights = realWeightSeries(me.data?.bodyweightLog ?? []);   // sorted oldest→newest for the trend
+
+  // "Confirm Account Wipe" — irreversible. Requires the typed phrase (UI friction) AND the current password
+  // (the real, server-verified guard). On the 204 the token is dead, so we sign out into the login screen.
+  const WIPE_PHRASE = "DELETE";
+  const [wipeOpen, setWipeOpen] = useState(false);
+  const [wipePhrase, setWipePhrase] = useState("");
+  const [wipePw, setWipePw] = useState("");
+  const [wipeErr, setWipeErr] = useState<string | null>(null);
+  const wipe = useMutation({
+    mutationFn: () => Api.deleteAccount(wipePw, wipePhrase),
+    onSuccess: () => { qc.clear(); signOut(); },
+    onError: (e) => setWipeErr(e instanceof ApiError ? e.message : "Something went wrong."),
+  });
+  const closeWipe = () => { setWipeOpen(false); setWipePhrase(""); setWipePw(""); setWipeErr(null); };
+  const canWipe = wipePhrase.trim() === WIPE_PHRASE && wipePw.length > 0 && !wipe.isPending;
 
   if (!open) return null;
 
@@ -237,7 +252,47 @@ export default function SettingsSidebar({ open, onClose }: { open: boolean; onCl
 
         <div className="grow" />
         <button className="btn btn-ghost btn-block" onClick={signOut}>Sign out</button>
+
+        <div className="field" style={{ marginTop: 22, borderTop: "1px solid var(--line)", paddingTop: 18 }}>
+          <label style={{ color: "var(--danger, #e5484d)" }}>Danger zone</label>
+          <p className="muted" style={{ fontSize: 12, margin: "2px 0 10px" }}>
+            Permanently delete your account and every workout, exercise, template, plan and weigh-in. This
+            cannot be undone.
+          </p>
+          <button className="btn btn-block" style={{ borderColor: "var(--danger, #e5484d)", color: "var(--danger, #e5484d)" }}
+            onClick={() => setWipeOpen(true)}>Delete account</button>
+        </div>
       </aside>
+
+      {wipeOpen && (
+        <div className="sidebar-backdrop" style={{ zIndex: 60, alignItems: "center", justifyContent: "center", display: "flex" }}
+          onClick={(e) => { e.stopPropagation(); closeWipe(); }}>
+          <div className="card" style={{ maxWidth: 400, width: "90%", padding: 22 }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ margin: 0, color: "var(--danger, #e5484d)" }}>Confirm Account Wipe</h2>
+            <p className="muted" style={{ fontSize: 13, margin: "10px 0 16px" }}>
+              This permanently deletes your account and all of your data. There is no recovery. To continue,
+              type <b className="mono">{WIPE_PHRASE}</b> and enter your password.
+            </p>
+            <div className="field">
+              <label htmlFor="wipe-phrase">Type “{WIPE_PHRASE}” to confirm</label>
+              <input id="wipe-phrase" className="input mono" value={wipePhrase} autoComplete="off"
+                onChange={(e) => { setWipePhrase(e.target.value); setWipeErr(null); }} placeholder={WIPE_PHRASE} />
+            </div>
+            <div className="field" style={{ marginTop: 12 }}>
+              <label htmlFor="wipe-pw">Password</label>
+              <input id="wipe-pw" className="input" type="password" autoComplete="current-password" value={wipePw}
+                onChange={(e) => { setWipePw(e.target.value); setWipeErr(null); }} placeholder="••••••••" />
+            </div>
+            {wipeErr && <p className="err mt">{wipeErr}</p>}
+            <div className="row" style={{ gap: 8, marginTop: 18 }}>
+              <button className="btn btn-ghost grow" onClick={closeWipe} disabled={wipe.isPending}>Cancel</button>
+              <button className="btn grow" disabled={!canWipe}
+                style={{ background: "var(--danger, #e5484d)", color: "#fff", opacity: canWipe ? 1 : 0.5 }}
+                onClick={() => wipe.mutate()}>{wipe.isPending ? "Deleting…" : "Permanently delete"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

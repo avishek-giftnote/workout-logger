@@ -261,10 +261,28 @@ enumeration and skipped verification). Sequence in **`docs/DIAGRAMS.md` #16**; c
   indexed `_id` projection lookup — NOT in the hot `Tenant.userId()` path), rejecting stale tokens and wiped users.
   `JwtService.issue(userId, tv, expiryMins)` supports variable lifetimes (the remember-me plumbing). Login runs
   **constant-time BCrypt** (a dummy hash when the email is unknown) so it isn't a timing enumeration oracle.
-- **Deferred follow-up slices** (priority order): (5) password reset / "Retake ownership" (link-based; needs the
-  App.tsx unauthenticated route for the link landing), (6) remember-me (30d/24h expiry split + localStorage/session),
-  (7) account wipe (hard-delete, LAST — bumps `tokenVersion`; ship only with its full `WipeIntegrationTest`).
-  Guards: `AUTH-1..11` in `ApiIntegrationTest` + `AuthCodesTest` + `JwtServiceTest`.
+- **Password recovery ("Retake ownership") — ✅ shipped 2026-07-21** (auth slice 2; deciding council unanimous,
+  see memory `auth-recovery-wipe-council`). `POST /api/auth/recover/{request,verify}` — a 6-digit peppered
+  `AuthChallenge.Purpose.RESET` code (NOT link-based: the project forbids secrets in URL params; reuses the
+  signup UX + the generalized atomic `claimAttempt(email, purpose, …)`). `verify` does `$set passwordHash` +
+  `$inc tokenVersion` in ONE `findAndModify(returnNew)` (`UserRepository` custom fragment `resetPassword`), mints
+  the JWT at the NEW tv (auto-sign-in), then consumes the code — so a reset **revokes every other session** while
+  this device stays in. `request` is enumeration-neutral 202 and **never mutates the account** (only verify does).
+- **Account wipe ("Confirm Account Wipe") — ✅ shipped 2026-07-21.** `POST /api/me/delete {password, confirmPhrase}`
+  → 204. **Server-side BCrypt password re-verify is the guard** (wrong → 403, nothing deleted); the typed phrase is
+  UI-friction only. Cascade (`AccountWipeService`) = per-repo `deleteAllForTenant()` on **bare `userId`** (NOT
+  `owned()` — its `deletedAt:null` filter would strand soft-deleted PII), **children first, User doc LAST** (the
+  commit point; standalone Mongo has no multi-doc txn, so the sequence is idempotently crash-retryable while the
+  user doc lives), + authChallenges by email. Token death = the vanished user doc (filter's `findTokenVersionById`
+  → empty → 401); no `tokenVersion` bump needed. Rate-limited (`/api/me/delete` in `RateLimitConfig`).
+- **Enumeration-neutral send (review-council fix):** `requestSignup`/`requestRecovery` **swallow** email-send
+  failures (`sendQuietly`, log-only) — a propagated `MailException` under `email.sender=smtp` had 500'd a known
+  email vs the 202 for an unknown, a status oracle. Enforced at the service layer; `SmtpEmailSender` still
+  propagates to its own caller.
+- **Deferred:** remember-me (30d/24h expiry split; the `JwtService.issue(…, expiryMins)` + `AuthProperties`
+  `rememberMeDays`/`sessionHours` plumbing already exists).
+- Guards: `AUTH-1..11` + `RECOVER-1..7` + `WIPE-7..14` in `ApiIntegrationTest`, `AuthServiceTest` (send-swallow),
+  `AuthCodesTest`, `JwtServiceTest`, and E2E `password-recovery` / `account-wipe` specs.
 
 ## 7. Coaching engine — periodization + prescription + energy (Layers 4–5)
 

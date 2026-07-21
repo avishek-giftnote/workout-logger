@@ -8,17 +8,20 @@ export const uniqueEmail = () => `e2e+${Date.now().toString(36)}-${Math.random()
 // The FileEmailSender writes the newest message per recipient to target/email-outbox/<safe email>.txt
 // (backend cwd = this frontend dir when Playwright manages the server). Mirror its filename rule + poll for the code.
 const safeEmail = (email: string) => email.toLowerCase().replace(/[^a-z0-9._-]/g, "_");
-async function readSignupCode(email: string): Promise<string> {
+// Poll the outbox for the latest 6-digit code. `exclude` lets a second flow (recovery, resend) wait for a
+// NEW code to overwrite an earlier one for the same recipient, rather than racing the stale file contents.
+export async function readEmailCode(email: string, exclude?: string): Promise<string> {
   const path = `target/email-outbox/${safeEmail(email)}.txt`;
   for (let i = 0; i < 60; i++) {
     if (existsSync(path)) {
       const m = readFileSync(path, "utf8").match(/\b(\d{6})\b/);
-      if (m) return m[1];
+      if (m && m[1] !== exclude) return m[1];
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`no sign-up code appeared in the email outbox for ${email} (${path})`);
+  throw new Error(`no ${exclude ? "new " : ""}code appeared in the email outbox for ${email} (${path})`);
 }
+const readSignupCode = (email: string) => readEmailCode(email);
 
 /** Register a fresh account through the verified two-step UI and land authenticated. Returns the email used. */
 export async function register(page: Page, email = uniqueEmail()): Promise<string> {

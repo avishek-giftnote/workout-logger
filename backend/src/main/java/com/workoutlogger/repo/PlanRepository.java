@@ -30,6 +30,11 @@ public class PlanRepository {
         return new Query(where("userId").is(tenant.userId()).and("status").is("ACTIVE"));
     }
 
+    /** Account-wipe cascade: purge ALL of this tenant's plans (every status — ACTIVE, COMPLETED, ENDED). */
+    public long deleteAllForTenant() {
+        return mongo.remove(new Query(where("userId").is(tenant.userId())), Macrocycle.class).getDeletedCount();
+    }
+
     public Optional<Macrocycle> findActive() {
         return Optional.ofNullable(mongo.findOne(active(), Macrocycle.class));
     }

@@ -53,6 +53,21 @@ public class AuthController {
         return auth.verifySignup(req.email(), req.code(), req.password(), req.confirmPassword());
     }
 
+    /** Recovery step 1: request a recovery code. Always 202 (enumeration-neutral, mirroring signup/request):
+     *  request NEVER mutates the account — only recover/verify does. */
+    @PostMapping("/recover/request")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void recoverRequest(@Valid @RequestBody RecoverRequestRequest req) {
+        auth.requestRecovery(req.email());
+    }
+
+    /** Recovery step 2: verify the code + set a new password. Resets the password, revokes all OTHER sessions,
+     *  and returns a fresh JWT (auto-sign-in) for this device. */
+    @PostMapping("/recover/verify")
+    public AuthResponse recoverVerify(@Valid @RequestBody RecoverVerifyRequest req) {
+        return auth.verifyRecovery(req.email(), req.code(), req.password(), req.confirmPassword());
+    }
+
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest req) {
         String email = req.email().trim().toLowerCase(Locale.ROOT);

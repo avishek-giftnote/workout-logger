@@ -14,6 +14,8 @@ import com.workoutlogger.security.JwtService;
 import com.workoutlogger.web.auth.AuthDtos.AuthResponse;
 import com.workoutlogger.web.error.ApiExceptions.BadRequestException;
 import org.bson.types.ObjectId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +31,8 @@ import java.util.Locale;
  */
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final UserRepository users;
     private final AuthChallengeRepository challenges;
@@ -71,11 +75,77 @@ public class AuthService {
         if (sends > props.getMaxSendsPerHour()) return;   // over the per-email cap → keep old code, don't send
 
         String code = AuthCodes.sixDigitCode();
-        challenges.setSignupCode(e, Purpose.SIGNUP, AuthCodes.hash(code, props.effectivePepper()),
+        challenges.setCode(e, Purpose.SIGNUP, AuthCodes.hash(code, props.effectivePepper()),
                 now.plus(Duration.ofMinutes(props.getCodeExpiryMinutes())), now);
 
         EmailTemplates.Message m = templates.signupCode(code);
-        email.send(e, m.subject(), m.body());
+        sendQuietly(e, m);
+    }
+
+    /**
+     * Start a password recovery ("Retake ownership"). The MIRROR IMAGE of {@link #requestSignup}: sign-up
+     * no-ops when the email EXISTS, recovery no-ops when it does NOT. Same enumeration-neutral 202, same
+     * per-email send cap. CRITICAL: this NEVER touches passwordHash or tokenVersion — only {@link
+     * #verifyRecovery} mutates the account. If request mutated state, anyone could force-logout or lock out
+     * any victim just by requesting resets for their address.
+     */
+    public void requestRecovery(String rawEmail) {
+        String e = normalize(rawEmail);
+        if (!users.existsByEmail(e)) return;   // no account → neutral no-op (no code, no leak)
+
+        Instant now = Instant.now();
+        int sends = challenges.incrementSend(e, Purpose.RESET, now, now.minus(Duration.ofHours(1)));
+        if (sends > props.getMaxSendsPerHour()) return;   // over the per-email cap → keep old code, don't send
+
+        String code = AuthCodes.sixDigitCode();
+        challenges.setCode(e, Purpose.RESET, AuthCodes.hash(code, props.effectivePepper()),
+                now.plus(Duration.ofMinutes(props.getCodeExpiryMinutes())), now);
+
+        EmailTemplates.Message m = templates.recoveryCode(code);
+        sendQuietly(e, m);
+    }
+
+    /**
+     * Dispatch a transactional email, SWALLOWING any delivery failure (log-only, never rethrow). This is a
+     * security control, not just resilience: {@code requestSignup}/{@code requestRecovery} do observable work
+     * only for an eligible email, so if a failed send propagated it would surface as a 500 for a known address
+     * vs the neutral 202 for an unknown one — a status-based enumeration oracle (review council 2026-07-21).
+     * Swallowing keeps the response identical on both branches; a persistent outage shows up in the logs, and
+     * the user simply re-requests. (SmtpEmailSender still propagates to ITS caller; this layer is where the
+     * enumeration-neutral contract is enforced.)
+     */
+    private void sendQuietly(String to, EmailTemplates.Message m) {
+        try {
+            email.send(to, m.subject(), m.body());
+        } catch (RuntimeException ex) {
+            log.error("[auth] failed to send a transactional email (\"{}\") — request still returns the neutral "
+                    + "202; the recipient can retry. Cause: {}", m.subject(), ex.toString());
+        }
+    }
+
+    /**
+     * Complete a recovery: validate the two passwords, ATOMICALLY claim one RESET verify attempt (purpose-keyed,
+     * so a live SIGNUP code can't satisfy it and the 5-attempt lockout can't be bypassed), check the code, then
+     * ATOMICALLY set the new hash + bump tokenVersion in ONE findAndModify — reading back the NEW version and
+     * minting the returned JWT at it, so this session survives while EVERY other outstanding token is revoked.
+     * The code is consumed AFTER the reset commits (mutate-before-consume). Failures stay generic.
+     */
+    public AuthResponse verifyRecovery(String rawEmail, String code, String password, String confirmPassword) {
+        if (password == null || !password.equals(confirmPassword)) {
+            throw new BadRequestException("Passwords do not match");
+        }
+        String e = normalize(rawEmail);
+        Instant now = Instant.now();
+        AuthChallenge c = challenges.claimAttempt(e, Purpose.RESET, now, props.getMaxVerifyAttempts()).orElse(null);
+        boolean valid = c != null
+                && AuthCodes.matches(c.getCodeHash(), AuthCodes.hash(code == null ? "" : code, props.effectivePepper()));
+        if (!valid) {
+            throw new BadRequestException("Invalid or expired code");   // the attempt was already counted atomically
+        }
+        User u = users.resetPassword(e, encoder.encode(password))   // atomic $set hash + $inc tokenVersion, returnNew
+                .orElseThrow(() -> new BadRequestException("Invalid or expired code"));   // stay generic
+        challenges.consume(e, Purpose.RESET);   // single-use: the code can never be replayed
+        return new AuthResponse(jwt.issue(u.getId(), u.getTokenVersion()), u.getId(), u.getEmail());
     }
 
     /**
@@ -90,7 +160,7 @@ public class AuthService {
         }
         String e = normalize(rawEmail);
         Instant now = Instant.now();
-        AuthChallenge c = challenges.claimSignupAttempt(e, now, props.getMaxVerifyAttempts()).orElse(null);
+        AuthChallenge c = challenges.claimAttempt(e, Purpose.SIGNUP, now, props.getMaxVerifyAttempts()).orElse(null);
         boolean valid = c != null
                 && AuthCodes.matches(c.getCodeHash(), AuthCodes.hash(code == null ? "" : code, props.effectivePepper()));
         if (!valid) {
