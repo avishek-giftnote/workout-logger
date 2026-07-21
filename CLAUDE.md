@@ -73,6 +73,15 @@ deliberately absent from the `Dockerfile`/Railway image.)
 There is no MongoDB in this dev image by default; `brew` can't build `mongodb-community` here (Command Line
 Tools too old). Use MongoDB Atlas (set `MONGODB_URI`) or the official precompiled binary.
 
+**Clean up test data after every test/demo run against Atlas.** The shared Atlas cluster holds two databases
+you must **never drop**: **`workoutlogger_prod`** (production) and **`workoutlogger`** (the dev/imported working
+DB). Everything else is disposable. When running the Mongo integration suite or a demo server against Atlas,
+always point it at a **throwaway `workoutlogger_<purpose>` database** (e.g. `MONGODB_TEST_URI=…/workoutlogger_autotest`,
+or a demo `MONGODB_URI=…/workoutlogger_demo_x`) — never `workoutlogger`/`workoutlogger_prod` — and **drop that
+database when you're done** so no test data lingers. `ApiIntegrationTest` already auto-drops its `workoutlogger_*`
+DB on teardown (`TestDbCleanup`, which by design only drops names starting `workoutlogger_`, never the bare
+`workoutlogger`); but a manually-started `spring-boot:run` demo does **not**, so drop those by hand afterward.
+
 ## Testing & verification (do this for EVERY functional change)
 
 **Always add/extend tests for what you change, then run the suites — never commit on a manual smoke test
