@@ -77,6 +77,16 @@ _Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained in
 
 ## Done
 
+- _2026-07-21_ — **Prod-boot hotfix for the verified-signup slice (PR #56).** The Railway (prod-profile) deploy
+  crashed — `AuthService` needs an `EmailSender`, but the review-fix made both stubs `@Profile("!prod")` (so the
+  code-logging one can't leak in prod) and left prod with no sender. Added **`NoOpEmailSender` (`@Profile("prod")`,
+  logs a WARN, never logs the code)** so prod boots, and **softened the pepper prod fail-fast to a WARN** (it
+  protects nothing until codes are actually delivered). Verified booting locally under `-Pprod`. **⚠ Consequence
+  elevated to a blocker:** prod verified-signup **cannot deliver codes** until a real email provider is wired —
+  the app runs + existing users log in, but new prod signups can't complete. **Next-up:** a real `EmailSender`
+  (SendGrid/SES/SMTP; provider `EmailSender` impl + a Railway-set API key) — now the top auth follow-up, ahead of
+  reset/remember-me/wipe, since it unblocks prod onboarding. Restore the pepper fail-fast when it lands.
+
 - _2026-07-21_ — **Verified sign-up + JWT revocation hardening (`/autopilot`, council-decided, slice 1 of the auth
   overhaul).** Replaced the atomic `POST /api/auth/register` (email+password → token) with a two-step, email-verified
   flow and hardened the session model. A 5-lens council (systems-architect · security-engineer · backend ·

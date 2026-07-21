@@ -26,7 +26,8 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
   - Persist: add `-Dspring-boot.run.arguments="--importer.persist=true"` and set `IMPORT_USER_PASSWORD`.
 - Env vars: `MONGODB_URI` (default `mongodb://localhost:27017/workoutlogger`), `SECURITY_JWT_SECRET`
   (blank ⇒ an **ephemeral** key is generated, so tokens reset on restart — set it for stable auth),
-  `AUTH_TOKEN_PEPPER` (peppers the sign-up code hash; blank ⇒ dev fallback, **required under `prod`**),
+  `AUTH_TOKEN_PEPPER` (peppers the sign-up code hash; blank ⇒ dev fallback + a prod WARN — set a real value
+  before enabling real-email sign-up in prod; the fail-fast is restored with the real-email slice),
   `EMAIL_SENDER` (`log` default / `file` for the E2E outbox — real provider TBD),
   `IMPORT_USER_EMAIL` / `IMPORT_USER_PASSWORD`, `IMPORT_CSV`, `IMPORT_BODYWEIGHT`.
 
