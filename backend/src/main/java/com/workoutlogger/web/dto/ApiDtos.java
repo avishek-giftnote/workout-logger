@@ -149,12 +149,17 @@ public final class ApiDtos {
     public record UpdateProfileRequest(String dateOfBirth, String heightCm, Sex sex, Goal goal,
                                        ActivityLevel activityLevel, Integer initialIntakeKcal) {}
 
-    /** Read-time energy-balance estimate (see docs/coach.md). Derived, never stored. NOT medical advice. */
+    /** Read-time energy-balance estimate (see docs/coach.md). Derived, never stored. NOT medical advice.
+     *  {@code status} is the 5-level ladder INSUFFICIENT_DATA → TREND_ONLY → PHASE_LOW → PHASE_MED → PHASE_HIGH;
+     *  {@code confidence} (NONE/LOW/MEDIUM/HIGH) is the underlying tier mapped into it. {@code neatBmrKcal} +
+     *  {@code workoutKcal} decompose the day's energy (workout term is display-only, never folded into
+     *  maintenance or phase). {@code modelVersion} stamps the constant set (see {@link com.workoutlogger.coach.EnergyModel}). */
     public record EnergyDto(String status, String phase, String confidence,
                             int weighIns, int spanDays, int minWeighIns, int minSpanDays,
                             String ratePerWeekKg, Integer maintenanceKcalLow, Integer maintenanceKcalHigh,
                             Integer surplusDeficitKcalLow, Integer surplusDeficitKcalHigh,
-                            List<String> missingProfile) {}
+                            List<String> missingProfile,
+                            int modelVersion, Integer neatBmrKcal, Integer workoutKcal) {}
 
     // ---- plan (macro/meso/microcycle) ----
     public record IntensityBandDto(int repLow, int repHigh, String targetRir, String pctLow, String pctHigh) {}

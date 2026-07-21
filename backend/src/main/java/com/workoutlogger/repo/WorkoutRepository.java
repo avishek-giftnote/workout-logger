@@ -40,6 +40,12 @@ public class WorkoutRepository {
         return mongo.find(owned().with(Sort.by(Sort.Direction.DESC, "startedAt")), Workout.class);
     }
 
+    /** Count this tenant's (non-deleted) sessions started at/after {@code since} — the trailing-window training
+     *  frequency the energy model turns into a display-only workout-energy term. Tenant-AND-ed via owned(). */
+    public long countSince(Instant since) {
+        return mongo.count(owned().addCriteria(where("startedAt").gte(since)), Workout.class);
+    }
+
     public Optional<Workout> findOne(String id) {
         return Optional.ofNullable(mongo.findOne(owned().addCriteria(where("_id").is(id)), Workout.class));
     }

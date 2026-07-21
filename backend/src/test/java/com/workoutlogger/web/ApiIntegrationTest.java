@@ -722,6 +722,52 @@ class ApiIntegrationTest {
                 .andExpect(status().isNotFound());                                      // already gone
     }
 
+    // A workout at a specific instant (the trailing-7-day window keys off startedAt).
+    private void logWorkoutAt(String token, String exId, java.time.Instant when) throws Exception {
+        String body = "{\"startedAt\":\"" + when + "\",\"exercises\":[{\"exerciseId\":\"" + exId
+                + "\",\"name\":\"x\",\"position\":0,\"sets\":[{\"orderIndex\":0,\"setType\":\"WORKING\",\"weight\":\"50\",\"reps\":8}]}]}";
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated());
+    }
+
+    // GET /api/me/energy returns the 5-level ladder status + modelVersion, and the workout-energy term is
+    // tenant-scoped (counts only THIS user's trailing-7-day sessions). Exercises the changed DTO + controller.
+    @Test
+    void energyEndpointReturnsFiveLevelStatusAndTenantScopedWorkoutTerm() throws Exception {
+        String a = register("energy-a@example.com");
+        mvc.perform(put("/api/me/profile").header("Authorization", bearer(a)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sex\":\"MALE\",\"dateOfBirth\":\"1995-01-01\",\"heightCm\":\"180\",\"activityLevel\":\"MODERATE\"}"))
+                .andExpect(status().isOk());
+        // 6 clean weigh-ins over 20 days, +1.6 kg (a clear surplus) — ending today so the span is real.
+        java.time.LocalDate today = java.time.LocalDate.now();
+        double[] ws = {80.0, 80.32, 80.64, 80.96, 81.28, 81.6};
+        for (int i = 0; i < 6; i++) {
+            String d = today.minusDays(20L - i * 4L).toString();
+            mvc.perform(put("/api/me/bodyweight").header("Authorization", bearer(a)).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"weightKg\":\"" + ws[i] + "\",\"recordedAt\":\"" + d + "\"}"))
+                    .andExpect(status().isOk());
+        }
+        // Two sessions in the trailing 7 days ⇒ workoutKcal = round50(2·350/7) = 100.
+        String ex = createExercise(a, "Bench Energy", false);
+        logWorkoutAt(a, ex, java.time.Instant.now().minus(java.time.Duration.ofDays(1)));
+        logWorkoutAt(a, ex, java.time.Instant.now().minus(java.time.Duration.ofDays(2)));
+
+        mvc.perform(get("/api/me/energy").header("Authorization", bearer(a)))
+                .andExpect(jsonPath("$.status").value(org.hamcrest.Matchers.matchesPattern("PHASE_(LOW|MEDIUM|HIGH)")))
+                .andExpect(jsonPath("$.phase").value("SURPLUS"))
+                .andExpect(jsonPath("$.modelVersion").value(com.workoutlogger.coach.EnergyModel.MODEL_VERSION))
+                .andExpect(jsonPath("$.workoutKcal").value(100))
+                .andExpect(jsonPath("$.neatBmrKcal").isNotEmpty())
+                .andExpect(jsonPath("$.maintenanceKcalLow").isNotEmpty());
+
+        // Tenant isolation: user B has no weigh-ins and no workouts — INSUFFICIENT_DATA, and does NOT count A's sessions.
+        String b = register("energy-b@example.com");
+        mvc.perform(get("/api/me/energy").header("Authorization", bearer(b)))
+                .andExpect(jsonPath("$.status").value("INSUFFICIENT_DATA"))
+                .andExpect(jsonPath("$.workoutKcal").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.modelVersion").value(com.workoutlogger.coach.EnergyModel.MODEL_VERSION));
+    }
+
     @Test
     void exerciseAttributesAreEditableAndCompoundNeedsTwoMuscles() throws Exception {
         String t = register("exedit@example.com");

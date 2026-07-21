@@ -20,7 +20,10 @@ auto-changes a user's training, and none of it is medical or nutritional advice.
    users) and a slope standard-error below threshold. Server returns a status:
    `INSUFFICIENT_DATA → TREND_ONLY → PHASE_LOW → PHASE_MED → PHASE_HIGH`.
 3. **Classify phase from the *confidence interval* of the weekly rate, never the point estimate**, with a
-   **±0.10%-bodyweight/week dead-band** — default MAINTENANCE until the CI clears the band.
+   **±0.10%-bodyweight/week dead-band** (±0.20% for menstruating users), anchored to the **latest EWMA-smoothed
+   weight** (noise-robust and current, not the backward-looking window mean) — default MAINTENANCE until the CI
+   clears the band, and `TREND_ONLY` only when the CI **straddles** the band *and* is wider than 3× it (direction
+   genuinely unclear). A wide but **one-sided** CI (a real cut/bulk with scale noise) still classifies decisively.
 4. **Derive-on-read, never persist as fact** (like `lastWorkingSet`). Store only inputs (profile, weigh-ins,
    intake, muscle map). Optional memoized cache stamped with `{modelVersion, inputHash, computedAt}`.
 5. **Never auto-apply.** A recommended split is a read-only *preview* that opens in the existing split/template
@@ -34,21 +37,53 @@ auto-changes a user's training, and none of it is medical or nutritional advice.
 
 ## Energy model
 
-Inputs the user **must** provide (cannot be inferred): `sex`, `dateOfBirth`, `heightCm`, `activityLevel`
-(5-point), `goal`, and **one** `initialIntakeKcal` (entered once, with the date it reflects).
+**✅ SHIPPED (Layer 2, `EnergyService.estimate`, derive-on-read).** This section describes the model as built,
+not an aspiration. All tunables live in `EnergyModel` (versioned; every estimate carries `modelVersion`, now 2).
+The energy-balance council (2026-07-21) reconciled the drifts below and ratified the estimator. NOT medical advice.
 
-- **BMR — Mifflin–St Jeor** (needs only the four inputs above + latest real weight):
-  `BMR = 10·kg + 6.25·heightCm − 5·ageYears + s`, where `s = +5` (male) / `−161` (female).
-- **TDEE = BMR × PAL**, with workout energy split *out* into a separate volume-derived term (not baked into
-  the multiplier). Activity → PAL: SEDENTARY 1.40 · LIGHT 1.55 · MODERATE 1.70 · ACTIVE 1.85 · VERY_ACTIVE 2.00.
-- **Trend weight:** EWMA, ~10-day half-life (`α ≈ 0.067/day`, time-decayed for irregular cadence). Never let a
-  single raw weigh-in move an estimate. Store the smoothed series as derived/recomputable; never overwrite raw.
-- **Self-correcting estimate:** a scalar Kalman-style adaptive filter seeded by Mifflin, updated as weigh-ins
-  arrive. Surplus/deficit magnitude comes from the **slope** (`slope_kg/day × 7700 / 1`), independent of intake
-  once a slope exists. The intake figure calibrates the cold-start display only — **do not** fit a persisted PAL
-  from it.
-- **Menstruating users:** widen the dead-band and smoothing window around cyclic water retention; require the
-  longer (≥28-day) span before classifying.
+Inputs the user **must** provide (cannot be inferred): `sex`, `dateOfBirth`, `heightCm`, `activityLevel`
+(5-point), `goal`, and **one** `initialIntakeKcal` (entered once, with `initialIntakeAt` = the date it reflects).
+
+- **BMR — Mifflin–St Jeor** (needs only the four inputs above + the latest real weight):
+  `BMR = 10·kg + 6.25·heightCm − 5·ageYears + s`, where `s = +5` (male) / `−161` (female) / **`−78` (unspecified)**.
+  The `−78` is the exact **arithmetic midpoint** of the two sex constants `((5 + −161)/2)` — the least-biased
+  choice when sex is withheld.
+- **TDEE = BMR × PAL** (maintenance display, `±8%` range rounded to 50 kcal; **`±12%` for UNSPECIFIED sex** to
+  cover the extra sex-attribution uncertainty). Activity → PAL: SEDENTARY 1.40 · LIGHT 1.55 · MODERATE 1.70 ·
+  ACTIVE 1.85 · VERY_ACTIVE 2.00. **Workout energy is a *separate* additive term, not baked into the multiplier**
+  and never rescaled into PAL: the caller passes the trailing-7-day session count into `estimate()` (so the
+  service stays pure/repository-free) and the DTO reports `neatBmrKcal` (the BMR×PAL midpoint) and `workoutKcal`
+  (`round50(sessions/wk · 350 ÷ 7`)) as **decomposed, display-only** fields with an overlap caveat in the UI —
+  the honest move given we can't calibrate what fraction of a self-reported activity level already includes
+  training. `workoutKcal` never touches phase, confidence, or surplus/deficit.
+- **Trend weight — EWMA**, ~10-day half-life (`α ≈ 0.067/day`, `0.046` for females = a wider window), time-decayed
+  for irregular cadence. Derived/recomputable; raw weigh-ins are never overwritten. The **latest** EWMA value is
+  the dead-band anchor.
+- **Slope — Theil–Sen** (median of pairwise slopes), *not* OLS-on-the-smoothed-series. The council's original Q5
+  spec (fit OLS on the EWMA-smoothed series) proved statistically wrong on this app's short windows: a forward
+  EWMA lags a ramp, so OLS-on-smoothed **attenuated a clean trend ~38%** and inflated its CI (raw residuals about
+  the lagged line) — wrongly forcing decisive trends into `TREND_ONLY`. Theil–Sen is unbiased for a linear trend,
+  has **zero tunables** (more faithful to the council's anti-false-precision stance than OLS-on-smoothed), and is
+  the robustness the EWMA was reaching for: one wild weigh-in corrupts only `O(n)` of the `O(n²)` pairwise slopes,
+  so the median ignores it — **a single reading can never move the rate or flip the phase**. The CI/SE is still
+  honest **raw** scatter about the robust line (council Q5 intent), `df = n−2` on the real weigh-in count, with a
+  small-sample Student-t multiplier. Surplus/deficit magnitude = `slope_kg/day × 7700`; the intake figure
+  calibrates the cold-start display only — **no** persisted PAL is fitted from it. (Deviation logged in
+  `docs/eval-findings.md`; the Kalman filter was rejected outright — a fixed-gain EWMA *is* the steady-state
+  scalar Kalman, so at ~1-user scale it only adds unfittable magic numbers.)
+- **5-level status ladder** (replaces the old 2-state gate), keyed off `ciWk` = the t-adjusted 95% CI half-width
+  of the weekly rate: `INSUFFICIENT_DATA` (below the N/span gate) → `TREND_ONLY` (the CI **straddles** the
+  dead-band *and* `ciWk > 3×` it — direction genuinely unclear, so a trend line but no phase verdict, null
+  surplus/deficit) → `PHASE_LOW`/`PHASE_MEDIUM`/`PHASE_HIGH` (a classification, at the confidence tier from the
+  unchanged HIGH/MED/LOW formula). Only `PHASE_HIGH` (a HIGH-confidence measured phase) feeds the planner clamp.
+  A **decisive one-sided CI classifies however wide it is** — a real cut/bulk with scale noise reads DEFICIT/
+  SURPLUS, not `TREND_ONLY` (the gate is straddle-only, fixed after the review council caught an absolute-cutoff
+  bug that suppressed exactly those users). *`PHASE_LOW` is only ever a low-confidence **MAINTENANCE** (a decisive
+  phase is always ≥ MEDIUM), which suits the ED-guardrail intent of never showing a wishy-washy direction.*
+- **Gate:** `≥6` real weigh-ins **and** `≥14` days span (**`≥28` for menstruating/FEMALE users** — ≥1 cycle;
+  fixed from a stale `21`), plus the `ciWk` threshold above. Excludes `estimated:true` import backfill rows.
+- **Menstruating users:** wider dead-band (`±0.20%`), slower EWMA (`α = 0.046`, wider smoothing window), and the
+  longer `≥28`-day span before classifying — all to ride out cyclic water retention.
 
 ---
 
@@ -323,6 +358,30 @@ readiness adjustments are **suggestions** shown with their reason — never sile
 All coaching invariants are pinned as executable guards, subdivided by domain and numbered. The full sweep
 (`npm run eval` from `frontend/`) runs 240 planner configs (4 goals × 5 days × 4 durations × 3 focus sets)
 plus all prescription rules on every commit.
+
+### Layer 2 — Energy model (`EnergyServiceTest.java`, E1–E20 + D4)
+
+| Rule | Invariant |
+| --- | --- |
+| E1–E7 | Dead-band boundary · estimated/null rows excluded · sign coherence · Mifflin×PAL ordering (male>unspec>female, rises with activity) · signed-2dp US rate format |
+| D4 | CI uses the small-sample Student-t multiplier (`df=n−2`), not `z=1.96` |
+| E8 | FEMALE gate is `≥28` days (a 24-day female stays gathering; a 24-day male classifies) |
+| E9 | UNSPECIFIED offset `−78` is exactly `(5 + −161)/2` |
+| E10 | Maintenance display half-range is `±12%` for UNSPECIFIED, `±8%` for MALE/FEMALE |
+| E11 | 5-level ladder: a straddling CI `> 3×` dead-band ⇒ `TREND_ONLY` (no phase, null surplus/deficit); a tight trend ⇒ a phase |
+| E12 | The gate is denominated in `ciWk` (t-inflated), not raw SE — a series a raw-SE gate would pass stays `TREND_ONLY` |
+| E13 | Confidence tiers: clean long-span ⇒ `PHASE_HIGH`, clean min-span ⇒ `PHASE_MEDIUM`, straddling 2–3× CI ⇒ `PHASE_LOW`+MAINTENANCE |
+| E21 | **Decisive-but-noisy guard:** a wide **one-sided** CI (real −1 kg/wk cut + scatter) ⇒ `PHASE_HIGH` DEFICIT, never `TREND_ONLY` |
+| E14 | **Robustness:** one wild weigh-in (−5 kg, newest point) can't flip the phase to a false DEFICIT nor move the rate (Theil–Sen) |
+| E15 | The EWMA is time-decayed: the same reading after a long gap is weighted more than after a short gap |
+| E16 | Honest SE from **raw** scatter: a big zigzag around a rising trend is never `PHASE_HIGH` |
+| E17 | Workout term is display-only + additive: a session count sets `workoutKcal` but leaves phase/confidence/surplus-deficit/maintenance byte-identical; 0 sessions ⇒ null |
+| E18 | PAL constants are not silently rescaled (`{1.40,1.55,1.70,1.85,2.00}`) |
+| E19 | Every estimate carries a non-null `modelVersion` |
+| E20 | Dead-band anchor is the latest EWMA-smoothed weight (between the mean and the raw latest, closer to current) |
+
+Endpoint contract + tenant isolation are pinned by `ApiIntegrationTest.energyEndpointReturnsFiveLevelStatusAndTenantScopedWorkoutTerm`
+(the 5-level status on the wire, `modelVersion`, and a `workoutKcal` that counts only *this* user's trailing-7-day sessions).
 
 ### Layer 4 — Macrocycle planner (`coach.eval.test.ts`, R1–R40)
 
