@@ -77,6 +77,16 @@ _Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained in
 
 ## Done
 
+- _2026-07-21_ — **Real email delivery: `SmtpEmailSender` (unblocks prod verified sign-up).** Provider-agnostic
+  SMTP over Spring `JavaMailSender` (`spring-boot-starter-mail`) — point `spring.mail.*` at any SMTP relay
+  (SendGrid/Mailgun/SES/Postmark/Gmail). Active on `email.sender=smtp` (any profile), taking precedence over the
+  prod `NoOpEmailSender` (now gated to `email.sender=noop|unset`). Configurable `email.from`; never logs the code;
+  delivery failures propagate (500 → user re-requests). **Pepper fail-fast restored, tied to real delivery:**
+  `AuthSecurityValidator` throws on a blank `AUTH_TOKEN_PEPPER` iff `email.sender=smtp` (WARN otherwise). Verified
+  locally under `-Pprod` (smtp bean selected; pepper guard fires). Guard `SmtpEmailSenderTest` (S1/S2). **To turn
+  on prod signup:** set `EMAIL_SENDER=smtp` + `SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD` + `EMAIL_FROM` +
+  `AUTH_TOKEN_PEPPER` on Railway. See DESIGN.md §6b.
+
 - _2026-07-21_ — **Prod-boot hotfix for the verified-signup slice (PR #56).** The Railway (prod-profile) deploy
   crashed — `AuthService` needs an `EmailSender`, but the review-fix made both stubs `@Profile("!prod")` (so the
   code-logging one can't leak in prod) and left prod with no sender. Added **`NoOpEmailSender` (`@Profile("prod")`,

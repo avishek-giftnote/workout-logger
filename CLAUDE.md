@@ -26,9 +26,11 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
   - Persist: add `-Dspring-boot.run.arguments="--importer.persist=true"` and set `IMPORT_USER_PASSWORD`.
 - Env vars: `MONGODB_URI` (default `mongodb://localhost:27017/workoutlogger`), `SECURITY_JWT_SECRET`
   (blank ⇒ an **ephemeral** key is generated, so tokens reset on restart — set it for stable auth),
-  `AUTH_TOKEN_PEPPER` (peppers the sign-up code hash; blank ⇒ dev fallback + a prod WARN — set a real value
-  before enabling real-email sign-up in prod; the fail-fast is restored with the real-email slice),
-  `EMAIL_SENDER` (`log` default / `file` for the E2E outbox — real provider TBD),
+  `AUTH_TOKEN_PEPPER` (peppers the sign-up code hash; blank ⇒ dev fallback + a prod WARN — **required (fail-fast)
+  when `EMAIL_SENDER=smtp`**, i.e. real delivery),
+  `EMAIL_SENDER` (`log` dev default · `file` for the E2E outbox · `noop` prod default (boots, no delivery) ·
+  **`smtp` for real delivery** — then also set `SPRING_MAIL_HOST`/`SPRING_MAIL_PORT`/`SPRING_MAIL_USERNAME`/
+  `SPRING_MAIL_PASSWORD` (any SMTP provider — SendGrid/Mailgun/SES/Postmark/…) and `EMAIL_FROM`),
   `IMPORT_USER_EMAIL` / `IMPORT_USER_PASSWORD`, `IMPORT_CSV`, `IMPORT_BODYWEIGHT`.
 
 ### Auth (verified sign-up + JWT revocation) — see DESIGN.md §6b
@@ -37,7 +39,8 @@ Sign-up is **two-step, email-verified**: `POST /api/auth/signup/request {email}`
 path (there is **no** `/register`). Codes live in `authChallenges` (peppered `SHA-256`, 15-min expiry, atomic 5-try
 lockout + send cap — all `findAndModify`, never read-modify-write). JWTs carry a `tokenVersion` `tv` claim re-checked
 every request (`JwtAuthenticationFilter`) so reset/wipe can revoke. Email delivery is a **pluggable `EmailSender` seam**
-(`email/`; real provider stubbed). Reset / remember-me / account-wipe are **deferred follow-up slices**. Frontend flow
+(`email/`, chosen by `EMAIL_SENDER`): **`smtp`** = real delivery via `JavaMailSender` (any SMTP provider); `log`/`file`
+for dev/E2E; `noop` = prod boots without delivery. Reset / remember-me / account-wipe are **deferred follow-up slices**. Frontend flow
 is `LoginPage.tsx` (email → code + password ×2); the `ApiIntegrationTest.register()` helper drives the real flow.
 
 ### Frontend (`cd frontend`, Node)
