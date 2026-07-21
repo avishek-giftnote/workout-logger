@@ -44,15 +44,46 @@ class ApiIntegrationTest {
     @Autowired MongoTemplate mongo;
     @Autowired ObjectMapper json;
     @Autowired com.workoutlogger.config.BodyweightEntryIdBackfillRunner backfill;
+    @Autowired CapturingEmailSender emailSender;
 
     private static MongoTemplate dropRef;
+
+    /** In-process EmailSender capture (@Primary over LoggingEmailSender) so tests can read the code the real
+     *  templates produced — the DB stores only the peppered hash, so the plaintext is unrecoverable from Mongo. */
+    @org.springframework.boot.test.context.TestConfiguration
+    static class EmailCaptureConfig {
+        @org.springframework.context.annotation.Bean
+        @org.springframework.context.annotation.Primary
+        CapturingEmailSender capturingEmailSender() { return new CapturingEmailSender(); }
+    }
+
+    static class CapturingEmailSender implements com.workoutlogger.email.EmailSender {
+        final java.util.Map<String, String> lastBody = new java.util.concurrent.ConcurrentHashMap<>();
+        final java.util.Map<String, java.util.concurrent.atomic.AtomicInteger> sends = new java.util.concurrent.ConcurrentHashMap<>();
+        public void send(String to, String subject, String body) {
+            lastBody.put(to.toLowerCase(), body);
+            sends.computeIfAbsent(to.toLowerCase(), k -> new java.util.concurrent.atomic.AtomicInteger()).incrementAndGet();
+        }
+        void clear() { lastBody.clear(); sends.clear(); }
+        int sendCountFor(String email) {
+            var c = sends.get(email.trim().toLowerCase());
+            return c == null ? 0 : c.get();
+        }
+        String lastCodeFor(String email) {
+            String b = lastBody.get(email.trim().toLowerCase());
+            if (b == null) return null;
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b(\\d{6})\\b").matcher(b);
+            return m.find() ? m.group(1) : null;
+        }
+    }
 
     @BeforeEach
     void clean() {
         dropRef = mongo;   // capture for the static @AfterAll teardown
-        for (String c : new String[]{"users", "workouts", "exercises", "templates", "splits", "plans"}) {
+        for (String c : new String[]{"users", "workouts", "exercises", "templates", "splits", "plans", "authChallenges"}) {
             mongo.getDb().getCollection(c).deleteMany(new org.bson.Document());
         }
+        emailSender.clear();
     }
 
     @org.junit.jupiter.api.AfterAll
@@ -60,10 +91,18 @@ class ApiIntegrationTest {
         TestDbCleanup.dropIfTestDatabase(dropRef);   // don't leak the run's workoutlogger_* DB (docs/db-situation.md)
     }
 
+    /** Register through the REAL verified-signup flow: request a code, read it off the captured email, verify.
+     *  One choke point, so every call site rides the production two-step path (there is no /register endpoint). */
     private String register(String email) throws Exception {
+        mvc.perform(post("/api/auth/signup/request").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\"}".formatted(email)))
+                .andExpect(status().isAccepted());
+        String code = emailSender.lastCodeFor(email);
+        assertThat(code).as("captured sign-up code for %s", email).isNotNull();
         String body = """
-            {"email":"%s","password":"password123"}""".formatted(email);
-        String res = mvc.perform(post("/api/auth/register")
+            {"email":"%s","code":"%s","password":"password123","confirmPassword":"password123"}"""
+                .formatted(email, code);
+        String res = mvc.perform(post("/api/auth/signup/verify")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
@@ -71,6 +110,165 @@ class ApiIntegrationTest {
     }
 
     private String bearer(String t) { return "Bearer " + t; }
+
+    // ══════════════════ Verified sign-up + JWT revocation (auth council 2026-07-21) ══════════════════
+
+    private void signupRequest(String email) throws Exception {
+        mvc.perform(post("/api/auth/signup/request").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\"}".formatted(email))).andExpect(status().isAccepted());
+    }
+    private org.springframework.test.web.servlet.ResultActions verify(String email, String code, String pw, String confirm) throws Exception {
+        return mvc.perform(post("/api/auth/signup/verify").contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","code":"%s","password":"%s","confirmPassword":"%s"}""".formatted(email, code, pw, confirm)));
+    }
+    private long userCount(String email) {
+        return mongo.getDb().getCollection("users").countDocuments(new org.bson.Document("email", email));
+    }
+
+    // AUTH-1: the old atomic account-creation endpoint is GONE from the HTTP surface (no enumeration oracle).
+    @Test
+    void registerEndpointIsRemoved() throws Exception {
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"x@example.com\",\"password\":\"password123\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    // AUTH-2: /signup/request is enumeration-neutral — identical 202 (empty body) whether or not the email exists.
+    @Test
+    void signupRequestIsEnumerationNeutral() throws Exception {
+        register("taken@example.com");   // now a real account
+        emailSender.clear();             // forget the code sent while creating that account
+        String freshBody = mvc.perform(post("/api/auth/signup/request").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"fresh@example.com\"}"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        String takenBody = mvc.perform(post("/api/auth/signup/request").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"taken@example.com\"}"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        assertThat(takenBody).isEqualTo(freshBody);                          // byte-identical response
+        assertThat(emailSender.lastCodeFor("taken@example.com")).isNull();   // no NEW code emailed to an existing account
+        assertThat(emailSender.lastCodeFor("fresh@example.com")).isNotNull();// a free address does get one
+    }
+
+    // AUTH-3: no half-account — the User doc does NOT exist between request and a successful verify.
+    @Test
+    void noAccountExistsUntilVerify() throws Exception {
+        signupRequest("later@example.com");
+        assertThat(userCount("later@example.com")).isZero();        // requested, not verified ⇒ no user yet
+        String code = emailSender.lastCodeFor("later@example.com");
+        verify("later@example.com", code, "password123", "password123").andExpect(status().isCreated());
+        assertThat(userCount("later@example.com")).isEqualTo(1);
+    }
+
+    // AUTH-4: wrong code creates nothing; a consumed code cannot be replayed.
+    @Test
+    void wrongCodeAndReusedCodeAreRejected() throws Exception {
+        signupRequest("wc@example.com");
+        String code = emailSender.lastCodeFor("wc@example.com");
+        verify("wc@example.com", "000000".equals(code) ? "111111" : "000000", "password123", "password123")
+                .andExpect(status().isBadRequest());
+        assertThat(userCount("wc@example.com")).isZero();
+        verify("wc@example.com", code, "password123", "password123").andExpect(status().isCreated());   // real code works once
+        verify("wc@example.com", code, "password123", "password123").andExpect(status().isBadRequest()); // replay fails
+    }
+
+    // AUTH-5: five wrong attempts lock the challenge — even the correct code is then rejected.
+    @Test
+    void fiveWrongAttemptsLockOutTheCode() throws Exception {
+        signupRequest("lock@example.com");
+        String code = emailSender.lastCodeFor("lock@example.com");
+        String wrong = "000000".equals(code) ? "111111" : "000000";
+        for (int i = 0; i < 5; i++) verify("lock@example.com", wrong, "password123", "password123").andExpect(status().isBadRequest());
+        verify("lock@example.com", code, "password123", "password123").andExpect(status().isBadRequest());  // locked
+        assertThat(userCount("lock@example.com")).isZero();
+    }
+
+    // AUTH-6: the code is stored ONLY as a peppered hash — never the plaintext, never a bare SHA-256.
+    @Test
+    void codeIsStoredPepperedHashedNotPlaintext() throws Exception {
+        signupRequest("hash@example.com");
+        String code = emailSender.lastCodeFor("hash@example.com");
+        org.bson.Document doc = mongo.getDb().getCollection("authChallenges")
+                .find(new org.bson.Document("email", "hash@example.com")).first();
+        assertThat(doc).isNotNull();
+        String stored = doc.getString("codeHash");
+        assertThat(stored).isNotEqualTo(code);                                  // not plaintext
+        assertThat(stored).isNotEqualTo(com.workoutlogger.security.AuthCodes.hash(code, ""));  // peppered, not bare
+        assertThat(stored).isEqualTo(com.workoutlogger.security.AuthCodes.hash(
+                code, "dev-only-auth-pepper-not-for-shared-deploys"));          // the dev pepper is applied
+    }
+
+    // AUTH-7: password confirmation must match, and a repeat /signup/request upserts (never accumulates).
+    @Test
+    void passwordMismatchRejectedAndRepeatRequestUpserts() throws Exception {
+        signupRequest("dup@example.com");
+        signupRequest("dup@example.com");   // second request replaces, doesn't accumulate
+        assertThat(mongo.getDb().getCollection("authChallenges")
+                .countDocuments(new org.bson.Document("email", "dup@example.com"))).isEqualTo(1);
+        String code = emailSender.lastCodeFor("dup@example.com");
+        verify("dup@example.com", code, "password123", "different999").andExpect(status().isBadRequest());  // mismatch
+        assertThat(userCount("dup@example.com")).isZero();
+    }
+
+    // AUTH-9: the 5-attempt lockout holds under CONCURRENCY (atomic $inc claim, not read-modify-write). A burst
+    //         of wrong guesses at a live challenge must exhaust the cap so the CORRECT code is then locked out —
+    //         the review-council TOCTOU: with a lost-update counter, the concurrent misses wouldn't count and
+    //         the correct code would still create an account.
+    @Test
+    void attemptCapHoldsUnderConcurrentVerify() throws Exception {
+        signupRequest("burst@example.com");
+        String code = emailSender.lastCodeFor("burst@example.com");
+        String wrong = "000000".equals(code) ? "111111" : "000000";
+        String wrongBody = """
+            {"email":"burst@example.com","code":"%s","password":"password123","confirmPassword":"password123"}""".formatted(wrong);
+        fireConcurrently(12, () -> mvc.perform(post("/api/auth/signup/verify")
+                .contentType(MediaType.APPLICATION_JSON).content(wrongBody)).andReturn().getResponse().getStatus());
+        // the 12 concurrent misses must have advanced attempts to the cap — the correct code is now locked
+        verify("burst@example.com", code, "password123", "password123").andExpect(status().isBadRequest());
+        assertThat(userCount("burst@example.com")).isZero();
+    }
+
+    // AUTH-10: an expired code is rejected even if correct (expiry enforced, not just N/attempts).
+    @Test
+    void expiredCodeIsRejected() throws Exception {
+        signupRequest("exp@example.com");
+        String code = emailSender.lastCodeFor("exp@example.com");
+        // backdate the challenge's expiry into the past (what the TTL/clock would eventually do)
+        mongo.getDb().getCollection("authChallenges").updateOne(
+                new org.bson.Document("email", "exp@example.com"),
+                new org.bson.Document("$set", new org.bson.Document("expiresAt", java.util.Date.from(
+                        java.time.Instant.now().minusSeconds(60)))));
+        verify("exp@example.com", code, "password123", "password123").andExpect(status().isBadRequest());
+        assertThat(userCount("exp@example.com")).isZero();
+    }
+
+    // AUTH-11: the per-email send cap bounds how many codes are actually emailed per window (atomic counter) —
+    //          extra requests still return a neutral 202 but dispatch no further mail.
+    @Test
+    void perEmailSendCapBoundsEmailsSent() throws Exception {
+        for (int i = 0; i < 8; i++) signupRequest("cap@example.com");   // 8 requests, cap is 5/hour
+        assertThat(emailSender.sendCountFor("cap@example.com")).isEqualTo(5);
+    }
+
+    // AUTH-8: tokenVersion revocation — bumping the user's tokenVersion (as reset/wipe will) 401s an old token,
+    //         and that token can no longer write. Closes the "still-valid token writes under a dead session" hole.
+    @Test
+    void bumpingTokenVersionRevokesOutstandingTokens() throws Exception {
+        String token = register("rev@example.com");
+        String id = json.readTree(mvc.perform(get("/api/me").header("Authorization", bearer(token)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("id").asText();
+        // Simulate what password-reset / wipe will do: bump the stored tokenVersion. (_id is an ObjectId —
+        // Spring persists a 24-hex String @Id as ObjectId — so the filter must convert, not pass the raw string.)
+        mongo.getDb().getCollection("users").updateOne(
+                new org.bson.Document("_id", new org.bson.types.ObjectId(id)),
+                new org.bson.Document("$inc", new org.bson.Document("tokenVersion", 1)));
+        mvc.perform(get("/api/me").header("Authorization", bearer(token))).andExpect(status().isUnauthorized());
+        // and the revoked token cannot create data
+        mvc.perform(post("/api/workouts").header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"2026-06-03T09:00:00Z\",\"exercises\":[]}"))
+                .andExpect(status().isUnauthorized());
+    }
 
     @Test
     void unauthenticatedRequestsAreRejected() throws Exception {
@@ -1191,21 +1389,28 @@ class ApiIntegrationTest {
     // concurrency. The DB-level unique users.email index is the real guard; the friendly pre-check isn't
     // enough. A duplicate would also permanently break login (findByEmail → IncorrectResultSize → 500).
     @Test
-    void concurrentRegisterOfSameEmailCreatesExactlyOneAccount() throws Exception {
-        String body = "{\"email\":\"race@example.com\",\"password\":\"password123\"}";
+    void concurrentSignupVerifyOfSameEmailCreatesExactlyOneAccount() throws Exception {
+        signupRequest("race@example.com");
+        String code = emailSender.lastCodeFor("race@example.com");
+        String verifyBody = """
+            {"email":"race@example.com","code":"%s","password":"password123","confirmPassword":"password123"}"""
+                .formatted(code);
+        // Fire the same valid code concurrently: the unique-email index (+ single-use consume) must let exactly
+        // one through; the losers get a client 4xx (invalid/consumed code or a mapped duplicate-key), never a 500.
         List<Integer> codes = fireConcurrently(12, () ->
-                mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
+                mvc.perform(post("/api/auth/signup/verify").contentType(MediaType.APPLICATION_JSON).content(verifyBody))
                         .andReturn().getResponse().getStatus());
 
         long accounts = mongo.getDb().getCollection("users")
                 .countDocuments(new org.bson.Document("email", "race@example.com"));
         long created = codes.stream().filter(c -> c == 201).count();
         assertThat(accounts).as("exactly one account persisted for the email").isEqualTo(1L);
-        assertThat(created).as("exactly one register returned 201").isEqualTo(1L);
-        assertThat(codes).as("race losers get 409, never 500").allMatch(c -> c == 201 || c == 409);
+        assertThat(created).as("exactly one verify returned 201").isEqualTo(1L);
+        assertThat(codes).as("race losers get a 4xx, never 500").allMatch(c -> c == 201 || (c >= 400 && c < 500));
 
-        // The survivor can still log in — i.e. no duplicate split findByEmail into an IncorrectResultSize 500.
-        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
+        // The survivor can still log in — no duplicate splits findByEmail into an IncorrectResultSize 500.
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"race@example.com\",\"password\":\"password123\"}"))
                 .andExpect(status().isOk());
     }
 

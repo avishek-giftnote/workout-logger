@@ -9,9 +9,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 
 /**
- * Registers the {@link RateLimitFilter} scoped to {@code /api/auth/*} (login + register — a single path
- * segment after {@code /api/auth}) and ordered HIGHEST_PRECEDENCE so it runs before the Spring Security
- * filter chain and sheds abusive load early, before any BCrypt work.
+ * Registers the {@link RateLimitFilter} scoped to {@code /api/auth/*} and ordered HIGHEST_PRECEDENCE so it
+ * runs before the Spring Security filter chain and sheds abusive load early, before any BCrypt work. The
+ * Servlet {@code /api/auth/*} pattern matches the WHOLE subtree at any depth (login, signup/request,
+ * signup/verify, …), not just a single segment — a per-email cap in AuthService backstops distributed abuse
+ * the per-IP limiter can't see.
  */
 @Configuration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)

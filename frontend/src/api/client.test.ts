@@ -25,9 +25,9 @@ describe("api client — auth error messages", () => {
     expect(tokenStore.get()).toBe("existing");                   // a failed login must NOT clear the token
   });
 
-  it("a 401 on register surfaces as a credentials error too", async () => {
+  it("a 401 on a sign-up call surfaces as a credentials error too (not a session expiry)", async () => {
     mockFetch(401, {});
-    await expect(Api.register("a@b.com", "pw"))
+    await expect(Api.signupVerify("a@b.com", "000000", "password123", "password123"))
       .rejects.toMatchObject({ message: "Incorrect email or password." });
   });
 
@@ -39,10 +39,10 @@ describe("api client — auth error messages", () => {
     expect(tokenStore.get()).toBeNull();                         // stale token cleared
   });
 
-  it("surfaces the server's message for a non-401 error (e.g. duplicate email on register)", async () => {
-    mockFetch(409, { message: "Email already registered" });
-    await expect(Api.register("a@b.com", "pw"))
-      .rejects.toMatchObject({ status: 409, message: "Email already registered" });
+  it("surfaces the server's message for a non-401 error (e.g. a bad sign-up code)", async () => {
+    mockFetch(400, { message: "Invalid or expired code" });
+    await expect(Api.signupVerify("a@b.com", "000000", "password123", "password123"))
+      .rejects.toMatchObject({ status: 400, message: "Invalid or expired code" });
   });
 });
 

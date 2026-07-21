@@ -27,10 +27,16 @@ public class User {
     private Map<String, String> settings = new HashMap<>();   // device-synced UI prefs (local-first; cloud sync premium)
     private long settingsUpdatedAt;                   // epoch millis of the last settings write (for last-write-wins)
     private int schemaVersion = 1;
+    /** Bumped to revoke every outstanding token (password reset, account wipe). Embedded as the JWT 'tv'
+     *  claim and checked at auth time; a token whose tv != this is rejected. Additive, default 0. */
+    private int tokenVersion = 0;
     private Instant createdAt;
     private Instant updatedAt;
 
     public User() {}
+
+    public int getTokenVersion() { return tokenVersion; }
+    public void setTokenVersion(int tokenVersion) { this.tokenVersion = tokenVersion; }
 
     public Profile getProfile() { return profile; }
     public void setProfile(Profile profile) { this.profile = profile; }

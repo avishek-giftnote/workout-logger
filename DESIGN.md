@@ -228,6 +228,36 @@ available in-browser via `@sqlite.org/sqlite-wasm` over the OPFS `opfs-sahpool` 
   offline-first re-architecture, which uses the §8 sync hooks (`updatedAt`/`deletedAt` tombstones/`version`)
   with a delta-read + outbox, and warrants a council review.
 
+### 6b. Authentication — verified sign-up + JWT revocation (council-ratified, audit-hardened) — ✅ shipped
+
+Sign-up is **two steps, email-verified** (the atomic `POST /api/auth/register` is gone — it leaked email
+enumeration and skipped verification). Sequence in **`docs/DIAGRAMS.md` #16**; council decision in the
+`auth-system-council-2026-07` memory. NOT medical data; secrets are env-only.
+
+- **Flow.** `POST /api/auth/signup/request {email}` → if the email is free, mint a 6-digit code and email it;
+  **always replies with an identical neutral 202** (no enumeration). `POST /api/auth/signup/verify {email, code,
+  password, confirmPassword}` → the **only** place a `User` is created (no half-account ever persists), then seeds
+  the 84-exercise catalog and returns a JWT. `AuthController` is thin; logic in `web/auth/AuthService`.
+- **`authChallenges` collection** (one per `{email, purpose}`, unique + TTL indexed): the secret is stored only as
+  `codeHash = SHA-256(code + AUTH_TOKEN_PEPPER)` — the **pepper** defends the low-entropy 10⁶ code space from
+  offline precomputation off a DB dump (prod fail-fast if unset, mirroring the JWT M7 guard). 15-min expiry,
+  5-attempt lockout, single-use consume, per-email send cap. **Every mutation is a single atomic `findAndModify`**
+  — never a read-modify-write `save()` (audit M3): the review council proved a concurrent-verify TOCTOU on a
+  non-atomic counter bypasses the lockout, so the attempt claim (`$inc` gated on `attempts < max`) and the
+  send-cap increment are atomic. Correctness (expiry/single-use/cap) is code-enforced; indexes are hygiene.
+- **`EmailSender` seam** (`email/`): `LoggingEmailSender` (dev default, `@Profile("!prod")` so the code-logging
+  stub can never be the prod binding), `FileEmailSender` (E2E outbox, `email.sender=file`), `CapturingEmailSender`
+  (test bean). **Real provider wiring is a documented follow-up** — flows are fully built + testable, delivery stubbed.
+- **JWT revocation via `tokenVersion`** (additive `int` on `User`, default 0, embedded as the `tv` claim).
+  `JwtAuthenticationFilter` re-checks `tv` against the user's current `tokenVersion` on every authed request (one
+  indexed `_id` projection lookup — NOT in the hot `Tenant.userId()` path), rejecting stale tokens and wiped users.
+  `JwtService.issue(userId, tv, expiryMins)` supports variable lifetimes (the remember-me plumbing). Login runs
+  **constant-time BCrypt** (a dummy hash when the email is unknown) so it isn't a timing enumeration oracle.
+- **Deferred follow-up slices** (priority order): (5) password reset / "Retake ownership" (link-based; needs the
+  App.tsx unauthenticated route for the link landing), (6) remember-me (30d/24h expiry split + localStorage/session),
+  (7) account wipe (hard-delete, LAST — bumps `tokenVersion`; ship only with its full `WipeIntegrationTest`).
+  Guards: `AUTH-1..11` in `ApiIntegrationTest` + `AuthCodesTest` + `JwtServiceTest`.
+
 ## 7. Coaching engine — periodization + prescription + energy (Layers 4–5)
 
 Added after v5. Authoritative spec: **`docs/coach.md`**; behaviour in **`docs/DIAGRAMS.md`** (class diagram #12,

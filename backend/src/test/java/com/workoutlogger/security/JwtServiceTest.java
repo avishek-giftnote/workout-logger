@@ -69,4 +69,44 @@ class JwtServiceTest {
         assertThat(strong.getBytes().length).isGreaterThanOrEqualTo(32);
         assertThatCode(() -> new JwtService(props(strong), env("prod"))).doesNotThrowAnyException();
     }
+
+    // ── tokenVersion (revocation) claim round-trips, and legacy tokens (no 'tv') default to version 0. ──
+    @Test
+    void carriesTokenVersionClaim() {
+        JwtService jwt = service();
+        JwtService.VerifiedToken v = jwt.verify(jwt.issue("u1", 7));
+        assertThat(v.userId()).isEqualTo("u1");
+        assertThat(v.tokenVersion()).isEqualTo(7);
+    }
+
+    @Test
+    void legacyTokenWithNoTvClaimDefaultsToVersionZero() {
+        // A token minted BEFORE the 'tv' claim existed: sign one with the same key but omit the claim entirely,
+        // so verify() must exercise the `tv == null ? 0` coalescing branch (not a token that carries tv:0).
+        String secret = "a-fixed-32byte-plus-hs256-signing-secret-for-tests";   // pragma: allowlist secret
+        JwtService jwt = new JwtService(props(secret), env());
+        javax.crypto.SecretKey key = io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                secret.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String legacy = io.jsonwebtoken.Jwts.builder().subject("u1").signWith(key).compact();   // NO tv claim
+        JwtService.VerifiedToken v = jwt.verify(legacy);
+        assertThat(v.userId()).isEqualTo("u1");
+        assertThat(v.tokenVersion()).isEqualTo(0);
+    }
+
+    // ── variable expiry: a longer lifetime yields a strictly later exp than a short one (remember-me plumbing). ──
+    @Test
+    void variableExpiryPushesExpiryOut() {
+        JwtService jwt = service();
+        java.util.Date shortExp = expiryOf(jwt.issue("u1", 0, 60));            // 1 hour
+        java.util.Date longExp = expiryOf(jwt.issue("u1", 0, 60 * 24 * 30));   // 30 days
+        assertThat(longExp).isAfter(shortExp);
+    }
+
+    private static java.util.Date expiryOf(String token) {
+        // decode the JWT payload without verifying (test-only inspection)
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(token.split("\\.")[1]),
+                java.nio.charset.StandardCharsets.UTF_8);
+        long exp = Long.parseLong(payload.replaceAll(".*\"exp\":(\\d+).*", "$1"));
+        return new java.util.Date(exp * 1000);
+    }
 }

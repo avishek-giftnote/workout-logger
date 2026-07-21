@@ -13,6 +13,19 @@ _Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained in
 
 ## Pending decisions (needs Avishek)
 
+- **Hosted MCP + OAuth — design ratified 2026-07-21, awaiting sign-off before code** (`docs/mcp-hosting.md`
+  is authoritative; council of 5). Shape: 2nd Nixpacks Railway service rooted at `mcp/`, private networking,
+  Streamable HTTP stateless OAuth 2.1 Resource Server; **Spring Authorization Server in-process** in the
+  backend, RS256/JWKS, `sub`=`User._id`, 3 additive Mongo collections. One real dissent (Fork 1): 4 said
+  dual-accept, Security said migrate → **synthesized to a single RS256 validator** with first-party
+  `/auth/login` minting RS256 via the AS key (SPA UX untouched). **Two block-ship gates:** G1 every validator
+  funnels through the live `tokenVersion` check; G2 the MCP identity seam proven per-request (concurrency
+  test) before retiring `resolveLocalToken`. **4 decisions LOCKED 2026-07-21** (doc §Decisions locked):
+  (1) synthesized single-validator RS256, (2) `workout:read/write` + a destructive scope, (3) branded consent
+  page (we own its session hardening), (4) Railway hostname for launch (recorded issuer one-way-door). Ready
+  for **Phase 0** (reversible transport scaffold, no infra/auth); Railway service creation held for explicit
+  go. Nothing built yet. See memory `mcp-hosting-council`.
+
 - **Database situation — RESOLVED 2026-07-07** (`docs/db-situation.md` is authoritative). Root cause was
   DB-lifecycle hygiene, not the schema: per-run `workoutlogger_*` test DBs were never dropped (16 DBs on one
   cluster, all synthetic). Fixed — test-DB teardown wired (`TestDbCleanup` + e2e `global-teardown.ts`, both
@@ -63,6 +76,56 @@ _Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained in
   **Decided 2026-06-30: partial-unique index** (`plans {userId}|status=ACTIVE`), built at boot. See Done.
 
 ## Done
+
+- _2026-07-21_ — **Verified sign-up + JWT revocation hardening (`/autopilot`, council-decided, slice 1 of the auth
+  overhaul).** Replaced the atomic `POST /api/auth/register` (email+password → token) with a two-step, email-verified
+  flow and hardened the session model. A 5-lens council (systems-architect · security-engineer · backend ·
+  data-modeler · frontend) decided the architecture; a 5-lens review council then adversarially broke it.
+  **Shipped:** an `EmailSender` seam (`LoggingEmailSender` dev default `@Profile("!prod")`, `FileEmailSender` for
+  E2E, `CapturingEmailSender` test bean — real delivery is a documented follow-up, stubbed this iteration);
+  `POST /auth/signup/request` (enumeration-neutral 202) + `/signup/verify` (creates account + JWT); `/register`
+  removed. An `authChallenges` collection (one per {email,purpose}, **all mutations atomic `findAndModify`** — no
+  read-modify-write): `codeHash = SHA-256(code + AUTH_TOKEN_PEPPER)` (pepper prod-fail-fast), 15-min expiry,
+  atomic 5-attempt lockout, single-use consume, atomic per-email send cap. JWT `tokenVersion` (additive, `tv`
+  claim) checked once/request in `JwtAuthenticationFilter` — revokes stale tokens + wiped users. Login now runs
+  constant-time BCrypt (no enumeration timing oracle). Frontend: `LoginPage` 3-step (email → code + password×2),
+  202 empty-body client fix. The ~91 `ApiIntegrationTest.register()` calls migrated by rewriting ONE helper
+  (request → read code off the capture → verify). **Guards:** AUTH-1..11 (incl. a concurrent-lockout test that
+  fails on the old TOCTOU counter) + `AuthCodesTest` + JWT tv/legacy-token tests. **Review council caught + fixed:**
+  the attempt-cap + send-cap TOCTOU (M3 read-modify-write → atomic), login timing oracle, pepper prod guard,
+  code-logging-in-prod, create-before-consume ordering, missing expiry/legacy-token/send-cap guards, stale UI
+  field. Backend pure 162 + Atlas ApiIntegrationTest 92 + frontend typecheck/139/build + e2e (16 pass/3 pre-existing
+  flaky in `logSet`) all green; full signup verified live in the browser. Council decision in
+  [[auth-system-council-2026-07]] (auto-memory). **Sign-out already existed.**
+  - _Deferred (logged) follow-up slices, priority order:_ **(5) password reset / "Retake ownership"** — needs
+    App.tsx unauthenticated `<Routes>` for the `/reset-password?token=` link landing; **(6) remember-me** (30d/24h
+    variable JWT expiry + localStorage/sessionStorage — the `JwtService.issue(userId,tv,expiryMins)` overload is
+    already built); **(7) account wipe** (hard-delete, LAST — highest blast radius; ship only with its full
+    WipeIntegrationTest across all 6 collections + ordering-under-partial-failure). Also deferred: real email-provider
+    wiring, and the low-severity `requestSignup` wall-clock timing residual (existing-vs-free path does different
+    work — a weak enumeration side-channel; fully closing it needs async dispatch, coupled to real-delivery wiring).
+
+- _2026-07-21_ — **Local stdio MCP server (`mcp/`) — single-user preview that transforms into the remote
+  tenant-scoped one by a plumbing swap.** New TypeScript module (`@modelcontextprotocol/sdk` 1.29, zod), stdio
+  transport, 21 tools over the existing REST API. Three design invariants, decided in the preceding design
+  conversation: **(1) rides the REST API, never Mongo** — tenant isolation inherited for free; **(2) identity is
+  injected** (`resolveLocalToken` → `getToken()` the server closes over; local = login-at-startup or a pasted JWT;
+  remote later swaps to per-request OAuth, tools untouched); **(3) holds no per-user state** → stateless →
+  scalable, load lands on Spring+Mongo which already handle it. Tools: 10 reads (incl. `get_energy_estimate` /
+  `get_active_plan` that surface the deterministic engine rather than letting the LLM freelance training advice),
+  9 writes, 2 destructive (`delete_workout`, `end_plan`, annotated `destructiveHint` so the client confirms).
+  **Guard-first:** weight/loadDelta zod schemas mirror the backend `DECIMAL_PATTERN` exactly — a JS number is
+  rejected before the wire. **Verified end-to-end:** 16 vitest + typecheck + build + stdio tools/list smoke (no
+  backend), **AND a full live round-trip** (`scripts/verify-live.mjs`) against the backend on Atlas — authenticated
+  read (84 seeded exercises), `get_energy_estimate` gated correctly on a fresh account, `log_workout` write,
+  read-back with the **decimal-string invariant holding (`"82.5"` as a string, not a rounded number)**, and
+  `delete_workout` cleanup. Wired into `.mcp.json` as `workout-logger` and into **CI as a new `mcp-gate`**
+  (typecheck·unit·build; no services). Deliberately NOT in the `Dockerfile`/Railway image — it's a local dev tool.
+  Deferred by design: the remote HTTP + OAuth + hosting deployment (the expensive ~60%, gated on real user demand
+  — a plausible paid "bring your own agent" tier). Also added a **"05 · MCP" section to `docs/setup-brief.html`**
+  (the interactive mentor-review brief) and republished the artifact in place. (Verifying meant driving the new email-verification signup flow
+  — the uncommitted `AuthService.java` WIP, see [[auth-system-council-2026-07]] — via the dev `LoggingEmailSender`
+  code in the app log; the frontend `client.ts` still calls the old `/auth/register`, now 404.)
 
 - _2026-07-21_ — **Coach energy model brought up to its designed spec (`/autopilot`, council-decided).** Closed the
   gap between the shipped Layer-2 `EnergyService` and `docs/coach.md`. A deciding council (energy-analyst ·

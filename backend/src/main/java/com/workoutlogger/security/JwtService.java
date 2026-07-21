@@ -45,23 +45,41 @@ public class JwtService {
         this.expiryMinutes = props.getExpiryMinutes();
     }
 
+    /** Back-compat convenience: default expiry, tokenVersion 0. */
     public String issue(String userId) {
+        return issue(userId, 0, expiryMinutes);
+    }
+
+    public String issue(String userId, int tokenVersion) {
+        return issue(userId, tokenVersion, expiryMinutes);
+    }
+
+    /** Issue a token whose subject is the user id, carrying the user's {@code tokenVersion} (revocation
+     *  claim) and a caller-chosen lifetime (remember-me = 30 days vs a short session). */
+    public String issue(String userId, int tokenVersion, long expiryMins) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(userId)
+                .claim("tv", tokenVersion)
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(now.plus(expiryMinutes, ChronoUnit.MINUTES)))
+                .expiration(Date.from(now.plus(expiryMins, ChronoUnit.MINUTES)))
                 .signWith(key)
                 .compact();
     }
 
+    /** The verified subject + tokenVersion of a valid token. */
+    public record VerifiedToken(String userId, int tokenVersion) {}
+
+    /** @return the subject + tokenVersion if the token's signature is valid; throws JwtException otherwise.
+     *  Tokens minted before the {@code tv} claim existed default to version 0. */
+    public VerifiedToken verify(String token) {
+        var claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+        Integer tv = claims.get("tv", Integer.class);
+        return new VerifiedToken(claims.getSubject(), tv == null ? 0 : tv);
+    }
+
     /** @return the user id (subject) if the token is valid; throws JwtException otherwise. */
     public String verifyAndGetUserId(String token) {
-        return Jwts.parser()
-                .verifyWith(key)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload()
-                .getSubject();
+        return verify(token).userId();
     }
 }
