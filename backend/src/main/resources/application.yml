@@ -10,6 +10,14 @@ spring:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017/workoutlogger}
       auto-index-creation: false   # indexes are created explicitly by MongoSchemaInitializer
+  # SMTP for the real EmailSender (EMAIL_SENDER=smtp). host/port/username/password come from
+  # SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD; a JavaMailSender is only autoconfigured when host is set. The TLS
+  # props default to submission-port 587 / STARTTLS (SendGrid/Mailgun/SES/Postmark/Gmail); for port 465 set
+  # SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE=true instead.
+  mail:
+    properties:
+      mail.smtp.auth: ${SPRING_MAIL_SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SPRING_MAIL_SMTP_STARTTLS:true}
 
 security:
   jwt:
@@ -17,6 +25,11 @@ security:
     # key is generated at startup (tokens reset on restart) — fine for local dev only.
     secret: ${SECURITY_JWT_SECRET:}
     expiry-minutes: ${SECURITY_JWT_EXPIRY_MINUTES:10080}
+  auth:
+    # Peppers the low-entropy 6-digit sign-up code hash. Mapped from AUTH_TOKEN_PEPPER explicitly — relaxed
+    # binding alone would look for SECURITY_AUTH_PEPPER. Blank => insecure dev fallback (+ a prod WARN, and a
+    # hard fail-fast when EMAIL_SENDER=smtp). Set AUTH_TOKEN_PEPPER for real verified-sign-up delivery.
+    pepper: ${AUTH_TOKEN_PEPPER:}
   # Per-IP fixed-window rate limit on /api/auth/** (login + register). In-memory, single-instance only;
   # a multi-instance deploy needs a shared store (Redis). See RateLimitFilter / RateLimitProperties.
   ratelimit:
