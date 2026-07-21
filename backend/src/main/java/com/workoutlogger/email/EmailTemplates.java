@@ -18,5 +18,16 @@ public class EmailTemplates {
                         + "If you didn't request this, you can ignore this email.");
     }
 
+    /** Password-recovery ("Retake ownership") code. Short-lived and single-use; a successful reset signs the
+     *  user in and revokes every other session. If unrequested, the note tells them their account is untouched. */
+    public Message recoveryCode(String code) {
+        return new Message("Your Workout Logger recovery code",
+                "Someone asked to reset the password for your Workout Logger account.\n\n"
+                        + "Your recovery code is: " + code + "\n\n"
+                        + "Enter it on the recovery screen to set a new password. It expires in a few minutes.\n"
+                        + "If you didn't request this, you can safely ignore this email — nothing has changed and "
+                        + "your account stays signed in where it already is.");
+    }
+
     public record Message(String subject, String body) {}
 }

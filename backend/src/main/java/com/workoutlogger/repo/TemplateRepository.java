@@ -32,6 +32,11 @@ public class TemplateRepository {
         return mongo.find(q, WorkoutTemplate.class);
     }
 
+    /** Account-wipe cascade: purge ALL of this tenant's templates. */
+    public long deleteAllForTenant() {
+        return mongo.remove(new Query(where("userId").is(tenant.userId())), WorkoutTemplate.class).getDeletedCount();
+    }
+
     public Optional<WorkoutTemplate> findOne(String id) {
         Query q = new Query(where("userId").is(tenant.userId()).and("_id").is(id));
         return Optional.ofNullable(mongo.findOne(q, WorkoutTemplate.class));

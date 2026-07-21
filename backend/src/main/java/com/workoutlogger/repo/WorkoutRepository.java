@@ -36,6 +36,12 @@ public class WorkoutRepository {
         return new Query(where("userId").is(tenant.userId()).and("deletedAt").is(null));
     }
 
+    /** Account-wipe cascade: purge ALL of this tenant's sessions. Deliberately a BARE userId scope (NOT
+     *  owned(), which ANDs deletedAt:null) so soft-deleted rows are purged too — no PII remnant survives. */
+    public long deleteAllForTenant() {
+        return mongo.remove(new Query(where("userId").is(tenant.userId())), Workout.class).getDeletedCount();
+    }
+
     public List<Workout> list() {
         return mongo.find(owned().with(Sort.by(Sort.Direction.DESC, "startedAt")), Workout.class);
     }

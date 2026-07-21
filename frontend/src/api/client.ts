@@ -80,9 +80,18 @@ export const Api = {
     api<AuthResponse>("/auth/signup/verify", { method: "POST", body: JSON.stringify({ email, code, password, confirmPassword }) }),
   login: (email: string, password: string) =>
     api<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  // recovery ("Retake ownership") — mirrors sign-up: request a code, then verify it + set a new password.
+  recoverRequest: (email: string) =>
+    api<void>("/auth/recover/request", { method: "POST", body: JSON.stringify({ email }) }),
+  recoverVerify: (email: string, code: string, password: string, confirmPassword: string) =>
+    api<AuthResponse>("/auth/recover/verify", { method: "POST", body: JSON.stringify({ email, code, password, confirmPassword }) }),
 
   // me
   me: () => api<MeDto>("/me"),
+  // "Confirm Account Wipe" — permanently deletes the account + all data (204). The password is re-verified
+  // server-side; the token dies with the account, so the caller signs out on success.
+  deleteAccount: (password: string, confirmPhrase: string) =>
+    api<void>("/me/delete", { method: "POST", body: JSON.stringify({ password, confirmPhrase }) }),
   getSettings: () => api<SettingsDto>("/me/settings"),
   putSettings: (dto: SettingsDto) => api<SettingsDto>("/me/settings", { method: "PUT", body: JSON.stringify(dto) }),
   setBodyweight: (weightKg: string, recordedAt?: string) =>

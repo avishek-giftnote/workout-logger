@@ -1955,4 +1955,298 @@ class ApiIntegrationTest {
         assertThat(current.getStatus()).as("stays ENDED, not resurrected to ACTIVE").isEqualTo("ENDED");
     }
 
+    // ══════════════════ Password recovery + account wipe (auth council 2026-07-21, slices 2) ══════════════════
+
+    private void recoverRequest(String email) throws Exception {
+        mvc.perform(post("/api/auth/recover/request").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\"}".formatted(email))).andExpect(status().isAccepted());
+    }
+    private org.springframework.test.web.servlet.ResultActions recoverVerify(
+            String email, String code, String pw, String confirm) throws Exception {
+        return mvc.perform(post("/api/auth/recover/verify").contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","code":"%s","password":"%s","confirmPassword":"%s"}""".formatted(email, code, pw, confirm)));
+    }
+    private org.springframework.test.web.servlet.ResultActions login(String email, String pw) throws Exception {
+        return mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","password":"%s"}""".formatted(email, pw)));
+    }
+    private String userId(String token) throws Exception {
+        return json.readTree(mvc.perform(get("/api/me").header("Authorization", bearer(token)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("id").asText();
+    }
+    private org.springframework.test.web.servlet.ResultActions deleteAccount(String token, String pw, String phrase)
+            throws Exception {
+        return mvc.perform(post("/api/me/delete").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"password":"%s","confirmPhrase":"%s"}""".formatted(pw, phrase)));
+    }
+    /** Insert a minimal tenant-owned doc that satisfies the collection's $jsonSchema validator (workouts
+     *  requires startedAt; exercises require name + a unique nameKey — see MongoSchemaInitializer). */
+    private org.bson.Document ownedDoc(String collection, String userId) {
+        org.bson.types.ObjectId oid = new org.bson.types.ObjectId();
+        org.bson.Document d = new org.bson.Document("_id", oid).append("userId", userId);
+        if ("workouts".equals(collection)) d.append("startedAt", java.util.Date.from(java.time.Instant.now()));
+        if ("exercises".equals(collection)) d.append("name", "Wipe Seed " + oid).append("nameKey", "wipe seed " + oid);
+        return d;
+    }
+    private void insertOwned(String collection, String userId) {
+        mongo.getDb().getCollection(collection).insertOne(ownedDoc(collection, userId));
+    }
+    private long ownedCount(String collection, String userId) {
+        return mongo.getDb().getCollection(collection).countDocuments(new org.bson.Document("userId", userId));
+    }
+    private long userDocCount(String userId) {
+        return mongo.getDb().getCollection("users").countDocuments(
+                new org.bson.Document("_id", new org.bson.types.ObjectId(userId)));
+    }
+    private long challengeCount(String email) {
+        return mongo.getDb().getCollection("authChallenges").countDocuments(new org.bson.Document("email", email));
+    }
+
+    // RECOVER-1: /recover/request is enumeration-neutral — a byte-identical 202 for known vs unknown emails; a
+    //            code (+ challenge row) is minted ONLY for a real account. Mirror image of signup/request.
+    @Test
+    void recoverRequestIsEnumerationNeutral() throws Exception {
+        register("known@example.com");
+        emailSender.clear();
+        String unknownBody = mvc.perform(post("/api/auth/recover/request").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"nobody@example.com\"}")).andExpect(status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        String knownBody = mvc.perform(post("/api/auth/recover/request").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"known@example.com\"}")).andExpect(status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(unknownBody).isEqualTo(knownBody);                              // identical (both empty) body
+        assertThat(emailSender.lastCodeFor("nobody@example.com")).isNull();        // no code to an unknown address
+        assertThat(emailSender.lastCodeFor("known@example.com")).isNotNull();      // a real account gets one
+        assertThat(challengeCount("nobody@example.com")).isZero();                 // no observable challenge row
+    }
+
+    // RECOVER-2: /recover/request must NEVER mutate the account — requesting a reset for a victim leaves their
+    //            password + tokenVersion untouched, so it can't be used to force-logout or lock anyone out.
+    @Test
+    void recoverRequestDoesNotMutateAccount() throws Exception {
+        String token = register("victim@example.com");
+        recoverRequest("victim@example.com");
+        mvc.perform(get("/api/me").header("Authorization", bearer(token))).andExpect(status().isOk()); // session intact
+        login("victim@example.com", "password123").andExpect(status().isOk());                         // password intact
+    }
+
+    // RECOVER-3: happy path + revocation ordering — reset sets the new password, REVOKES the pre-reset token
+    //            (tokenVersion bumped), and the JWT returned BY verify authenticates (minted at the new tv).
+    @Test
+    void recoverResetsPasswordRevokesOldSessionsAndSignsIn() throws Exception {
+        String oldToken = register("reset@example.com");
+        recoverRequest("reset@example.com");
+        String code = emailSender.lastCodeFor("reset@example.com");
+        String res = recoverVerify("reset@example.com", code, "newpass456", "newpass456")
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String newToken = json.readTree(res).get("token").asText();
+
+        login("reset@example.com", "password123").andExpect(status().isUnauthorized());  // old password dead
+        login("reset@example.com", "newpass456").andExpect(status().isOk());             // new password works
+        mvc.perform(get("/api/me").header("Authorization", bearer(oldToken)))
+                .andExpect(status().isUnauthorized());                                    // pre-reset token revoked
+        mvc.perform(get("/api/me").header("Authorization", bearer(newToken)))
+                .andExpect(status().isOk());                                              // returned token is live
+    }
+
+    // RECOVER-4: the 5-attempt lockout holds on the RESET purpose (proves reset rides the generalized
+    //            claimAttempt(RESET), not a SIGNUP-hardcoded op, and can't be brute-forced past the cap).
+    @Test
+    void recoverAttemptCapLocksTheResetChallenge() throws Exception {
+        register("lockreset@example.com");
+        emailSender.clear();
+        recoverRequest("lockreset@example.com");
+        String code = emailSender.lastCodeFor("lockreset@example.com");
+        String wrong = "000000".equals(code) ? "111111" : "000000";
+        for (int i = 0; i < 5; i++)
+            recoverVerify("lockreset@example.com", wrong, "newpass456", "newpass456").andExpect(status().isBadRequest());
+        recoverVerify("lockreset@example.com", code, "newpass456", "newpass456")
+                .andExpect(status().isBadRequest());   // correct code now locked out
+        login("lockreset@example.com", "newpass456").andExpect(status().isUnauthorized());  // password never changed
+    }
+
+    // RECOVER-5: SIGNUP and RESET codes are NOT interchangeable (purpose is part of the atomic claim match).
+    @Test
+    void signupAndResetCodesAreNotInterchangeable() throws Exception {
+        // a live SIGNUP code cannot satisfy /recover/verify (no RESET challenge exists → generic reject)
+        signupRequest("iso1@example.com");
+        String signupCode = emailSender.lastCodeFor("iso1@example.com");
+        recoverVerify("iso1@example.com", signupCode, "newpass456", "newpass456").andExpect(status().isBadRequest());
+        // a live RESET code cannot satisfy /signup/verify
+        register("iso2@example.com");
+        emailSender.clear();
+        recoverRequest("iso2@example.com");
+        String resetCode = emailSender.lastCodeFor("iso2@example.com");
+        verify("iso2@example.com", resetCode, "password123", "password123").andExpect(status().isBadRequest());
+    }
+
+    // RECOVER-6: password mismatch → 400 (code NOT consumed); a correct code works once then can't be replayed;
+    //            an expired RESET code is rejected even when correct.
+    @Test
+    void recoverCodeMismatchSingleUseAndExpiry() throws Exception {
+        register("su@example.com");
+        emailSender.clear();
+        recoverRequest("su@example.com");
+        String code = emailSender.lastCodeFor("su@example.com");
+        recoverVerify("su@example.com", code, "newpass456", "nope999999").andExpect(status().isBadRequest()); // mismatch
+        recoverVerify("su@example.com", code, "newpass456", "newpass456").andExpect(status().isOk());          // works once
+        recoverVerify("su@example.com", code, "newpass456", "newpass456").andExpect(status().isBadRequest());  // replay dead
+
+        emailSender.clear();
+        recoverRequest("su@example.com");
+        String code2 = emailSender.lastCodeFor("su@example.com");
+        mongo.getDb().getCollection("authChallenges").updateMany(
+                new org.bson.Document("email", "su@example.com").append("purpose", "RESET"),
+                new org.bson.Document("$set", new org.bson.Document("expiresAt",
+                        java.util.Date.from(java.time.Instant.now().minusSeconds(60)))));
+        recoverVerify("su@example.com", code2, "newpass456", "newpass456").andExpect(status().isBadRequest());  // expired
+    }
+
+    // WIPE-7: /me/delete requires the correct password (server-side BCrypt). A wrong password → 403 and NOTHING
+    //         is deleted — the account, its data, and the session all survive.
+    @Test
+    void wipeRequiresCorrectPassword() throws Exception {
+        String token = register("wrongpw@example.com");
+        String uid = userId(token);
+        insertOwned("workouts", uid);
+        deleteAccount(token, "not-the-password", "DELETE").andExpect(status().isForbidden());
+        assertThat(ownedCount("workouts", uid)).isEqualTo(1);                    // data untouched
+        assertThat(userDocCount(uid)).isEqualTo(1);                             // account still exists
+        mvc.perform(get("/api/me").header("Authorization", bearer(token))).andExpect(status().isOk()); // session alive
+    }
+
+    // WIPE-8 (load-bearing): user A's wipe is userId-scoped, never global — every one of user B's collections is
+    //        left intact with unchanged counts and B's token still authenticates.
+    @Test
+    void wipeIsTenantScopedAndLeavesOtherUsersIntact() throws Exception {
+        String tokenA = register("wa@example.com");
+        String tokenB = register("wb@example.com");
+        String a = userId(tokenA), b = userId(tokenB);
+        for (String c : new String[]{"workouts", "templates", "splits", "plans"}) { insertOwned(c, a); insertOwned(c, b); }
+        long[] bBefore = { ownedCount("workouts", b), ownedCount("exercises", b),
+                ownedCount("templates", b), ownedCount("splits", b), ownedCount("plans", b) };
+
+        deleteAccount(tokenA, "password123", "DELETE").andExpect(status().isNoContent());
+
+        assertThat(ownedCount("workouts", b)).isEqualTo(bBefore[0]);
+        assertThat(ownedCount("exercises", b)).isEqualTo(bBefore[1]);   // B's 84 seeded defaults untouched
+        assertThat(ownedCount("templates", b)).isEqualTo(bBefore[2]);
+        assertThat(ownedCount("splits", b)).isEqualTo(bBefore[3]);
+        assertThat(ownedCount("plans", b)).isEqualTo(bBefore[4]);
+        assertThat(userDocCount(b)).isEqualTo(1);
+        mvc.perform(get("/api/me").header("Authorization", bearer(tokenB))).andExpect(status().isOk());
+        // and A is fully gone
+        for (String c : new String[]{"workouts", "exercises", "templates", "splits", "plans"})
+            assertThat(ownedCount(c, a)).as("A's %s purged", c).isZero();
+        assertThat(userDocCount(a)).isZero();
+    }
+
+    // WIPE-9: cascade completeness — seed rows in EVERY tenant collection + a pending recovery challenge, wipe,
+    //         then assert zero across all of them and the user doc gone. Breaks if a new collection is added and
+    //         the cascade is forgotten.
+    @Test
+    void wipeCascadePurgesEveryTenantCollection() throws Exception {
+        String token = register("cascade@example.com");
+        String uid = userId(token);
+        for (String c : new String[]{"workouts", "templates", "splits", "plans"}) insertOwned(c, uid);
+        recoverRequest("cascade@example.com");   // a pending RESET authChallenge (email-keyed)
+        assertThat(ownedCount("exercises", uid)).isGreaterThan(0);   // 84 seeded defaults present pre-wipe
+        assertThat(challengeCount("cascade@example.com")).isEqualTo(1);
+
+        deleteAccount(token, "password123", "DELETE").andExpect(status().isNoContent());
+
+        for (String c : new String[]{"workouts", "exercises", "templates", "splits", "plans"})
+            assertThat(ownedCount(c, uid)).as("%s purged", c).isZero();
+        assertThat(userDocCount(uid)).as("user doc gone").isZero();
+        assertThat(challengeCount("cascade@example.com")).as("authChallenges purged by email").isZero();
+        // Future-proof (review council): sweep EVERY collection in the DB — a new tenant-scoped collection
+        // added later without a deleteAllForTenant() call fails HERE, not silently in prod (the hardcoded list
+        // above would miss it). userId is the tenant key convention, so any userId-keyed remnant is a leak.
+        for (String cName : mongo.getDb().listCollectionNames())
+            assertThat(mongo.getDb().getCollection(cName).countDocuments(new org.bson.Document("userId", uid)))
+                    .as("collection %s retains tenant data after wipe", cName).isZero();
+    }
+
+    // WIPE-13: confirmPhrase is UI-friction ONLY — the server ignores its value. A correct password with a
+    //          blank/garbage phrase still wipes (the typed phrase is never a server-side control).
+    @Test
+    void wipeIgnoresConfirmPhraseServerSide() throws Exception {
+        String token = register("phrase@example.com");
+        String uid = userId(token);
+        deleteAccount(token, "password123", "not-the-phrase").andExpect(status().isNoContent());
+        assertThat(userDocCount(uid)).isZero();
+    }
+
+    // WIPE-14: /api/me/delete is NOT public — an unauthenticated request is rejected before any delete.
+    @Test
+    void wipeRequiresAuthentication() throws Exception {
+        mvc.perform(post("/api/me/delete").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"password\":\"password123\",\"confirmPhrase\":\"DELETE\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // RECOVER-7: concurrency safety — a burst of correct-code /recover/verify must not corrupt the account
+    //            (no lost update / no 500). At least one reset commits: the new password logs in, the old dies.
+    //            (The benign tv double-bump self-race — a racing caller's own token going stale — is an accepted,
+    //            documented residual; what MUST hold is that account state stays consistent.)
+    @Test
+    void recoverConcurrentVerifyDoesNotCorruptAccount() throws Exception {
+        register("conc@example.com");
+        emailSender.clear();
+        recoverRequest("conc@example.com");
+        String code = emailSender.lastCodeFor("conc@example.com");
+        String body = """
+            {"email":"conc@example.com","code":"%s","password":"newpass456","confirmPassword":"newpass456"}""".formatted(code);
+        List<Integer> statuses = fireConcurrently(3, () -> mvc.perform(post("/api/auth/recover/verify")
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse().getStatus());
+        assertThat(statuses).doesNotContain(500);                       // no server error under concurrency
+        assertThat(statuses).contains(200);                            // at least one reset committed
+        login("conc@example.com", "newpass456").andExpect(status().isOk());          // new password works
+        login("conc@example.com", "password123").andExpect(status().isUnauthorized());  // old password dead
+    }
+
+    // WIPE-10: the cascade sweeps SOFT-DELETED rows too (bare userId query, not owned()'s deletedAt:null) — a
+    //          workout/exercise with deletedAt set must not survive as a PII remnant.
+    @Test
+    void wipeSweepsSoftDeletedRows() throws Exception {
+        String token = register("soft@example.com");
+        String uid = userId(token);
+        for (String c : new String[]{"workouts", "exercises"}) {
+            mongo.getDb().getCollection(c).insertOne(
+                    ownedDoc(c, uid).append("deletedAt", java.util.Date.from(java.time.Instant.now())));
+        }
+        deleteAccount(token, "password123", "DELETE").andExpect(status().isNoContent());
+        assertThat(ownedCount("workouts", uid)).isZero();
+        assertThat(ownedCount("exercises", uid)).isZero();   // includes the soft-deleted seed
+    }
+
+    // WIPE-11: token death — a correct-password wipe returns 204, then the SAME token 401s (the user doc, and
+    //          thus its tokenVersion, is gone: the filter's per-request lookup returns empty).
+    @Test
+    void wipeKillsTheToken() throws Exception {
+        String token = register("death@example.com");
+        deleteAccount(token, "password123", "DELETE").andExpect(status().isNoContent());
+        mvc.perform(get("/api/me").header("Authorization", bearer(token))).andExpect(status().isUnauthorized());
+    }
+
+    // WIPE-12: the cascade is idempotent / crash-retry-safe — after a simulated partial purge (some children
+    //          already gone, user doc still alive), re-running completes cleanly with zero orphans left.
+    @Test
+    void wipeIsIdempotentAcrossPartialCrash() throws Exception {
+        String token = register("idem@example.com");
+        String uid = userId(token);
+        for (String c : new String[]{"workouts", "templates", "plans"}) insertOwned(c, uid);
+        // simulate a crash that had already purged workouts before the user doc was reached
+        mongo.getDb().getCollection("workouts").deleteMany(new org.bson.Document("userId", uid));
+        // re-run: user doc alive ⇒ token valid ⇒ the full cascade re-runs over partial data and converges
+        deleteAccount(token, "password123", "DELETE").andExpect(status().isNoContent());
+        for (String c : new String[]{"workouts", "exercises", "templates", "splits", "plans"})
+            assertThat(ownedCount(c, uid)).isZero();
+        assertThat(userDocCount(uid)).isZero();
+    }
+
 }

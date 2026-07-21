@@ -28,6 +28,11 @@ public class SplitRepository {
 
     private Query owned() { return new Query(where("userId").is(tenant.userId())); }
 
+    /** Account-wipe cascade: purge ALL of this tenant's splits. */
+    public long deleteAllForTenant() {
+        return mongo.remove(owned(), Split.class).getDeletedCount();
+    }
+
     public List<Split> list() {
         return mongo.find(owned().with(Sort.by(Sort.Direction.ASC, "name")), Split.class);
     }

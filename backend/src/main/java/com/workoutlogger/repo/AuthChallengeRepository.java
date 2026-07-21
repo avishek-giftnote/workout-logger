@@ -37,13 +37,16 @@ public class AuthChallengeRepository {
     }
 
     /**
-     * Atomically claim ONE verify attempt against a live, unlocked SIGNUP challenge: match {email, purpose,
-     * not expired, attempts &lt; max, code present} and {@code $inc attempts}. Returns the (post-increment) doc
-     * iff a slot was claimed — so N concurrent wrong guesses consume N attempts (bounded at max), never
-     * lost-update to ~1. Empty ⇒ absent / expired / already locked.
+     * Atomically claim ONE verify attempt against a live, unlocked challenge of the given {@code purpose}:
+     * match {email, purpose, not expired, attempts &lt; max, code present} and {@code $inc attempts}. Returns
+     * the (post-increment) doc iff a slot was claimed — so N concurrent wrong guesses consume N attempts
+     * (bounded at max), never lost-update to ~1. Empty ⇒ absent / expired / already locked / wrong purpose.
+     *
+     * <p>Purpose is part of the MATCH, so a live SIGNUP code can never satisfy a RESET verify (or vice
+     * versa) — the two flows share this op but stay isolated by {email, purpose} keying.
      */
-    public Optional<AuthChallenge> claimSignupAttempt(String email, Instant now, int maxAttempts) {
-        Query q = new Query(where("email").is(email).and("purpose").is(Purpose.SIGNUP)
+    public Optional<AuthChallenge> claimAttempt(String email, Purpose purpose, Instant now, int maxAttempts) {
+        Query q = new Query(where("email").is(email).and("purpose").is(purpose)
                 .and("expiresAt").gt(now).and("attempts").lt(maxAttempts).and("codeHash").exists(true));
         return Optional.ofNullable(mongo.findAndModify(q, new Update().inc("attempts", 1),
                 FindAndModifyOptions.options().returnNew(true), AuthChallenge.class));
@@ -70,8 +73,9 @@ public class AuthChallengeRepository {
         return after.getSends();
     }
 
-    /** Atomically set a fresh code on the (already send-counted) challenge, resetting the attempt counter. */
-    public void setSignupCode(String email, Purpose purpose, String codeHash, Instant expiresAt, Instant now) {
+    /** Atomically set a fresh code on the (already send-counted) challenge, resetting the attempt counter.
+     *  Purpose-agnostic — used by both SIGNUP and RESET flows. */
+    public void setCode(String email, Purpose purpose, String codeHash, Instant expiresAt, Instant now) {
         mongo.findAndModify(keyed(email, purpose),
                 new Update().set("codeHash", codeHash).set("expiresAt", expiresAt).set("attempts", 0).set("createdAt", now),
                 FindAndModifyOptions.options().returnNew(true), AuthChallenge.class);
@@ -80,5 +84,11 @@ public class AuthChallengeRepository {
     /** Single-use consume: remove the challenge so a code/token can never be replayed. */
     public void consume(String email, Purpose purpose) {
         mongo.remove(keyed(email, purpose), AuthChallenge.class);
+    }
+
+    /** Purge EVERY challenge (any purpose) for an email — part of the account-wipe cascade, so a stale
+     *  SIGNUP/RESET row can't survive to interfere with a later re-registration of that address. */
+    public void deleteAllForEmail(String email) {
+        mongo.remove(new Query(where("email").is(email)), AuthChallenge.class);
     }
 }
