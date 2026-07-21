@@ -744,23 +744,32 @@ sequenceDiagram
   CC->>CC: render pill/states · PlanPage clamps block phase only at PHASE_HIGH
 ```
 
-### 16. Sequence — registration → default-catalog seeding
+### 16. Sequence — verified sign-up (code) → account + default-catalog seeding
 
 ```mermaid
 sequenceDiagram
   actor U as User
   participant API as Api client
-  participant AC as AuthController
+  participant AS as AuthController / AuthService
+  participant CH as authChallenges
+  participant ES as EmailSender (stub)
   participant UR as UserRepository
   participant DS as DefaultExerciseSeeder
-  participant DB as MongoDB
-  U->>API: register(email, password)
-  API->>AC: POST /api/auth/register
-  AC->>UR: save(new User)
-  AC->>DS: seed(userId)
-  DS->>DS: load default-exercises.json (84 exercises)
-  DS->>DB: insert catalog (muscle map · equipment · laterality · mechanic · loadable)
-  AC-->>U: JWT token (+ a ready-to-use exercise catalog)
+  U->>API: signupRequest(email)
+  API->>AS: POST /api/auth/signup/request
+  AS->>AS: proceed only if email is free (else a neutral no-op)
+  AS->>CH: atomic send-cap bump · store SHA-256(6-digit code + pepper) · 15-min expiry
+  AS->>ES: email the code (dev log · file outbox · real provider TBD)
+  AS-->>U: 202 Accepted (enumeration-neutral · identical body either way)
+  U->>API: signupVerify(email · code · password ×2)
+  API->>AS: POST /api/auth/signup/verify
+  AS->>CH: atomic claim-attempt (unexpired · under the 5-try cap)
+  AS->>AS: constant-time compare code hash
+  AS->>UR: save(new User · tokenVersion 0)
+  AS->>DS: seed(userId) → 84-exercise catalog
+  AS->>CH: consume (single-use · no replay)
+  AS-->>U: JWT (subject=userId · tv claim) + a ready-to-use catalog
+  Note over AS,UR: every authed request re-checks the token's tv vs User.tokenVersion — reset/wipe bump it to revoke
 ```
 
 ### 17. Sequence — plan completion + history

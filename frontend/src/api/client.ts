@@ -68,14 +68,16 @@ async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     } catch { /* non-JSON error */ }
     throw new ApiError(res.status, message, detail);
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204 || res.status === 202) return undefined as T;   // no-content / accepted (e.g. signup/request)
   return res.json() as Promise<T>;
 }
 
 export const Api = {
-  // auth
-  register: (email: string, password: string) =>
-    api<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
+  // auth — verified sign-up is two steps: request a code, then verify it + set a password.
+  signupRequest: (email: string) =>
+    api<void>("/auth/signup/request", { method: "POST", body: JSON.stringify({ email }) }),
+  signupVerify: (email: string, code: string, password: string, confirmPassword: string) =>
+    api<AuthResponse>("/auth/signup/verify", { method: "POST", body: JSON.stringify({ email, code, password, confirmPassword }) }),
   login: (email: string, password: string) =>
     api<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
 

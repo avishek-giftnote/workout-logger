@@ -26,7 +26,18 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
   - Persist: add `-Dspring-boot.run.arguments="--importer.persist=true"` and set `IMPORT_USER_PASSWORD`.
 - Env vars: `MONGODB_URI` (default `mongodb://localhost:27017/workoutlogger`), `SECURITY_JWT_SECRET`
   (blank ⇒ an **ephemeral** key is generated, so tokens reset on restart — set it for stable auth),
+  `AUTH_TOKEN_PEPPER` (peppers the sign-up code hash; blank ⇒ dev fallback, **required under `prod`**),
+  `EMAIL_SENDER` (`log` default / `file` for the E2E outbox — real provider TBD),
   `IMPORT_USER_EMAIL` / `IMPORT_USER_PASSWORD`, `IMPORT_CSV`, `IMPORT_BODYWEIGHT`.
+
+### Auth (verified sign-up + JWT revocation) — see DESIGN.md §6b
+Sign-up is **two-step, email-verified**: `POST /api/auth/signup/request {email}` (enumeration-neutral 202) emails a
+6-digit code; `POST /api/auth/signup/verify {email, code, password, confirmPassword}` is the **only** account-creation
+path (there is **no** `/register`). Codes live in `authChallenges` (peppered `SHA-256`, 15-min expiry, atomic 5-try
+lockout + send cap — all `findAndModify`, never read-modify-write). JWTs carry a `tokenVersion` `tv` claim re-checked
+every request (`JwtAuthenticationFilter`) so reset/wipe can revoke. Email delivery is a **pluggable `EmailSender` seam**
+(`email/`; real provider stubbed). Reset / remember-me / account-wipe are **deferred follow-up slices**. Frontend flow
+is `LoginPage.tsx` (email → code + password ×2); the `ApiIntegrationTest.register()` helper drives the real flow.
 
 ### Frontend (`cd frontend`, Node)
 - `npm install`, then `npm run dev` (`:5173`, dev-proxies `/api` → `:8080`).
@@ -39,12 +50,25 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
 - API types in `src/api/types.ts` are hand-written to match the backend DTOs; regenerate from the live
   contract with `npx openapi-typescript http://localhost:8080/v3/api-docs -o src/api/schema.ts` when they drift.
 
+### MCP server (`cd mcp`, Node/TypeScript) — local stdio, single-user
+Conversational access to a lifter's own data from an LLM client. **Rides the REST API** (tenant isolation
+inherited), **injected identity** (login-at-startup or a pasted JWT), **stateless** — so local→remote is a
+transport+OAuth swap, not a rewrite. See `mcp/README.md` and the `local-mcp-server` memory.
+- `npm install && npm run build`, then set identity in `mcp/.env.local` (`WORKOUT_LOGGER_EMAIL`/`_PASSWORD`
+  or `_TOKEN`; `WORKOUT_LOGGER_API_URL` defaults to `:8080/api`). Registered in `.mcp.json` as `workout-logger`.
+- `npm test` — vitest (request-building, decimal-string guard mirroring `DECIMAL_PATTERN`, identity provider); **no backend**.
+- `npm run smoke` — boots over stdio + lists the 21 tools; **no backend**. Live round-trip: `scripts/verify-live.mjs`
+  (needs a running backend + a token). Tools surface the deterministic engine (`get_energy_estimate`,
+  `get_active_plan`) rather than letting the LLM freelance training advice.
+
 **CI release gate** (`.github/workflows/ci.yml`, runs on every push/PR, no secrets — Mongo is a `mongo:7`
-service container): three jobs — **frontend-gate** (typecheck · unit · eval · build), **backend-gate**
-(`RUN_MONGO_TESTS=1 mvn test` — tenant isolation + the contract + plan/settings round-trips), and **e2e**
-(Playwright over the critical journeys against the built bundle + packaged jar). This is the Tier-1 prod
-gate; load/k6, observability, secrets rotation, Atlas backups, and a security review are separate
-prod-readiness items, not yet built.
+service container): four jobs — **frontend-gate** (typecheck · unit · eval · build), **mcp-gate**
+(typecheck · unit · build for the `mcp/` module — no backend needed), **backend-gate** (`RUN_MONGO_TESTS=1
+mvn test` — tenant isolation + the contract + plan/settings round-trips), and **e2e** (Playwright over the
+critical journeys against the built bundle + packaged jar). This is the Tier-1 prod gate; load/k6,
+observability, secrets rotation, Atlas backups, and a security review are separate prod-readiness items,
+not yet built. (The `mcp/` module is a **local dev tool, not deployed** — it's in CI so it can't rot, but
+deliberately absent from the `Dockerfile`/Railway image.)
 
 There is no MongoDB in this dev image by default; `brew` can't build `mongodb-community` here (Command Line
 Tools too old). Use MongoDB Atlas (set `MONGODB_URI`) or the official precompiled binary.

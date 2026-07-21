@@ -36,6 +36,7 @@ public class MongoSchemaInitializer {
         createIfAbsent(db, existing, "users", null);
         createIfAbsent(db, existing, "splits", null);
         createIfAbsent(db, existing, "plans", null);
+        createIfAbsent(db, existing, "authChallenges", null);
 
         // Indexes (DESIGN §2).
         db.getCollection("workouts").createIndex(
@@ -67,6 +68,16 @@ public class MongoSchemaInitializer {
                 new Document("userId", 1),
                 new IndexOptions().unique(true).name("uniq_user_active_plan")
                         .partialFilterExpression(new Document("status", "ACTIVE")));
+
+        // authChallenges: at most ONE live challenge per {email, purpose} (atomic upsert replaces on
+        // re-request → no accumulation/squat), plus a TTL sweep on expiresAt so spent/abandoned challenges
+        // self-delete. Correctness (expiry, single-use, attempt cap) is code-enforced; these are hygiene.
+        db.getCollection("authChallenges").createIndex(
+                new Document("email", 1).append("purpose", 1),
+                new IndexOptions().unique(true).name("uniq_email_purpose"));
+        db.getCollection("authChallenges").createIndex(
+                new Document("expiresAt", 1),
+                new IndexOptions().name("ttl_expiresAt").expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
     }
 
     private void createIfAbsent(MongoDatabase db, List<String> existing, String name, Document schema) {
