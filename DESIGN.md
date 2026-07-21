@@ -240,14 +240,19 @@ enumeration and skipped verification). Sequence in **`docs/DIAGRAMS.md` #16**; c
   the 84-exercise catalog and returns a JWT. `AuthController` is thin; logic in `web/auth/AuthService`.
 - **`authChallenges` collection** (one per `{email, purpose}`, unique + TTL indexed): the secret is stored only as
   `codeHash = SHA-256(code + AUTH_TOKEN_PEPPER)` — the **pepper** defends the low-entropy 10⁶ code space from
-  offline precomputation off a DB dump (prod fail-fast if unset, mirroring the JWT M7 guard). 15-min expiry,
+  offline precomputation off a DB dump (WARNs under prod if unset today, since the prod build ships the
+  `NoOpEmailSender` and no code is ever delivered; restore the fail-fast when real email + sign-up goes live).
+  15-min expiry,
   5-attempt lockout, single-use consume, per-email send cap. **Every mutation is a single atomic `findAndModify`**
   — never a read-modify-write `save()` (audit M3): the review council proved a concurrent-verify TOCTOU on a
   non-atomic counter bypasses the lockout, so the attempt claim (`$inc` gated on `attempts < max`) and the
   send-cap increment are atomic. Correctness (expiry/single-use/cap) is code-enforced; indexes are hygiene.
 - **`EmailSender` seam** (`email/`): `LoggingEmailSender` (dev default, `@Profile("!prod")` so the code-logging
   stub can never be the prod binding), `FileEmailSender` (E2E outbox, `email.sender=file`), `CapturingEmailSender`
-  (test bean). **Real provider wiring is a documented follow-up** — flows are fully built + testable, delivery stubbed.
+  (test bean), and `NoOpEmailSender` (`@Profile("prod")` — logs a WARN, drops the message, never logs the code;
+  it exists so prod still BOOTS, since with no `EmailSender` bean the context fails to start — that broke the
+  Railway deploy). **Real provider wiring is a documented follow-up** — flows are built + testable, delivery
+  stubbed, and prod verified-sign-up cannot deliver codes until a real provider replaces the NoOp.
 - **JWT revocation via `tokenVersion`** (additive `int` on `User`, default 0, embedded as the `tv` claim).
   `JwtAuthenticationFilter` re-checks `tv` against the user's current `tokenVersion` on every authed request (one
   indexed `_id` projection lookup — NOT in the hot `Tenant.userId()` path), rejecting stale tokens and wiped users.
