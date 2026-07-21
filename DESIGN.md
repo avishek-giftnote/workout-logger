@@ -247,12 +247,15 @@ enumeration and skipped verification). Sequence in **`docs/DIAGRAMS.md` #16**; c
   — never a read-modify-write `save()` (audit M3): the review council proved a concurrent-verify TOCTOU on a
   non-atomic counter bypasses the lockout, so the attempt claim (`$inc` gated on `attempts < max`) and the
   send-cap increment are atomic. Correctness (expiry/single-use/cap) is code-enforced; indexes are hygiene.
-- **`EmailSender` seam** (`email/`): `LoggingEmailSender` (dev default, `@Profile("!prod")` so the code-logging
-  stub can never be the prod binding), `FileEmailSender` (E2E outbox, `email.sender=file`), `CapturingEmailSender`
-  (test bean), and `NoOpEmailSender` (`@Profile("prod")` — logs a WARN, drops the message, never logs the code;
-  it exists so prod still BOOTS, since with no `EmailSender` bean the context fails to start — that broke the
-  Railway deploy). **Real provider wiring is a documented follow-up** — flows are built + testable, delivery
-  stubbed, and prod verified-sign-up cannot deliver codes until a real provider replaces the NoOp.
+- **`EmailSender` seam** (`email/`), selected by `email.sender`: **`SmtpEmailSender`** (`email.sender=smtp`, real
+  delivery over Spring `JavaMailSender` — provider-agnostic: point `spring.mail.*` at SendGrid/Mailgun/SES/…),
+  `LoggingEmailSender` (dev default `log`, `@Profile("!prod")` so the code-logging stub can't be a prod binding),
+  `FileEmailSender` (E2E outbox, `file`), `CapturingEmailSender` (test bean), and `NoOpEmailSender` (`@Profile("prod")`
+  + `email.sender=noop|unset` — logs a WARN, drops the message, never logs the code; it's the prod fallback so the
+  app BOOTS when no SMTP is configured, since no `EmailSender` bean at all crashes startup — that broke the Railway
+  deploy). `AuthSecurityValidator` **fail-fasts on a blank `AUTH_TOKEN_PEPPER` only when `email.sender=smtp`** (real
+  codes are delivered), and WARNs otherwise. Prod verified-sign-up delivers real codes once `email.sender=smtp` +
+  `spring.mail.*` + `AUTH_TOKEN_PEPPER` are set.
 - **JWT revocation via `tokenVersion`** (additive `int` on `User`, default 0, embedded as the `tv` claim).
   `JwtAuthenticationFilter` re-checks `tv` against the user's current `tokenVersion` on every authed request (one
   indexed `_id` projection lookup — NOT in the hot `Tenant.userId()` path), rejecting stale tokens and wiped users.
