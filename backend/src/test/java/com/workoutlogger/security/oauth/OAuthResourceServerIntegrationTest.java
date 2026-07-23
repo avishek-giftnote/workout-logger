@@ -44,9 +44,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
-        "spring.data.mongodb.uri=${MONGODB_TEST_URI:mongodb://localhost:27017/workoutlogger_oauthrs}"})
+        "spring.data.mongodb.uri=${MONGODB_TEST_URI:mongodb://localhost:27017/workoutlogger_oauthrs}",
+        // Pin the legacy HS256 secret so the Phase-3 cutover guard below can mint a token that the
+        // Phase-2 dual-decode filter genuinely accepted (otherwise the app uses an ephemeral key and the
+        // guard would pass for the wrong reason).
+        "security.jwt.secret=" + OAuthResourceServerIntegrationTest.LEGACY_HS256_SECRET})
 @EnabledIfEnvironmentVariable(named = "RUN_MONGO_TESTS", matches = "1")
 class OAuthResourceServerIntegrationTest {
+
+    /** >= 32 bytes, as HS256 requires. Legacy only: nothing signs with this after the Phase-3 cutover. */
+    static final String LEGACY_HS256_SECRET =
+            "legacy-hs256-secret-for-the-cutover-guard-only";   // pragma: allowlist secret
 
     @Autowired MockMvc mvc;
     @Autowired MongoTemplate mongo;
@@ -116,6 +124,29 @@ class OAuthResourceServerIntegrationTest {
     @Test
     void rejectsGarbageBearerToken() throws Exception {
         mvc.perform(get("/api/workouts").header("Authorization", "Bearer not.a.jwt"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * PHASE-3 CUTOVER GUARD: /api accepts RS256 and NOTHING ELSE. An HS256 token signed with the legacy
+     * first-party secret was valid during the Phase-2 dual-accept window; once the HS256 branch is removed
+     * the same token must be rejected, leaving one validator. Minted with jjwt directly rather than through
+     * a bean, so the guard outlives {@code JwtService}'s deletion.
+     */
+    @Test
+    void rejectsALegacyHs256TokenAfterTheRs256Cutover() throws Exception {
+        javax.crypto.SecretKey key = io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                LEGACY_HS256_SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Instant now = Instant.now();
+        String hs256 = io.jsonwebtoken.Jwts.builder()
+                .subject(userId)
+                .claim("tv", 0)
+                .issuedAt(java.util.Date.from(now))
+                .expiration(java.util.Date.from(now.plus(10, ChronoUnit.MINUTES)))
+                .signWith(key)
+                .compact();
+
+        mvc.perform(get("/api/workouts").header("Authorization", "Bearer " + hs256))
                 .andExpect(status().isUnauthorized());
     }
 }

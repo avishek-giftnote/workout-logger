@@ -68,22 +68,26 @@
             <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
             <version>8.47.0</version>
         </dependency>
+        <!-- jjwt is TEST-ONLY since the Phase-3 RS256 cutover: production signing/verification is entirely
+             Nimbus + Spring Security OAuth2 (see Rs256TokenIssuer / JwtAuthenticationFilter). It survives
+             here solely so the cutover guard can mint a legacy HS256 token and assert /api rejects it. -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
             <version>0.12.6</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-impl</artifactId>
             <version>0.12.6</version>
-            <scope>runtime</scope>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-jackson</artifactId>
             <version>0.12.6</version>
-            <scope>runtime</scope>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

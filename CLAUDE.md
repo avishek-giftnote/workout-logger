@@ -24,14 +24,16 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
 - One-time Strong importer (Spring profile `import`, runs as a non-web CLI then exits):
   - Dry run (parse + assert, **no DB**): `mvn spring-boot:run -Dspring-boot.run.profiles=import`
   - Persist: add `-Dspring-boot.run.arguments="--importer.persist=true"` and set `IMPORT_USER_PASSWORD`.
-- Env vars: `MONGODB_URI` (default `mongodb://localhost:27017/workoutlogger`), `SECURITY_JWT_SECRET`
-  (blank ⇒ an **ephemeral** key is generated, so tokens reset on restart — set it for stable auth),
-  `AUTH_TOKEN_PEPPER` (peppers the sign-up code hash; blank ⇒ dev fallback + a prod WARN — **required (fail-fast)
-  when `EMAIL_SENDER=smtp`**, i.e. real delivery),
-  `EMAIL_SENDER` (`log` dev default · `file` for the E2E outbox · `noop` prod default (boots, no delivery) ·
-  **`smtp` for real delivery** — then also set `SPRING_MAIL_HOST`/`SPRING_MAIL_PORT`/`SPRING_MAIL_USERNAME`/
-  `SPRING_MAIL_PASSWORD` (any SMTP provider — SendGrid/Mailgun/SES/Postmark/…) and `EMAIL_FROM`),
+- Env vars: `MONGODB_URI` (default `mongodb://localhost:27017/workoutlogger`),
+  **`OAUTH_SIGNING_JWK`** (the RSA signing key as JWK JSON — signs BOTH the AS's tokens and the first-party
+  login token since the Phase-3 RS256 cutover; blank ⇒ ephemeral dev key + a WARN, but a **prod fail-fast**,
+  so it MUST be set on Railway or the app refuses to boot),
+  `OAUTH_ISSUER` (public HTTPS issuer, RFC 8414 — never the private `railway.internal` host; blank ⇒ derived
+  per-request, dev only), `OAUTH_API_AUDIENCE` (default `workout-logger-api`; the `aud` every token must name),
+  `SECURITY_JWT_EXPIRY_MINUTES` (first-party token lifetime, default 7 days),
   `IMPORT_USER_EMAIL` / `IMPORT_USER_PASSWORD`, `IMPORT_CSV`, `IMPORT_BODYWEIGHT`.
+  (**Dead:** `SECURITY_JWT_SECRET` — HS256 is gone. Also `AUTH_TOKEN_PEPPER`, `EMAIL_SENDER`, `SPRING_MAIL_*`,
+  `EMAIL_FROM`, removed with the email path in PR #60.)
 
 ### Auth (trivial email + password) — see DESIGN.md §6b
 Auth is deliberately **trivial email + password**, no email verification: `POST /api/auth/register {email, password}`
@@ -41,8 +43,14 @@ outbound SMTP** (ports 25/465/587), so the previous email-verification/recovery 
 `JavaMailSender.send` with no connect timeout → thread-pool exhaustion → whole app unresponsive). The entire email path
 was **reverted 2026-07-23** — `EmailSender`/`AuthService`/`AuthChallenge`/`authChallenges`/verified-signup/recovery are all
 gone; there is no email dependency anywhere. (Actuator's `MailHealthIndicator` is disabled in `application.yml` so a
-leftover mail autoconfig can't re-introduce the hang.) JWTs still carry a `tokenVersion` `tv` claim re-checked every
-request (`JwtAuthenticationFilter`) — inert under trivial auth (nothing bumps it) but retained as the revocation seam.
+leftover mail autoconfig can't re-introduce the hang.)
+**The token itself is an RS256 JWT** since the Phase-3 cutover (2026-07-23): `Rs256TokenIssuer` mints it with the
+**same AS keypair** published at `/oauth2/jwks`, carrying `sub`/`tv`/`aud`/`scope` exactly like an OAuth-issued token,
+so `JwtAuthenticationFilter` runs **one validator** for both (HS256 and `JwtService` are deleted). Two checks apply to
+every token: `aud` must name this API (confused-deputy close) and the `tv` claim must equal the user's stored
+`tokenVersion` (gate G1, the ONE revocation choke point) — `tv` is inert under trivial auth (nothing bumps it; wipe
+deletes the user doc instead) but is retained as the revocation seam. **Known gap:** account deletion is currently the
+only way to revoke a token; a real revocation model is deferred to hosted-MCP Phase 6 (`docs/mcp-hosting.md`).
 **Account wipe** is kept and unchanged: `POST /api/me/delete {password, confirmPhrase}` (server-side BCrypt re-verify → 204;
 cascade = per-repo `deleteAllForTenant()` on bare `userId`, children-first / user-doc-last). Frontend is `LoginPage.tsx`
 (login / register toggle, email + password) + the SettingsSidebar danger-zone wipe modal; the `ApiIntegrationTest.register()`

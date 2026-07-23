@@ -13,9 +13,9 @@ spring:
 
 security:
   jwt:
-    # Provide via SECURITY_JWT_SECRET (>= 32 bytes). No default: blank => an ephemeral random
-    # key is generated at startup (tokens reset on restart) — fine for local dev only.
-    secret: ${SECURITY_JWT_SECRET:}
+    # First-party (SPA) token lifetime. The signing SECRET is gone: since the Phase-3 cutover the
+    # first-party token is RS256, signed by the Authorization Server key (see `oauth.signing-jwk`
+    # below), so SECURITY_JWT_SECRET is dead and ignored if still set.
     expiry-minutes: ${SECURITY_JWT_EXPIRY_MINUTES:10080}
   # Per-IP fixed-window rate limit on /api/auth/** (login + register). In-memory, single-instance only;
   # a multi-instance deploy needs a shared store (Redis). See RateLimitFilter / RateLimitProperties.
@@ -23,6 +23,19 @@ security:
     enabled: ${SECURITY_RATELIMIT_ENABLED:true}
     capacity: ${SECURITY_RATELIMIT_CAPACITY:10}
     window-seconds: ${SECURITY_RATELIMIT_WINDOW_SECONDS:60}
+
+# OAuth 2.1 Authorization Server (in-process) — see docs/mcp-hosting.md.
+oauth:
+  # RSA signing key as JWK JSON, via OAUTH_SIGNING_JWK. Signs BOTH the AS's tokens and the first-party
+  # login token (one keypair, one JWKS, one rotation story). Blank => an ephemeral dev key + a WARN;
+  # under the `prod` profile a blank value is a FAIL-FAST, since a regenerated key would invalidate
+  # every issued token and every client's cached JWKS.
+  signing-jwk: ${OAUTH_SIGNING_JWK:}
+  # Public HTTPS issuer identifier (RFC 8414 — clients validate it externally, so it must never be the
+  # private railway.internal host). Blank => derived per-request, which is fine in dev only.
+  issuer: ${OAUTH_ISSUER:}
+  # The `aud` value every token must name to be accepted by /api (the confused-deputy close).
+  api-audience: ${OAUTH_API_AUDIENCE:workout-logger-api}
 
 # Importer configuration (used when the "import" profile is active).
 importer:

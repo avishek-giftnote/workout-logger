@@ -2,19 +2,19 @@ package com.workoutlogger.security;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-/** Binds {@code security.jwt.*}. The secret MUST be >= 32 bytes for HS256. */
+/**
+ * Binds {@code security.jwt.*} — now only the first-party token lifetime.
+ *
+ * <p>The HMAC secret is gone: since the Phase-3 cutover (docs/mcp-hosting.md) the first-party token is
+ * RS256, signed by the Authorization Server key ({@code OAUTH_SIGNING_JWK}), so there is no second signing
+ * secret. A leftover {@code SECURITY_JWT_SECRET} in the environment is simply ignored.
+ */
 @ConfigurationProperties(prefix = "security.jwt")
 public class JwtProperties {
 
-    /** HMAC signing secret (>= 32 bytes), provided via SECURITY_JWT_SECRET. No committed default:
-     *  if blank, an ephemeral random key is generated at startup (fine for local dev). */
-    private String secret = "";
-
-    /** Token lifetime in minutes. */
+    /** First-party (SPA) token lifetime in minutes. */
     private long expiryMinutes = 60 * 24 * 7;   // 7 days
 
-    public String getSecret() { return secret; }
-    public void setSecret(String secret) { this.secret = secret; }
     public long getExpiryMinutes() { return expiryMinutes; }
     public void setExpiryMinutes(long expiryMinutes) { this.expiryMinutes = expiryMinutes; }
 }

@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Guard for the OAuth signing-key discipline (mirrors JwtServiceTest): dev auto-generates, prod fail-fasts
+ * Guard for the OAuth signing-key discipline: dev auto-generates, prod fail-fasts
  * on a missing key, a provided JWK round-trips, and a public-only JWK is rejected.
  */
 class OAuthKeyProviderTest {

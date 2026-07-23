@@ -3,7 +3,7 @@ package com.workoutlogger.web.auth;
 import com.workoutlogger.domain.User;
 import com.workoutlogger.importer.DefaultExerciseSeeder;
 import com.workoutlogger.repo.UserRepository;
-import com.workoutlogger.security.JwtService;
+import com.workoutlogger.security.Rs256TokenIssuer;
 import com.workoutlogger.web.auth.AuthDtos.*;
 import com.workoutlogger.web.error.ApiExceptions.ConflictException;
 import jakarta.validation.Valid;
@@ -28,10 +28,10 @@ public class AuthController {
 
     private final UserRepository users;
     private final PasswordEncoder encoder;
-    private final JwtService jwt;
+    private final Rs256TokenIssuer jwt;
     private final DefaultExerciseSeeder seeder;
 
-    public AuthController(UserRepository users, PasswordEncoder encoder, JwtService jwt, DefaultExerciseSeeder seeder) {
+    public AuthController(UserRepository users, PasswordEncoder encoder, Rs256TokenIssuer jwt, DefaultExerciseSeeder seeder) {
         this.users = users;
         this.encoder = encoder;
         this.jwt = jwt;
