@@ -168,7 +168,7 @@
   <header>
     <div class="brand"><span class="tick"></span> Workout Logger · Setup &amp; Build Console</div>
     <h1>How it's <span class="accent">set up</span>, and how it was <span class="accent">built</span></h1>
-    <p class="dek">How this app is deployed, and how I built it. Each tab takes one piece - the hosting wiring, where the data lives, how errors reach me, and the agentic Claude Code workflow behind all of it. The diagram and the deploy stepper are interactive, so click around.</p>
+    <p class="dek">How this app is deployed, and how I built it. Each tab takes one piece - the hosting wiring, where the data lives, how errors reach me, a new way to talk to the app in plain language, and the agentic Claude Code workflow behind all of it. The diagram and the deploy stepper are interactive, so click around.</p>
     <div class="statusbar">
       <span class="pill live"><span class="dot"></span> LIVE · health <span class="mono">UP</span></span>
       <span class="pill"><span class="mono">Verified 2026-07-16</span></span>
@@ -181,7 +181,8 @@
     <button class="tab" role="tab" id="tab-hosting" aria-controls="p-hosting" aria-selected="false"><span class="idx">02</span> Hosting</button>
     <button class="tab" role="tab" id="tab-data" aria-controls="p-data" aria-selected="false"><span class="idx">03</span> Data &amp; Monitoring</button>
     <button class="tab" role="tab" id="tab-build" aria-controls="p-build" aria-selected="false"><span class="idx">04</span> Build method</button>
-    <button class="tab" role="tab" id="tab-limits" aria-controls="p-limits" aria-selected="false"><span class="idx">05</span> Limitations</button>
+    <button class="tab" role="tab" id="tab-mcp" aria-controls="p-mcp" aria-selected="false"><span class="idx">05</span> MCP</button>
+    <button class="tab" role="tab" id="tab-limits" aria-controls="p-limits" aria-selected="false"><span class="idx">06</span> Limitations</button>
   </nav>
 
   <!-- 01 OVERVIEW -->
@@ -268,7 +269,35 @@
     </div>
   </section>
 
-  <!-- 05 LIMITATIONS -->
+  <!-- 05 MCP -->
+  <section class="panel" id="p-mcp" role="tabpanel" aria-labelledby="tab-mcp" tabindex="0" hidden>
+    <div class="eyebrow">New capability · talk to the app</div>
+    <h2>Log a workout by saying it</h2>
+    <p class="lead">A small local server lets an AI client (Claude Desktop, Claude Code) read and change <em>your</em> workout data in plain language - "log 3×5 bench at 80kg", "how's my squat trending", "am I gaining or cutting". It's a thin layer over the same API the site already uses, so it inherits every guarantee the app already makes. The standard behind it is MCP (Model Context Protocol) - a common way to hand an AI a set of tools.</p>
+
+    <div class="grid three">
+      <div class="card"><span class="tag">rides the API</span><h3>No new data path</h3><p>Every tool calls the same <code>/api</code> the site does, so per-user isolation comes for free. The server never touches the database directly.</p></div>
+      <div class="card"><span class="tag">injected identity</span><h3>Never hardcoded</h3><p>Who a call acts for is passed in, not baked in. Locally that's one sign-in at startup; the hosted version swaps in a per-request token and nothing else changes.</p></div>
+      <div class="card"><span class="tag">holds no state</span><h3>Stateless by design</h3><p>The server forgets you between calls, so scaling it is just running more copies. The real load lands on the API and database, which already handle it.</p></div>
+    </div>
+
+    <div class="principle" style="margin-top:18px;">
+      <p><b>The seam that matters.</b> It's a single-user tool <em>today</em>, built so the multi-user hosted version is a plumbing swap, not a rewrite - change how it's reached, add sign-in, and the 21 tools stay untouched. Local-first pays the cheap part now and defers the expensive hosting and auth work until real users justify it.</p>
+    </div>
+
+    <div class="grid two" style="margin-top:14px;">
+      <div class="card"><span class="tag">today · local</span><h3>Runs on your machine</h3><p>Talks to your own account over a direct link to the process. No hosting, no sign-in server - the whole thing is one command.</p></div>
+      <div class="card info"><span class="tag">later · hosted</span><h3>Every user, their own agent</h3><p>The same tools behind a web address with proper sign-in. A parked, paid next phase - deliberately not built yet, and not in the shipped image.</p></div>
+    </div>
+
+    <div class="setup">
+      <div class="srow"><div class="s-key">trust<small>guardrail</small></div><div class="s-val">For advice, the tools surface the app's own <em>deterministic</em> coaching engine - the energy estimate, the plan - rather than letting the AI invent training numbers. The engine owns the rules; the AI just voices them.</div></div>
+      <div class="srow"><div class="s-key">safety<small>writes</small></div><div class="s-val">Reads, logging and edits are all exposed. The two destructive tools - delete a workout, end a plan - are flagged so the client asks before it runs them.</div></div>
+      <div class="srow"><div class="s-key">verified<small>end to end</small></div><div class="s-val">Proven with a live round-trip: log a set, read it back, confirm the exact-decimal weight survived as text, then clean up. Unit tests run in the build gate. It's a dev tool, so it's deliberately kept out of the deployed container.</div></div>
+    </div>
+  </section>
+
+  <!-- 06 LIMITATIONS -->
   <section class="panel" id="p-limits" role="tabpanel" aria-labelledby="tab-limits" tabindex="0" hidden>
     <div class="eyebrow">Honest limitations in the setup</div>
     <h2>The edges, stated plainly</h2>
@@ -280,12 +309,13 @@
       <div class="limit"><span class="mark">▹</span><p><strong>Minified frontend traces.</strong> Sentry source-map upload is off by choice (turning it on would leak a token into the build), so browser traces aren't fully de-minified yet.</p></div>
       <div class="limit"><span class="mark">▹</span><p><strong>No data-migration path.</strong> A change to the data shape currently means re-importing into a fresh database. That needs a real migration story before there's live user data worth preserving.</p></div>
       <div class="limit"><span class="mark">▹</span><p><strong>Subscription and cloud-sync deferred.</strong> The seam is already in the code, but billing and multi-device sync are a parked next phase, not built.</p></div>
+      <div class="limit"><span class="mark">▹</span><p><strong>Conversational access is local-only.</strong> The MCP server runs on my machine against my own account. The hosted, multi-user version with sign-in is built <em>for</em> but not yet shipped - same reason as above, it waits on real demand.</p></div>
     </div>
   </section>
 
   <footer>
     <span>Workout Logger · setup &amp; build console</span>
-    <span>Prepared for mentor review · 2026-07-16</span>
+    <span>Prepared for mentor review · 2026-07-16 · MCP section added 2026-07-21</span>
   </footer>
 
 </div>

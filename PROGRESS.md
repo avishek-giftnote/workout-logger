@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained interactive deploy/infra brief for mentor review)._
+_Last updated: 2026-07-23 (reverted auth to trivial email + password — prod SMTP-on-Railway outage fix; account wipe kept)._
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -76,6 +76,72 @@ _Last updated: 2026-07-16 (added `docs/setup-brief.html` — a self-contained in
   **Decided 2026-06-30: partial-unique index** (`plans {userId}|status=ACTIVE`), built at boot. See Done.
 
 ## Done
+
+- _2026-07-23_ — **Reverted auth to trivial email + password (prod outage fix).** Production sign-up **and**
+  "Retake ownership" were returning "Server isn't responding" and `/actuator/health` was hanging. Diagnosed
+  from Railway deploy logs (via the Railway MCP/CLI): `MailConnectException … smtp.gmail.com:587 … timeout -1`
+  — **Railway blocks outbound SMTP on non-Pro plans** (confirmed in Railway docs), so the synchronous
+  `JavaMailSender.send` (no connect timeout) blocked the request thread until the OS TCP timeout, exhausting
+  Tomcat's pool → every endpoint (incl. health) hung. Mongo/URI/vars were all fine (verified Atlas reachable;
+  the request reached the email step). Per Avishek's call ("scrap this, revert to the trivial sign in/sign up"),
+  **removed the entire email path** rather than switching to an HTTPS email provider: `register` (email+password →
+  account+JWT, 409 dup) + `login` restored; deleted `AuthService`, the `EmailSender` seam + all senders,
+  `EmailTemplates`, `AuthChallenge`/`authChallenges`, `AuthCodes`, `AuthProperties`, `AuthSecurityValidator`,
+  `UserRepository{Custom,Impl}`, and the verified-signup/recovery endpoints + their tests. **Account wipe kept**
+  (password-gated, no email). Disabled Actuator's `MailHealthIndicator` (`management.health.mail.enabled=false`)
+  so a leftover `SPRING_MAIL_HOST` can't re-hang `/health`. `tokenVersion` revocation seam retained (inert but
+  used by wipe's token-death). Guards: `AUTH-1..3` + `AUTH-3b` + `AUTH-8` + register-TOCTOU concurrency +
+  `WIPE-7..14`; frontend simplified to a login/register email+password toggle. **Adversarial review** (backend
+  agent) caught one MEDIUM — login was minting the JWT at a hardcoded `tv=0` while the kept `JwtAuthenticationFilter`
+  checks `tv == user.tokenVersion`, so any account with `tokenVersion > 0` (an old-reset artifact) would be
+  silently locked out; fixed (`jwt.issue(u.getId(), u.getTokenVersion())`) + guarded (`AUTH-3b`). Deferred
+  hygiene: the dead `spring-boot-starter-mail` dep stays in `pom.xml` (can't edit it without bundling the held
+  OAuth deps; the health-indicator disable already neutralizes its one hazard); DIAGRAMS.md #16 (registration
+  sequence) still shows the old verified flow. See memory `[[auth-recovery-wipe-council]]`.
+  **SHIPPED: PR #60 squash-merged → `main` (`04e64e1`) → Railway auto-deployed (`3415bbcd`, Online). Outage
+  FIXED and verified in prod:** `/actuator/health` 200 (was hanging); `register` 201 in 1.05s, `login` 200 in
+  0.4s, `wipe` 204, login-after-wipe 401 (smoke account cleaned up — no test data left). Railway vars cleaned:
+  removed `EMAIL_SENDER`, `SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD`, `EMAIL_FROM`, `AUTH_TOKEN_PEPPER` (all now
+  dead). CI all-green in isolation before merge.
+
+- _2026-07-21_ — **Auth slice 2: password recovery + account wipe (built, gate + review council in flight).**
+  The two deferred auth follow-ups from the 2026-07-21 auth council, both scoped by a fresh **deciding council**
+  (systems-architect · backend · security · test-user; unanimous, no dissent — see memory
+  `auth-recovery-wipe-council`).
+  - **Password recovery ("Retake ownership"):** `POST /api/auth/recover/request` (enumeration-neutral 202,
+    **never** mutates the account) + `POST /api/auth/recover/verify` (6-digit peppered `Purpose.RESET` code,
+    reusing the signup challenge infra — generalized `claimSignupAttempt`→`claimAttempt(purpose)`). Verify does
+    the password `$set` + `tokenVersion` `$inc` in **one atomic `findAndModify(returnNew)`** (`UserRepository`
+    custom fragment), issues the JWT at the new tv (auto-sign-in) then consumes the code — so the reset revokes
+    every OTHER session while this device stays in. Frontend: LoginPage gains a `recover` mode + "Retake
+    ownership" link.
+  - **Account wipe ("Confirm Account Wipe"):** `POST /api/me/delete {password, confirmPhrase}` → 204.
+    Server-side **BCrypt password re-verify** is the real guard (wrong → 403, nothing deleted); the typed phrase
+    is UI-friction only. Cascade = per-repo `deleteAllForTenant()` (bare `userId`, **no** `deletedAt` filter, so
+    soft-deleted rows go too), children-first, **User doc LAST** (the commit point that 401s every token), plus
+    `authChallenges` by email; idempotent/crash-retry-safe. Rate-limited (`/api/me/delete` added to
+    `RateLimitConfig`). Frontend: SettingsSidebar danger zone → typed-phrase + password modal → `signOut()` on 204.
+  - **Guards:** 12 new `ApiIntegrationTest` cases (RECOVER-1..6 enumeration/non-mutating/revocation-ordering/
+    attempt-cap/purpose-isolation/single-use; WIPE-7..12 wrong-password/tenant-isolation/cascade-completeness/
+    soft-delete-sweep/token-death/idempotency) + 2 Playwright specs (`password-recovery`, `account-wipe`).
+    **Gate GREEN:** backend `RUN_MONGO_TESTS=1 ApiIntegrationTest` **110/110** (Atlas) + `AuthServiceTest` 3/3;
+    frontend typecheck · 139 unit · build; both new E2E specs pass live against the packaged jar + Atlas
+    (`account-wipe` needed the config's 1 retry — the known remote-Atlas `/start`-gate flake in `logSet`, not
+    the wipe logic).
+  - **Adversarial review council (security · backend · eval · test-user):** no CRITICAL/HIGH. Core invariants
+    confirmed clean (stolen-token wipe blocked, no force-logout via /recover/request, verify is not an oracle,
+    cascade scoping + atomic reset correct, all 12 guards real). **Fixed 1 MEDIUM:** email-send failures now
+    swallowed in `requestSignup`/`requestRecovery` — a propagated `MailException` under `smtp` had 500'd a known
+    email vs 202 for unknown (status oracle); guarded by `AuthServiceTest`. **Strengthened** the guards:
+    future-proof whole-DB `userId` sweep in WIPE-9, confirmPhrase-is-UI-only (WIPE-13), no-token→401 (WIPE-14),
+    RESET concurrency (RECOVER-7). **Accepted residuals** (benign, documented): concurrent double-verify tv
+    double-bump (self-inflicted, same-user, UX-only); per-IP rate-limit window shared across /api/auth + /me/delete
+    (availability); residual request-timing delta (known email does 2 extra challenge writes).
+  - **Shipped: PR #59 squash-merged to `main` (`eda0b21`).** CI green in isolation (frontend · backend
+    mvn+Mongo · e2e) — proving the slice stands alone without the still-held OAuth work. The PR deliberately
+    excluded the OAuth/MCP streams + this PROGRESS entry (those stay uncommitted, awaiting their own sign-off).
+  - Partially addresses the **GDPR hard-delete** operational-policy open item (a user-initiated hard delete now
+    exists; retention/tombstone policy for the rest still open).
 
 - _2026-07-21_ — **Real email delivery: `SmtpEmailSender` (unblocks prod verified sign-up).** Provider-agnostic
   SMTP over Spring `JavaMailSender` (`spring-boot-starter-mail`) — point `spring.mail.*` at any SMTP relay

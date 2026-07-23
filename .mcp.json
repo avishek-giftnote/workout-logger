@@ -7,7 +7,7 @@
         "--browser", "chrome",
         "--headless",
         "--isolated",
-        "--allowed-origins", "http://localhost:5173;http://localhost:4173;http://localhost:8080"
+        "--allowed-origins", "http://localhost:5173;http://localhost:4173;http://localhost:8080;https://workout-logger.up.railway.app"
       ]
     },
     "mongodb": {
@@ -25,6 +25,13 @@
       "args": [
         "-c",
         "[ -f ./backend/.env.local ] && . ./backend/.env.local; [ -n \"$RAILWAY_API_TOKEN\" ] && export RAILWAY_API_TOKEN; exec npx -y @railway/cli mcp"
+      ]
+    },
+    "workout-logger": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "[ -f ./mcp/.env.local ] && set -a && . ./mcp/.env.local && set +a; exec node ./mcp/dist/server.js"
       ]
     }
   }
