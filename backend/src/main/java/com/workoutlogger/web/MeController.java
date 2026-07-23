@@ -181,6 +181,6 @@ public class MeController {
         if (u.getPasswordHash() == null || !encoder.matches(req.password(), u.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Incorrect password");
         }
-        wipe.wipeCurrentTenant(u.getEmail());   // email read BEFORE the User doc is deleted (authChallenges purge)
+        wipe.wipeCurrentTenant();
     }
 }

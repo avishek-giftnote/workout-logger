@@ -1,84 +1,71 @@
 package com.workoutlogger.web.auth;
 
 import com.workoutlogger.domain.User;
+import com.workoutlogger.importer.DefaultExerciseSeeder;
 import com.workoutlogger.repo.UserRepository;
 import com.workoutlogger.security.JwtService;
 import com.workoutlogger.web.auth.AuthDtos.*;
+import com.workoutlogger.web.error.ApiExceptions.ConflictException;
 import jakarta.validation.Valid;
+import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.Locale;
 
 /**
- * Public auth surface. Sign-up is TWO steps — {@code /signup/request} emails a code, {@code /signup/verify}
- * consumes it and creates the account (see {@link AuthService}). There is deliberately NO {@code /register}
- * endpoint: atomic account creation would leak email-enumeration (409 "already registered") and bypass
- * verification. The {@code /signup/request} endpoint replies with an identical neutral 202 regardless of
- * whether the email already has an account.
+ * Public auth surface: trivial email + password sign-up and sign-in. {@code /register} creates the account
+ * immediately (no email verification) and returns a JWT; {@code /login} authenticates. Deliberately simple —
+ * the deployment target (Railway, non-Pro) blocks outbound SMTP, so email-based verification/recovery is not
+ * used. Account deletion still lives at {@code POST /api/me/delete} (password-gated, no email).
  */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    private final AuthService auth;
     private final UserRepository users;
     private final PasswordEncoder encoder;
     private final JwtService jwt;
-    /** A real BCrypt hash matched against when the email is unknown, so login spends the same ~100ms of BCrypt
-     *  whether or not the account exists — no timing oracle to enumerate registered emails. */
-    private final String dummyHash;
+    private final DefaultExerciseSeeder seeder;
 
-    public AuthController(AuthService auth, UserRepository users, PasswordEncoder encoder, JwtService jwt) {
-        this.auth = auth;
+    public AuthController(UserRepository users, PasswordEncoder encoder, JwtService jwt, DefaultExerciseSeeder seeder) {
         this.users = users;
         this.encoder = encoder;
         this.jwt = jwt;
-        this.dummyHash = encoder.encode("timing-equalizer-never-a-real-password");
+        this.seeder = seeder;
     }
 
-    /** Step 1: request a sign-up code. Always 202 (enumeration-neutral) — the body reveals nothing. */
-    @PostMapping("/signup/request")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public void signupRequest(@Valid @RequestBody SignupRequestRequest req) {
-        auth.requestSignup(req.email());
-    }
-
-    /** Step 2: verify the code + set the password; creates the account and returns a JWT. */
-    @PostMapping("/signup/verify")
+    @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public AuthResponse signupVerify(@Valid @RequestBody SignupVerifyRequest req) {
-        return auth.verifySignup(req.email(), req.code(), req.password(), req.confirmPassword());
-    }
-
-    /** Recovery step 1: request a recovery code. Always 202 (enumeration-neutral, mirroring signup/request):
-     *  request NEVER mutates the account — only recover/verify does. */
-    @PostMapping("/recover/request")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public void recoverRequest(@Valid @RequestBody RecoverRequestRequest req) {
-        auth.requestRecovery(req.email());
-    }
-
-    /** Recovery step 2: verify the code + set a new password. Resets the password, revokes all OTHER sessions,
-     *  and returns a fresh JWT (auto-sign-in) for this device. */
-    @PostMapping("/recover/verify")
-    public AuthResponse recoverVerify(@Valid @RequestBody RecoverVerifyRequest req) {
-        return auth.verifyRecovery(req.email(), req.code(), req.password(), req.confirmPassword());
+    public AuthResponse register(@Valid @RequestBody RegisterRequest req) {
+        String email = req.email().trim().toLowerCase(Locale.ROOT);
+        if (users.existsByEmail(email)) {
+            throw new ConflictException("Email already registered", null);
+        }
+        Instant now = Instant.now();
+        User u = new User();
+        u.setId(new ObjectId().toHexString());
+        u.setEmail(email);
+        u.setPasswordHash(encoder.encode(req.password()));
+        u.setCreatedAt(now);
+        u.setUpdatedAt(now);
+        users.save(u);
+        seeder.seed(u.getId());   // populate the default exercise catalog
+        return new AuthResponse(jwt.issue(u.getId(), u.getTokenVersion()), u.getId(), u.getEmail());
     }
 
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest req) {
         String email = req.email().trim().toLowerCase(Locale.ROOT);
-        User u = users.findByEmail(email).orElse(null);
-        // Always run BCrypt (against the real hash, or a dummy when the email is unknown) so the timing is
-        // identical whether or not the account exists — closing the login enumeration channel.
-        String hash = (u != null && u.getPasswordHash() != null) ? u.getPasswordHash() : dummyHash;
-        boolean ok = encoder.matches(req.password(), hash) && u != null && u.getPasswordHash() != null;
-        if (!ok) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
-        }
+        User u = users.findByEmail(email)
+                .filter(usr -> usr.getPasswordHash() != null
+                        && encoder.matches(req.password(), usr.getPasswordHash()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+        // Mint at the user's CURRENT tokenVersion — JwtAuthenticationFilter rejects a token whose tv doesn't
+        // match the stored value, so hardcoding 0 would lock out any account with tokenVersion > 0.
         return new AuthResponse(jwt.issue(u.getId(), u.getTokenVersion()), u.getId(), u.getEmail());
     }
 }

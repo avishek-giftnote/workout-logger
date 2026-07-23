@@ -68,23 +68,16 @@ async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     } catch { /* non-JSON error */ }
     throw new ApiError(res.status, message, detail);
   }
-  if (res.status === 204 || res.status === 202) return undefined as T;   // no-content / accepted (e.g. signup/request)
+  if (res.status === 204) return undefined as T;   // no-content (e.g. delete/wipe)
   return res.json() as Promise<T>;
 }
 
 export const Api = {
-  // auth — verified sign-up is two steps: request a code, then verify it + set a password.
-  signupRequest: (email: string) =>
-    api<void>("/auth/signup/request", { method: "POST", body: JSON.stringify({ email }) }),
-  signupVerify: (email: string, code: string, password: string, confirmPassword: string) =>
-    api<AuthResponse>("/auth/signup/verify", { method: "POST", body: JSON.stringify({ email, code, password, confirmPassword }) }),
+  // auth — trivial email + password: register creates the account immediately, login authenticates.
+  register: (email: string, password: string) =>
+    api<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
   login: (email: string, password: string) =>
     api<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  // recovery ("Retake ownership") — mirrors sign-up: request a code, then verify it + set a new password.
-  recoverRequest: (email: string) =>
-    api<void>("/auth/recover/request", { method: "POST", body: JSON.stringify({ email }) }),
-  recoverVerify: (email: string, code: string, password: string, confirmPassword: string) =>
-    api<AuthResponse>("/auth/recover/verify", { method: "POST", body: JSON.stringify({ email, code, password, confirmPassword }) }),
 
   // me
   me: () => api<MeDto>("/me"),

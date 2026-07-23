@@ -35,9 +35,6 @@ export default defineConfig({
             // The auth rate limiter keys by IP; a whole suite of registrations comes from one host, which
             // trips it and 429s later registers (exactly why ApiIntegrationTest disables it). Off for E2E.
             SECURITY_RATELIMIT_ENABLED: "false",
-            // Verified sign-up emails the code; the FileEmailSender writes it to target/email-outbox/<email>.txt
-            // (this process's cwd = frontend/), which the register() helper reads. Double-gated: non-prod + this flag.
-            EMAIL_SENDER: "file",
           },
         },
         {

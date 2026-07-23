@@ -228,61 +228,38 @@ available in-browser via `@sqlite.org/sqlite-wasm` over the OPFS `opfs-sahpool` 
   offline-first re-architecture, which uses the §8 sync hooks (`updatedAt`/`deletedAt` tombstones/`version`)
   with a delta-read + outbox, and warrants a council review.
 
-### 6b. Authentication — verified sign-up + JWT revocation (council-ratified, audit-hardened) — ✅ shipped
+### 6b. Authentication — trivial email + password (reverted from verified sign-up) — ✅ shipped
 
-Sign-up is **two steps, email-verified** (the atomic `POST /api/auth/register` is gone — it leaked email
-enumeration and skipped verification). Sequence in **`docs/DIAGRAMS.md` #16**; council decision in the
-`auth-system-council-2026-07` memory. NOT medical data; secrets are env-only.
+Auth is **trivial email + password, no email verification.** The earlier verified-sign-up + recovery system
+(email codes via `EmailSender`/`authChallenges`) was **reverted 2026-07-23** because the deployment target
+(**Railway, non-Pro plan) blocks outbound SMTP** (ports 25/465/587) — so the synchronous `JavaMailSender.send`
+(with JavaMail's default `timeout -1`) blocked the request thread on a connection that never completes, exhausting
+Tomcat's pool and taking the **whole app** (even `/actuator/health`) unresponsive in production. Removing the email
+dependency resolves the outage and needs no external email provider. NOT medical data; secrets are env-only.
 
-- **Flow.** `POST /api/auth/signup/request {email}` → if the email is free, mint a 6-digit code and email it;
-  **always replies with an identical neutral 202** (no enumeration). `POST /api/auth/signup/verify {email, code,
-  password, confirmPassword}` → the **only** place a `User` is created (no half-account ever persists), then seeds
-  the 84-exercise catalog and returns a JWT. `AuthController` is thin; logic in `web/auth/AuthService`.
-- **`authChallenges` collection** (one per `{email, purpose}`, unique + TTL indexed): the secret is stored only as
-  `codeHash = SHA-256(code + AUTH_TOKEN_PEPPER)` — the **pepper** defends the low-entropy 10⁶ code space from
-  offline precomputation off a DB dump (WARNs under prod if unset today, since the prod build ships the
-  `NoOpEmailSender` and no code is ever delivered; restore the fail-fast when real email + sign-up goes live).
-  15-min expiry,
-  5-attempt lockout, single-use consume, per-email send cap. **Every mutation is a single atomic `findAndModify`**
-  — never a read-modify-write `save()` (audit M3): the review council proved a concurrent-verify TOCTOU on a
-  non-atomic counter bypasses the lockout, so the attempt claim (`$inc` gated on `attempts < max`) and the
-  send-cap increment are atomic. Correctness (expiry/single-use/cap) is code-enforced; indexes are hygiene.
-- **`EmailSender` seam** (`email/`), selected by `email.sender`: **`SmtpEmailSender`** (`email.sender=smtp`, real
-  delivery over Spring `JavaMailSender` — provider-agnostic: point `spring.mail.*` at SendGrid/Mailgun/SES/…),
-  `LoggingEmailSender` (dev default `log`, `@Profile("!prod")` so the code-logging stub can't be a prod binding),
-  `FileEmailSender` (E2E outbox, `file`), `CapturingEmailSender` (test bean), and `NoOpEmailSender` (`@Profile("prod")`
-  + `email.sender=noop|unset` — logs a WARN, drops the message, never logs the code; it's the prod fallback so the
-  app BOOTS when no SMTP is configured, since no `EmailSender` bean at all crashes startup — that broke the Railway
-  deploy). `AuthSecurityValidator` **fail-fasts on a blank `AUTH_TOKEN_PEPPER` only when `email.sender=smtp`** (real
-  codes are delivered), and WARNs otherwise. Prod verified-sign-up delivers real codes once `email.sender=smtp` +
-  `spring.mail.*` + `AUTH_TOKEN_PEPPER` are set.
-- **JWT revocation via `tokenVersion`** (additive `int` on `User`, default 0, embedded as the `tv` claim).
-  `JwtAuthenticationFilter` re-checks `tv` against the user's current `tokenVersion` on every authed request (one
-  indexed `_id` projection lookup — NOT in the hot `Tenant.userId()` path), rejecting stale tokens and wiped users.
-  `JwtService.issue(userId, tv, expiryMins)` supports variable lifetimes (the remember-me plumbing). Login runs
-  **constant-time BCrypt** (a dummy hash when the email is unknown) so it isn't a timing enumeration oracle.
-- **Password recovery ("Retake ownership") — ✅ shipped 2026-07-21** (auth slice 2; deciding council unanimous,
-  see memory `auth-recovery-wipe-council`). `POST /api/auth/recover/{request,verify}` — a 6-digit peppered
-  `AuthChallenge.Purpose.RESET` code (NOT link-based: the project forbids secrets in URL params; reuses the
-  signup UX + the generalized atomic `claimAttempt(email, purpose, …)`). `verify` does `$set passwordHash` +
-  `$inc tokenVersion` in ONE `findAndModify(returnNew)` (`UserRepository` custom fragment `resetPassword`), mints
-  the JWT at the NEW tv (auto-sign-in), then consumes the code — so a reset **revokes every other session** while
-  this device stays in. `request` is enumeration-neutral 202 and **never mutates the account** (only verify does).
-- **Account wipe ("Confirm Account Wipe") — ✅ shipped 2026-07-21.** `POST /api/me/delete {password, confirmPhrase}`
-  → 204. **Server-side BCrypt password re-verify is the guard** (wrong → 403, nothing deleted); the typed phrase is
+- **Flow.** `POST /api/auth/register {email, password}` creates the account immediately (409 Conflict on a
+  duplicate email — the DB-level unique `users.email` index is the real guard behind the friendly pre-check),
+  seeds the 84-exercise catalog, and returns a JWT. `POST /api/auth/login {email, password}` authenticates
+  (401 on bad credentials / unknown email). `AuthController` is thin (no service layer).
+- **Removed entirely:** `AuthService`, the `EmailSender` seam + all senders, `EmailTemplates`, `AuthChallenge` +
+  `authChallenges` collection, `AuthCodes`, `AuthProperties`, `AuthSecurityValidator`, and the verified-signup /
+  recovery endpoints. No code path sends email. `spring-boot-starter-mail` remains only as an unused transitive
+  dep; **Actuator's `MailHealthIndicator` is disabled** (`management.health.mail.enabled=false`) so a leftover
+  mail autoconfig (a set `SPRING_MAIL_HOST`) can't re-introduce the health-check hang.
+- **JWT `tokenVersion`** (additive `int` on `User`, default 0, the `tv` claim) is **retained**: `JwtAuthenticationFilter`
+  re-checks `tv` against the user's current `tokenVersion` every authed request (one indexed `_id` projection lookup),
+  rejecting stale tokens and wiped users. Inert under trivial auth (nothing bumps it), but kept as the revocation seam
+  (and the wiped-user 401 that account-wipe relies on).
+- **Account wipe ("Confirm Account Wipe") — kept, unchanged.** `POST /api/me/delete {password, confirmPhrase}` → 204.
+  **Server-side BCrypt password re-verify is the guard** (wrong → 403, nothing deleted); the typed phrase is
   UI-friction only. Cascade (`AccountWipeService`) = per-repo `deleteAllForTenant()` on **bare `userId`** (NOT
   `owned()` — its `deletedAt:null` filter would strand soft-deleted PII), **children first, User doc LAST** (the
   commit point; standalone Mongo has no multi-doc txn, so the sequence is idempotently crash-retryable while the
-  user doc lives), + authChallenges by email. Token death = the vanished user doc (filter's `findTokenVersionById`
-  → empty → 401); no `tokenVersion` bump needed. Rate-limited (`/api/me/delete` in `RateLimitConfig`).
-- **Enumeration-neutral send (review-council fix):** `requestSignup`/`requestRecovery` **swallow** email-send
-  failures (`sendQuietly`, log-only) — a propagated `MailException` under `email.sender=smtp` had 500'd a known
-  email vs the 202 for an unknown, a status oracle. Enforced at the service layer; `SmtpEmailSender` still
-  propagates to its own caller.
-- **Deferred:** remember-me (30d/24h expiry split; the `JwtService.issue(…, expiryMins)` + `AuthProperties`
-  `rememberMeDays`/`sessionHours` plumbing already exists).
-- Guards: `AUTH-1..11` + `RECOVER-1..7` + `WIPE-7..14` in `ApiIntegrationTest`, `AuthServiceTest` (send-swallow),
-  `AuthCodesTest`, `JwtServiceTest`, and E2E `password-recovery` / `account-wipe` specs.
+  user doc lives). Token death = the vanished user doc (filter's `findTokenVersionById` → empty → 401). Rate-limited.
+- Frontend: `LoginPage.tsx` (login / register toggle, email + password) + the SettingsSidebar danger-zone wipe modal.
+- Guards: `AUTH-1..3` (register creates + returns a working token; duplicate → 409; login only on the right password),
+  `AUTH-8` (tokenVersion revocation), the register-TOCTOU concurrency guard, and `WIPE-7..14` in `ApiIntegrationTest`;
+  `JwtServiceTest`; and E2E `account-wipe`.
 
 ## 7. Coaching engine — periodization + prescription + energy (Layers 4–5)
 

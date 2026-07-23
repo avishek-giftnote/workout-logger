@@ -1,6 +1,5 @@
 package com.workoutlogger.web.auth;
 
-import com.workoutlogger.repo.AuthChallengeRepository;
 import com.workoutlogger.repo.ExerciseRepository;
 import com.workoutlogger.repo.PlanRepository;
 import com.workoutlogger.repo.SplitRepository;
@@ -23,9 +22,8 @@ import org.springframework.stereotype.Service;
  *
  * <p>Each step is a naturally idempotent {@code deleteMany} (a re-run deletes zero), so the whole sequence is
  * crash/retry-safe — no saga or two-phase protocol is needed. Every collection delete is tenant-scoped through
- * its repository; {@code authChallenges} is email-keyed (pre-user, no userId), so the caller passes the email,
- * read from the User doc BEFORE it is deleted. Token death after the wipe is the vanished User doc itself — no
- * tokenVersion bump required.
+ * its repository. Token death after the wipe is the vanished User doc itself — the per-request
+ * {@code findTokenVersionById} returns empty, so any outstanding token 401s; no tokenVersion bump required.
  */
 @Service
 public class AccountWipeService {
@@ -35,37 +33,31 @@ public class AccountWipeService {
     private final TemplateRepository templates;
     private final SplitRepository splits;
     private final PlanRepository plans;
-    private final AuthChallengeRepository challenges;
     private final UserRepository users;
     private final Tenant tenant;
 
     public AccountWipeService(WorkoutRepository workouts, ExerciseRepository exercises,
                               TemplateRepository templates, SplitRepository splits, PlanRepository plans,
-                              AuthChallengeRepository challenges, UserRepository users, Tenant tenant) {
+                              UserRepository users, Tenant tenant) {
         this.workouts = workouts;
         this.exercises = exercises;
         this.templates = templates;
         this.splits = splits;
         this.plans = plans;
-        this.challenges = challenges;
         this.users = users;
         this.tenant = tenant;
     }
 
-    /**
-     * Wipe the current tenant. {@code email} is the account's normalized email, read from the User doc by the
-     * caller before this runs (needed for the email-keyed authChallenges purge). Idempotent.
-     */
-    public void wipeCurrentTenant(String email) {
+    /** Wipe the current tenant: every child collection first, then the User doc LAST (the commit point that
+     *  makes every outstanding token die). Idempotent. */
+    public void wipeCurrentTenant() {
         // 1..5 — tenant-scoped children (bare userId, includes soft-deleted rows).
         workouts.deleteAllForTenant();
         exercises.deleteAllForTenant();
         templates.deleteAllForTenant();
         splits.deleteAllForTenant();
         plans.deleteAllForTenant();
-        // 6 — email-keyed pre-user rows, so no stale SIGNUP/RESET challenge survives a future re-registration.
-        if (email != null) challenges.deleteAllForEmail(email);
-        // 7 — the User doc LAST: the commit point that makes every outstanding token die.
+        // 6 — the User doc LAST: the commit point that makes every outstanding token die.
         users.deleteById(tenant.userId());
     }
 }
