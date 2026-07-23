@@ -1,42 +1,18 @@
 import { expect, type Page } from "@playwright/test";
-import { existsSync, readFileSync } from "node:fs";
 
 export const PASSWORD = "password123";
 // Random suffix so parallel Playwright workers (separate processes) can't collide on the same email.
 export const uniqueEmail = () => `e2e+${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}@example.com`;
 
-// The FileEmailSender writes the newest message per recipient to target/email-outbox/<safe email>.txt
-// (backend cwd = this frontend dir when Playwright manages the server). Mirror its filename rule + poll for the code.
-const safeEmail = (email: string) => email.toLowerCase().replace(/[^a-z0-9._-]/g, "_");
-// Poll the outbox for the latest 6-digit code. `exclude` lets a second flow (recovery, resend) wait for a
-// NEW code to overwrite an earlier one for the same recipient, rather than racing the stale file contents.
-export async function readEmailCode(email: string, exclude?: string): Promise<string> {
-  const path = `target/email-outbox/${safeEmail(email)}.txt`;
-  for (let i = 0; i < 60; i++) {
-    if (existsSync(path)) {
-      const m = readFileSync(path, "utf8").match(/\b(\d{6})\b/);
-      if (m && m[1] !== exclude) return m[1];
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`no ${exclude ? "new " : ""}code appeared in the email outbox for ${email} (${path})`);
-}
-const readSignupCode = (email: string) => readEmailCode(email);
-
-/** Register a fresh account through the verified two-step UI and land authenticated. Returns the email used. */
+/** Register a fresh account through the trivial email+password UI and land authenticated. Returns the email. */
 export async function register(page: Page, email = uniqueEmail()): Promise<string> {
   await page.goto("/");
   await page.getByRole("button", { name: "Register" }).click();
   await expect(page.getByRole("heading", { name: "Start lifting." })).toBeVisible();
   await page.getByPlaceholder("you@example.com").fill(email);
-  await page.getByRole("button", { name: "Send code" }).click();
-  await expect(page.getByRole("heading", { name: "Check your email." })).toBeVisible();
-  const code = await readSignupCode(email);
-  await page.getByPlaceholder("6-digit code").fill(code);
   await page.locator("#password").fill(PASSWORD);
-  await page.locator("#confirm").fill(PASSWORD);
   await page.getByRole("button", { name: "Create account" }).click();
-  // verify synchronously creates the account + seeds the 84-exercise catalog before the token returns, so the
+  // register synchronously creates the account + seeds the 84-exercise catalog before the token returns, so the
   // authed shell can take >5s (the default expect timeout) under load — wait generously here.
   await expect(page.getByRole("button", { name: "History" })).toBeVisible({ timeout: 20_000 });   // topbar nav ⇒ authed
   return email;

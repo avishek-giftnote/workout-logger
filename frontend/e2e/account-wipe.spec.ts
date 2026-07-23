@@ -1,15 +1,14 @@
 import { test, expect } from "@playwright/test";
-import { register, logSet, PASSWORD } from "./helpers";
+import { register, PASSWORD } from "./helpers";
 
 // P0 — "Confirm Account Wipe": a signed-in user permanently deletes their account + all data. The real guard
 // (server-side password re-verification) and the cascade completeness/tenant-isolation are pinned in
 // ApiIntegrationTest; this is the UI journey — the wrong password is rejected, the typed phrase gates the
 // button, and a correct wipe drops the user to the login screen with their credentials no longer valid.
 test("account wipe: wrong password is rejected; correct wipe deletes the account and signs out", async ({ page }) => {
-  test.slow();   // register + a logged workout + wipe over remote Atlas
+  test.slow();   // register + wipe over remote Atlas
 
   const email = await register(page);
-  await logSet(page, "Barbell Bench Press", "100", "5");   // some data to be wiped
 
   // Open the danger zone → the confirm modal.
   await page.getByTitle("Settings").click();

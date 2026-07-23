@@ -33,22 +33,20 @@ Workout Logger is a strength-training log: a **Java/Spring Boot + MongoDB backen
   `SPRING_MAIL_PASSWORD` (any SMTP provider — SendGrid/Mailgun/SES/Postmark/…) and `EMAIL_FROM`),
   `IMPORT_USER_EMAIL` / `IMPORT_USER_PASSWORD`, `IMPORT_CSV`, `IMPORT_BODYWEIGHT`.
 
-### Auth (verified sign-up + JWT revocation) — see DESIGN.md §6b
-Sign-up is **two-step, email-verified**: `POST /api/auth/signup/request {email}` (enumeration-neutral 202) emails a
-6-digit code; `POST /api/auth/signup/verify {email, code, password, confirmPassword}` is the **only** account-creation
-path (there is **no** `/register`). Codes live in `authChallenges` (peppered `SHA-256`, 15-min expiry, atomic 5-try
-lockout + send cap — all `findAndModify`, never read-modify-write). JWTs carry a `tokenVersion` `tv` claim re-checked
-every request (`JwtAuthenticationFilter`) so reset/wipe can revoke. Email delivery is a **pluggable `EmailSender` seam**
-(`email/`, chosen by `EMAIL_SENDER`): **`smtp`** = real delivery via `JavaMailSender` (any SMTP provider); `log`/`file`
-for dev/E2E; `noop` = prod boots without delivery. **Password recovery + account wipe shipped 2026-07-21**
-(auth slice 2, `[[auth-recovery-wipe-council]]`): `POST /api/auth/recover/{request,verify}` (6-digit `RESET`
-code, atomic `$set passwordHash`+`$inc tokenVersion` then auto-sign-in — reset revokes all other sessions) and
-`POST /api/me/delete {password, confirmPhrase}` (server-side BCrypt re-verify → 204; cascade = per-repo
-`deleteAllForTenant()` on bare `userId`, children-first/user-doc-last, authChallenges by email). `requestSignup`/
-`requestRecovery` **swallow** email-send failures (`sendQuietly`) so a failed send can't 500 → enumeration
-oracle. **remember-me is the one still-deferred slice.** Frontend flow is `LoginPage.tsx` (login / register /
-`recover` modes: email → code + password ×2) + the SettingsSidebar danger-zone wipe modal; the
-`ApiIntegrationTest.register()` helper drives the real flow.
+### Auth (trivial email + password) — see DESIGN.md §6b
+Auth is deliberately **trivial email + password**, no email verification: `POST /api/auth/register {email, password}`
+creates the account immediately (409 on a duplicate email) and returns a JWT; `POST /api/auth/login {email, password}`
+authenticates (401 on bad credentials). **Why trivial:** the deployment target (Railway, non-Pro plan) **blocks
+outbound SMTP** (ports 25/465/587), so the previous email-verification/recovery flow hung the request thread (synchronous
+`JavaMailSender.send` with no connect timeout → thread-pool exhaustion → whole app unresponsive). The entire email path
+was **reverted 2026-07-23** — `EmailSender`/`AuthService`/`AuthChallenge`/`authChallenges`/verified-signup/recovery are all
+gone; there is no email dependency anywhere. (Actuator's `MailHealthIndicator` is disabled in `application.yml` so a
+leftover mail autoconfig can't re-introduce the hang.) JWTs still carry a `tokenVersion` `tv` claim re-checked every
+request (`JwtAuthenticationFilter`) — inert under trivial auth (nothing bumps it) but retained as the revocation seam.
+**Account wipe** is kept and unchanged: `POST /api/me/delete {password, confirmPhrase}` (server-side BCrypt re-verify → 204;
+cascade = per-repo `deleteAllForTenant()` on bare `userId`, children-first / user-doc-last). Frontend is `LoginPage.tsx`
+(login / register toggle, email + password) + the SettingsSidebar danger-zone wipe modal; the `ApiIntegrationTest.register()`
+helper drives `POST /api/auth/register`.
 
 ### Frontend (`cd frontend`, Node)
 - `npm install`, then `npm run dev` (`:5173`, dev-proxies `/api` → `:8080`).
