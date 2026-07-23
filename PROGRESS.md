@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-07-23 (shipped the local MCP server + hosted-MCP OAuth Phases 1-2; caught and prevented a prod-boot crash on a missing `OAUTH_SIGNING_JWK`)._
+_Last updated: 2026-07-23 (hosted-MCP OAuth Phase 3: `/api` is now a single RS256 validator; HS256 + `JwtService` deleted)._
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -146,6 +146,37 @@ _Last updated: 2026-07-23 (shipped the local MCP server + hosted-MCP OAuth Phase
     excluded the OAuth/MCP streams + this PROGRESS entry (those stay uncommitted, awaiting their own sign-off).
   - Partially addresses the **GDPR hard-delete** operational-policy open item (a user-initiated hard delete now
     exists; retention/tombstone policy for the rest still open).
+
+- _2026-07-23_ — **Hosted MCP OAuth — Phase 3: `/api` is now a SINGLE RS256 validator (guard-first).**
+  The locked token model (`docs/mcp-hosting.md`, decision 1) reached: the first-party SPA token is no longer
+  HS256. New **`Rs256TokenIssuer`** mints it with `NimbusJwtEncoder` over the **same `JWKSource`** the AS
+  publishes at `/oauth2/jwks` — one keypair, one JWKS, one rotation story, never a second secret to keep in
+  sync. Claims mirror an AS-issued token exactly (`sub`, `tv`, `aud`, `scope`), so the filter cannot tell
+  them apart structurally; first-party tokens carry the **full** scope set (`workout:read`/`write`/
+  `destructive`) because the SPA is the user acting on their own account — which also keeps it working
+  unchanged when Phase 4 puts `@PreAuthorize` on the destructive endpoints.
+  `JwtAuthenticationFilter` **dropped the HS256 branch**, leaving one decode path plus the two checks that
+  apply to every token: `aud` (confused-deputy close) and the `tv` liveness lookup (**gate G1**).
+  **Deleted:** `JwtService`, `JwtServiceTest`, `JwtProperties.secret`, and the `security.jwt.secret` config;
+  `SECURITY_JWT_SECRET` is dead (ignored if still set) and **jjwt demoted to `test` scope** — production
+  signing/verification is now entirely Nimbus + Spring Security OAuth2. Added an explicit `oauth:` block to
+  `application.yml` documenting `signing-jwk`/`issuer`/`api-audience`.
+  **The response shape did not change, so the frontend needed no edit** — `client.ts` stores whatever string
+  it is handed.
+  **Deviation from the design doc, deliberate and recorded:** the planned "bump all `tv` at cutover" was
+  **skipped as redundant** — once the HS256 branch is gone every legacy token fails on algorithm alone, so
+  the bump changes no outcome while adding a one-shot migration runner and its partial-failure risk.
+  **Guards:** the cutover guard `rejectsALegacyHs256TokenAfterTheRs256Cutover` (mints a legacy HS256 token
+  against a pinned secret; **confirmed RED at 200 before the change, GREEN at 401 after**) + the new
+  `Rs256TokenIssuerTest` (8: RS256/JWKS round-trip, `tv`, `aud` binding, full-scope, issuer stamped vs
+  omitted, variable expiry, foreign-key rejection). **Regression proof: `ApiIntegrationTest` 97/97
+  unchanged** — the swap is transparent to the entire API surface. Full suite **177/0**; frontend
+  typecheck · 139 · eval · build green (untouched).
+  **Prod-profile pre-flight** (the check that caught the Phase-1/2 hazard): the packaged jar boots under
+  `-Pprod` with **no `SECURITY_JWT_SECRET` at all**, and register returns a genuine RS256 token
+  (`alg=RS256`, `kid` present, correct `aud`/`iss`/`tv`/scopes) that `/api/me` accepts (200).
+  **Cutover consequence:** every session signed in before the deploy is logged out once (chosen: hard
+  cutover). **Follow-up:** remove `SECURITY_JWT_SECRET` from Railway once the deploy is confirmed healthy.
 
 - _2026-07-23_ — **Hosted MCP OAuth Phases 1 + 2 re-verified after the auth revert, and SHIPPED.** The Phase 1/2
   work (below) was built 2026-07-21 against the verified-signup codebase, then sat uncommitted while PR #60 tore

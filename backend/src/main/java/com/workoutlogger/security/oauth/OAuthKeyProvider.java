@@ -11,7 +11,7 @@ import java.util.UUID;
 /**
  * Resolves the RSA signing key for the OAuth Authorization Server (RS256 / JWKS).
  *
- * <p>Mirrors {@code JwtService}'s dev/prod discipline: a configured key is REQUIRED under the {@code prod}
+ * <p>Dev/prod key discipline: a configured key is REQUIRED under the {@code prod}
  * profile — a stable key must survive restarts and be identical across replicas, since a regenerated key
  * would invalidate every issued token and every client's cached JWKS. Dev/test generate an ephemeral key
  * with a warning so the app runs without configuration.

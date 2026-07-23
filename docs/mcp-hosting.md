@@ -127,8 +127,23 @@ Each phase lands failing tests first, then code, behind its own PR.
   design settled on. Guards (gated, Atlas): accept valid RS256, **G1** post-`tv`-bump → 401, wrong-`aud` → 401,
   garbage → 401 — plus **`ApiIntegrationTest` 95/95 green** (dual-decode did not regress HS256/SPA auth or
   tenant isolation).
-- **Phase 3 — first-party login mints RS256.** `/auth/login` issues via the AS key; bump all `tv` at
-  cutover. Guard: SPA login works; old HS256 tokens rejected.
+- **Phase 3 — first-party login mints RS256. ✅ DONE 2026-07-23.** New `Rs256TokenIssuer` mints the
+  first-party (SPA) token with `NimbusJwtEncoder` over the SAME `JWKSource` the AS publishes at
+  `/oauth2/jwks` — one keypair, one JWKS, one rotation story. Claims mirror an AS-issued token exactly
+  (`sub`, `tv`, `aud`, `scope`), so the filter cannot tell them apart structurally; first-party tokens carry
+  the FULL scope set (`workout:read write destructive`) because the SPA is the user acting on their own
+  account, which also keeps it working when Phase 4 adds `@PreAuthorize`. `JwtAuthenticationFilter` dropped
+  the HS256 branch, so **`/api` now runs exactly one validator** — the locked token model reached.
+  `JwtService` + `JwtProperties.secret` deleted, `SECURITY_JWT_SECRET` dead, jjwt demoted to test scope.
+  **Response shape unchanged, so the frontend needed no edit.**
+  **Deviation from this doc, recorded deliberately:** the planned "bump all `tv` at cutover" was **skipped
+  as redundant** — once the HS256 branch is gone, every legacy token fails on algorithm alone, so the bump
+  changes no outcome while adding a one-shot migration and its partial-failure risk.
+  **Guards:** the cutover guard `rejectsALegacyHs256TokenAfterTheRs256Cutover` (confirmed RED at 200 before
+  the change, GREEN at 401 after) + `Rs256TokenIssuerTest` (8: RS256/JWKS round-trip, `tv`, `aud` binding,
+  full-scope, issuer stamped/omitted, variable expiry, foreign-key rejection). Regression proof:
+  **`ApiIntegrationTest` 97/97 unchanged**. Full suite 177/0. Prod-profile jar verified booting with **no**
+  `SECURITY_JWT_SECRET` and minting a genuine RS256 token (`alg=RS256`, kid, correct `aud`/`iss`/`tv`).
 - **Phase 4 — authorize/login/consent + scopes + DCR.** Scoped session chain (CSRF re-enabled,
   session-fixation, secure cookies); **branded consent page**; granular scopes (`workout:read`/`workout:write`
   + a destructive scope) via `@PreAuthorize`; DCR gated (PKCE, exact redirect, `/register` rate limit added to
