@@ -4,7 +4,7 @@ Living status file — the done / backlog tracker for this project. **Update it 
 finish a thing → move it to Done; pick up or think of a new thing → add it to the agenda; make a call
 that isn't captured in the code → log it. Keep entries dated, newest near the top of each section.
 
-_Last updated: 2026-07-23 (reverted auth to trivial email + password — prod SMTP-on-Railway outage fix; account wipe kept)._
+_Last updated: 2026-07-23 (shipped the local MCP server + hosted-MCP OAuth Phases 1-2; caught and prevented a prod-boot crash on a missing `OAUTH_SIGNING_JWK`)._
 
 > Maintenance: a global Stop hook (`.claude/hooks/check-progress.sh`) blocks the end of a turn if any
 > source/`.md` file in this folder is newer than this file — it nudges whenever the tracker falls
@@ -22,9 +22,13 @@ _Last updated: 2026-07-23 (reverted auth to trivial email + password — prod SM
   funnels through the live `tokenVersion` check; G2 the MCP identity seam proven per-request (concurrency
   test) before retiring `resolveLocalToken`. **4 decisions LOCKED 2026-07-21** (doc §Decisions locked):
   (1) synthesized single-validator RS256, (2) `workout:read/write` + a destructive scope, (3) branded consent
-  page (we own its session hardening), (4) Railway hostname for launch (recorded issuer one-way-door). Ready
-  for **Phase 0** (reversible transport scaffold, no infra/auth); Railway service creation held for explicit
-  go. Nothing built yet. See memory `mcp-hosting-council`.
+  page (we own its session hardening), (4) Railway hostname for launch (recorded issuer one-way-door).
+  **Phases 1 + 2 are now BUILT and MERGED** (2026-07-23, see Done) — the in-process Authorization Server and
+  `/api`'s RS256 dual-decode, both inert at runtime (nothing mints an RS256 token, no client is registered).
+  **Still awaiting sign-off: Phase 0** (the second Railway service / transport scaffold) and **Phases 3-6**;
+  Railway service creation remains held for an explicit go. **New open call before Phase 4:** the auth revert
+  removed every `tokenVersion` bump, so account deletion is now the only revocation lever — decide the
+  revocation story before third-party clients hold tokens. See memory `mcp-hosting-council`.
 
 - **Database situation — RESOLVED 2026-07-07** (`docs/db-situation.md` is authoritative). Root cause was
   DB-lifecycle hygiene, not the schema: per-run `workoutlogger_*` test DBs were never dropped (16 DBs on one
@@ -142,6 +146,62 @@ _Last updated: 2026-07-23 (reverted auth to trivial email + password — prod SM
     excluded the OAuth/MCP streams + this PROGRESS entry (those stay uncommitted, awaiting their own sign-off).
   - Partially addresses the **GDPR hard-delete** operational-policy open item (a user-initiated hard delete now
     exists; retention/tombstone policy for the rest still open).
+
+- _2026-07-23_ — **Hosted MCP OAuth Phases 1 + 2 re-verified after the auth revert, and SHIPPED.** The Phase 1/2
+  work (below) was built 2026-07-21 against the verified-signup codebase, then sat uncommitted while PR #60 tore
+  the entire email path out. Re-verified end-to-end before landing rather than assumed:
+  - **Survives the revert.** No OAuth file references any deleted class (`AuthService`, `EmailSender`,
+    `AuthChallenge`, `UserRepository{Custom,Impl}`); `OAuthResourceServerIntegrationTest` seeds its user straight
+    through `MongoTemplate` and bumps `tokenVersion` with a raw `updateFirst`, so it never touched the deleted
+    signup helper. **`RUN_MONGO_TESTS=1 mvn test` 177/177, 0 failures** against a throwaway Atlas DB — including
+    the 7 previously-unverified Mongo-gated OAuth tests (`OAuthServerIntegrationTest` 3/3,
+    `OAuthResourceServerIntegrationTest` 4/4 incl. **G1**) and **`ApiIntegrationTest` 97/97** (the regression proof
+    that dual-decode still doesn't break HS256/SPA auth or tenant isolation post-revert).
+  - **🔴 Caught a prod-boot crash before it shipped — a repeat of the PR #56 class of bug.**
+    `AuthorizationServerConfig` is gated only by `@ConditionalOnWebApplication`, not by profile, so it loads in
+    prod and `OAuthKeyProvider.resolve(jwk, prod=true)` **fail-fasts on a blank `OAUTH_SIGNING_JWK`**. Merging
+    without that Railway variable set would have killed the deploy on boot. **Reproduced both directions locally
+    against the packaged jar under `-Pprod`:** without the key the app dies in ~4s with "OAUTH_SIGNING_JWK is
+    required under the 'prod' profile"; with it, boot in ~7s, `/actuator/health` UP, `/oauth2/jwks` serving
+    **public material only** (asserted no `d`/`p`/`q`/`dp`/`dq`/`qi`), RFC 8414 metadata served, `/api/me` still
+    401 unauthenticated, and register→JWT→`/api/me` 200 (the HS256 SPA path unregressed).
+  - **Railway prepared before the merge**, so the deploy carrying this code finds a key already present:
+    `OAUTH_SIGNING_JWK` (a fresh 2048-bit RSA JWK, private material, `kid`+`alg=RS256`+`use=sig`, set via CLI
+    stdin so the value never entered a transcript) and `OAUTH_ISSUER=https://workout-logger.up.railway.app`
+    (executing locked decision #4, not a new call). Both set with `--skip-deploys`, so prod was not restarted.
+  - **Still inert at runtime**: nothing mints an RS256 token yet (Phase 3 flips `/auth/login`) and no client is
+    registered (Phase 4 builds authorize/consent). The AS endpoints are live but unused.
+  - **⚠ Design gap the revert opened, logged not dropped:** **nothing bumps `tokenVersion` any more.** Password
+    reset is deleted; account wipe deletes the User doc (so `findTokenVersionById` returns empty and the
+    existence check covers it); login mints at the stored value. G1's *guard* still works (the test bumps `tv`
+    in Mongo directly), but the *operational* revocation lever is gone: **the only way to revoke a token is to
+    delete the account.** Harmless through Phase 3; a real problem at Phase 4/5, when a third-party MCP client
+    holds a token you may want to revoke without nuking the user. **Decide before Phase 4.**
+
+- _2026-07-21_ — **Hosted MCP OAuth — Phase 2: `/api` accepts RS256 (guard-first, verified).** Extended
+  `JwtAuthenticationFilter` to **dual-decode** — HS256 (first-party SPA, unchanged) then RS256 via the AS
+  JWKS — rather than the `oauth2ResourceServer` DSL, keeping `Tenant`/tv/tenant-isolation untouched (Backend
+  Engineer's ruling). RS256 path enforces `aud` = `oauth.api-audience` (confused-deputy close) and the SAME
+  `tokenVersion` liveness check (**gate G1** now governs OAuth tokens). Transitional dual-accept: Phase 3
+  flips `JwtService` issuance to RS256 and drops HS256 → single validator. **Verified against Atlas:**
+  `OAuthResourceServerIntegrationTest` 4/4 (accept valid RS256; **G1** bump-tv→401; wrong-aud→401; garbage→401),
+  Phase-1 `OAuthServerIntegrationTest` 3/3, and the regression proof **`ApiIntegrationTest` green**
+  (dual-decode did NOT break HS256/SPA auth or tenant isolation).
+
+- _2026-07-21_ — **Hosted MCP OAuth — Phase 1: Authorization Server in-process (guard-first, verified).**
+  First implementation phase of `docs/mcp-hosting.md`. Added Spring Authorization Server to the backend
+  **additively**: a second `SecurityFilterChain` at `HIGHEST_PRECEDENCE` scoped to the AS endpoints, the
+  existing API chain demoted to `@Order(2)` (untouched logic). `OAuthKeyProvider` resolves the RS256 signing
+  key (dev ephemeral / **prod fail-fast** on `OAUTH_SIGNING_JWK`, mirroring `JwtService`); JWKS + RFC 8414
+  metadata served; `AuthorizationServerConfig` wires the issuer (`OAUTH_ISSUER`, public HTTPS) and the **`tv`
+  token customizer** (stamps the user's `tokenVersion` into access tokens — the gate-G1 seam so one
+  revocation truth governs OAuth tokens too). **Mongo-backed `RegisteredClientRepository`**
+  (`oauth_registered_clients`, client/token settings as framework-Jackson JSON blobs; unique/TTL indexes
+  deferred to Phase 4). **Verified:** 6 pure (key discipline + RS256 issuance↔validation loop carrying
+  sub/tv/aud/scope, forged-key rejection) in `mvn test`, + 3 Mongo-gated (`OAuthServerIntegrationTest`:
+  metadata, JWKS-public-material-only, client round-trip incl. `Duration` token settings) green against Atlas
+  (throwaway `workoutlogger_oauthtest`, auto-dropped). **Scope refinement:**
+  the Mongo `OAuth2AuthorizationService`/`ConsentService` moved to Phase 4.
 
 - _2026-07-21_ — **Real email delivery: `SmtpEmailSender` (unblocks prod verified sign-up).** Provider-agnostic
   SMTP over Spring `JavaMailSender` (`spring-boot-starter-mail`) — point `spring.mail.*` at any SMTP relay
