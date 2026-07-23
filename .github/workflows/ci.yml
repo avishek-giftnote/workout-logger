@@ -24,6 +24,24 @@ jobs:
       - run: npm run eval
       - run: npm run build
 
+  mcp-gate:
+    name: mcp (typecheck · unit · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test          # request-building, decimal-string guard, identity provider — no backend needed
+      - run: npm run build
+
   backend-gate:
     name: backend (mvn test + Mongo integration)
     runs-on: ubuntu-latest
