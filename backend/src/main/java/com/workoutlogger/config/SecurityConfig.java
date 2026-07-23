@@ -4,6 +4,7 @@ import com.workoutlogger.security.JwtAuthenticationFilter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -22,7 +23,11 @@ public class SecurityConfig {
             "/api/auth/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health"
     };
 
+    // @Order(2): the default chain. The OAuth Authorization Server chain (AuthorizationServerConfig,
+    // HIGHEST_PRECEDENCE) is scoped by its own securityMatcher to the /oauth2/** + metadata endpoints and
+    // runs first; every other path (the /api surface + the SPA) falls through to this unchanged chain.
     @Bean
+    @Order(2)
     public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter)
             throws Exception {
         AuthenticationEntryPoint unauthorized =
